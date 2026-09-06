@@ -26,7 +26,7 @@ import {
   substituteScope,
   vacatePanelSeat,
 } from "./reviewSubstitutions";
-import { reviewerConfirmedForReview } from "./lib/reviewConfirmation";
+import { reviewerConfirmedForReview, scheduleShiftReminders } from "./lib/reviewConfirmation";
 import { activeRoundPause as findActiveRoundPause } from "./lib/reviewRoundPauses";
 import { writeAuditEvent } from "./lib/audit";
 import {
@@ -38,7 +38,6 @@ import {
 import { normalizedText } from "./lib/strings";
 import { validateStaffingPolicy } from "./reviewConfiguration";
 import { reviewStaffingPolicy } from "./values";
-import { scheduleShiftReminders } from "./reviewConfirmations";
 import { reviewerParticipation } from "./lib/reviewerParticipation";
 
 export const settings = query({
@@ -126,7 +125,7 @@ export const juniorParticipation = query({
         v.literal("off_duty"),
         v.literal("outside_window"),
         v.literal("unconfirmed"),
-        v.literal("training_needed"),
+        v.literal("profile_inactive"),
       ),
     }),
   ),
@@ -196,8 +195,8 @@ export const juniorParticipation = query({
         if (!reviewer) throw new Error("Reviewer is missing.");
         const status = participation.hasLiveReview
           ? ("on_panel" as const)
-          : profile.trainingStatus !== "complete" || profile.status !== "active"
-            ? ("training_needed" as const)
+          : profile.status !== "active"
+            ? ("profile_inactive" as const)
             : confirmation.status !== "confirmed"
               ? ("unconfirmed" as const)
               : !(await reviewerConfirmedForReview(

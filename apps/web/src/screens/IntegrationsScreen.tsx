@@ -1,7 +1,6 @@
 import { LiveNumber } from "../components/LiveNumber";
 import {
   githubRepositorySyncStateLabels,
-  githubRepositoryTopicStateLabels,
   repositoryKindLabels,
   repositoryKinds,
   type RepositoryKind,
@@ -11,10 +10,29 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FigmaIntegrationPanel } from "../components/FigmaIntegrationPanel";
-import { ErrorNotice } from "../components/Form";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { GitHubMark } from "../components/dashboard/IntegrationsTile";
+import {
+  ArchivePrompt,
+  ItemList,
+  ItemRow,
+  OptionRow,
+  PendingBar,
+  RowAction,
+  RowNote,
+  SectionLabel,
+  ToolNotice,
+  ToolSheet,
+} from "../components/integrations/ToolKit";
+import { PortalButton } from "../components/portal/PortalButton";
+import { PortalError, PortalField, PortalInput, PortalSelect } from "../components/portal/PortalField";
+import { OutlineHeading } from "../components/portal/OutlineHeading";
 import { PortalScene } from "../components/portal/PortalScene";
-import { TeamCluster } from "../components/portal/TeamCluster";
+import {
+  TeamCluster,
+  type ClusterMember,
+  type ClusterTeam,
+} from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { githubRepositorySelectionConnection } from "../lib/githubRepositorySelection";
@@ -122,7 +140,7 @@ export function IntegrationsScreen({
   if (!integration) {
     return (
       <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-        <p className="text-[13px] text-[rgb(248_248_248/.6)]" role="status">
+        <p className="m-0 text-[13px] text-fg/55" role="status">
           {integration === undefined
             ? "Loading integrations…"
             : "A team is required before connecting project tools."}
@@ -173,7 +191,7 @@ function ConnectedIntegrations({
   const [searchParams] = useSearchParams();
   const preselectionHandled = useRef(false);
   const repositoryRequest = useRef(0);
-  const repositoryPickerHeading = useRef<HTMLHeadingElement>(null);
+  const repositoryPickerHeading = useRef<HTMLSpanElement>(null);
   const commandInFlight = useRef(false);
   const operations = useOperationRunner<GitHubOperationResult>();
   const connectedRepositoryIds = useMemo(
@@ -487,490 +505,377 @@ function ConnectedIntegrations({
     (connection) => connection.state === "active",
   );
 
+  const summary = integration.summary;
+  const grouped = { useGrouping: true } as const;
+  const repositoryCount = integration.repositories.length;
+  const sheetMeta =
+    summary && summary.repositoryCount > 0 ? (
+      <>
+        <LiveNumber value={summary.repositoryCount} />{" "}
+        {summary.repositoryCount === 1 ? "repository" : "repositories"} ·{" "}
+        <LiveNumber value={summary.uniqueObservedCommitCount} format={grouped} /> commits ·{" "}
+        <LiveNumber value={summary.pushCount} format={grouped} /> pushes · +
+        <LiveNumber value={summary.additions} format={grouped} /> −
+        <LiveNumber value={summary.deletions} format={grouped} />
+      </>
+    ) : activeConnections.length > 0 ? (
+      activeConnections.map((connection) => connection.accountLogin).join(" · ")
+    ) : (
+      "the code your team is shipping"
+    );
+  const connectButton =
+    integration.canManage && teamAccepted && integration.policy && integration.githubConfigured ? (
+      <PortalButton size="xs" disabled={busy === "connect"} onClick={connect}>
+        {busy === "connect" ? "Opening GitHub…" : "Connect GitHub"}
+      </PortalButton>
+    ) : null;
+
   return (
     <IntegrationsScene team={team} members={members} onSignOut={onSignOut}>
-      <section className="integration-shell">
-        {pendingOperation ? (
-          <div className="repository-form">
-            <p className="eyebrow">Build</p>
-            <h1>
-              {busy !== null
-                ? "Saving the repository change…"
-                : "Confirm the last repository change."}
-            </h1>
-            <p className="muted">
-              {busy !== null
-                ? "Keep this page open."
-                : "The response was interrupted. Confirm it before continuing."}
-            </p>
-            <ErrorNotice message={error} />
-            <button
-              type="button"
-              className="primary"
-              disabled={busy !== null}
-              onClick={() => confirmPendingOperation(pendingOperation)}
-            >
-              {busy !== null ? "Saving…" : pendingOperation.action}
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Your build</p>
-                <h1>Build</h1>
-                <p className="lead">
-                  Connect the code and design files your team is building during the event.
-                </p>
-              </div>
-              {integration.canManage &&
-              teamAccepted &&
-              integration.policy &&
-              integration.githubConfigured ? (
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy === "connect"}
-                  onClick={connect}
-                >
-                  {busy === "connect" ? "Opening GitHub…" : "Connect GitHub"}
-                </button>
+      {pendingOperation ? (
+        <PendingBar
+          message={
+            busy !== null
+              ? "Saving the repository change… keep this page open."
+              : "The reply to your last repository change was interrupted."
+          }
+          action={pendingOperation.action}
+          busy={busy !== null}
+          onConfirm={() => confirmPendingOperation(pendingOperation)}
+        />
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-2 lg:items-start">
+        <ToolSheet
+          mark={<GitHubMark className="size-7" />}
+          name="GitHub"
+          meta={sheetMeta}
+          {...(connectButton ? { action: connectButton } : {})}
+        >
+          {pendingOperation ? null : (
+            <>
+              {!teamAccepted ? <ToolNotice>GitHub opens after your team is accepted.</ToolNotice> : null}
+              {!integration.policy ? (
+                <ToolNotice>Code and design connections aren’t open yet.</ToolNotice>
               ) : null}
-            </div>
+              {!integration.githubConfigured ? (
+                <ToolNotice>GitHub connections are unavailable right now.</ToolNotice>
+              ) : null}
+              {teamAccepted && !canAdd && integration.policy && integration.githubConfigured ? (
+                <ToolNotice>
+                  You can connect GitHub now. Repository baselines open at the official build start.
+                </ToolNotice>
+              ) : null}
 
-            {!teamAccepted ? (
-              <p className="notice">GitHub opens after your team is accepted.</p>
-            ) : null}
-            {!integration.policy ? (
-              <p className="notice">Code and design connections aren’t open yet.</p>
-            ) : null}
-            {!integration.githubConfigured ? (
-              <p className="notice">GitHub connections are unavailable right now.</p>
-            ) : null}
-            {teamAccepted && !canAdd && integration.policy && integration.githubConfigured ? (
-              <p className="notice">
-                You can connect GitHub now. Repository baselines open at the official build start.
-              </p>
-            ) : null}
-
-            {integration.summary && integration.summary.repositoryCount > 0 ? (
-              <div className="repository-card">
-                <div className="repository-card-heading">
-                  <div>
-                    <h2>Team code activity</h2>
-                    <p>Current totals across the shared repository set.</p>
-                  </div>
-                  <span className={`status-dot ${integration.summary.health}`}>
-                    {integration.summary.completeness}
-                  </span>
-                </div>
-                <dl className="repository-facts">
-                  <div>
-                    <dt>Repositories</dt>
-                    <dd>
-                      <LiveNumber value={integration.summary.completeRepositoryCount} /> /{" "}
-                      <LiveNumber value={integration.summary.repositoryCount} /> complete
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Topics ready</dt>
-                    <dd>
-                      <LiveNumber value={integration.summary.topicPresentCount} /> /{" "}
-                      <LiveNumber value={integration.summary.repositoryCount} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Observed unique commits</dt>
-                    <dd>
-                      <LiveNumber value={integration.summary.uniqueObservedCommitCount} format={{ useGrouping: true }} />
-                      {integration.summary.commitIdentityComplete ? "" : "+"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Pushes</dt>
-                    <dd><LiveNumber value={integration.summary.pushCount} format={{ useGrouping: true }} /></dd>
-                  </div>
-                  <div>
-                    <dt>Changes</dt>
-                    <dd>
-                      +<LiveNumber value={integration.summary.additions} format={{ useGrouping: true }} /> −
-                      <LiveNumber value={integration.summary.deletions} format={{ useGrouping: true }} />
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Changed files</dt>
-                    <dd><LiveNumber value={integration.summary.changedFiles} format={{ useGrouping: true }} /></dd>
-                  </div>
-                </dl>
-                {integration.summary.kindCounts.length > 0 ? (
-                  <p className="fine-print">
-                    {integration.summary.kindCounts.map((item, index) => (
-                      <span key={item.kind}>
-                        {index > 0 ? " · " : ""}{repositoryKindLabels[item.kind]} <LiveNumber value={item.count} />
+              {activeConnections.length > 0 ? (
+                <ul className="m-0 flex list-none flex-col divide-y divide-petal-line p-0">
+                  {activeConnections.map((connection) => (
+                    <li
+                      key={connection.id}
+                      className="flex items-center justify-between gap-4 py-2.5"
+                    >
+                      <span className="min-w-0 truncate text-[12.5px] text-fg/70">
+                        {connection.accountLogin} · {connection.targetType} ·{" "}
+                        {connection.repositorySelection === "all"
+                          ? "all repositories"
+                          : "selected repositories"}
                       </span>
-                    ))}
-                  </p>
-                ) : null}
-                {integration.summary.languageBytes.length > 0 ? (
-                  <p className="fine-print">
-                    Languages:{" "}
-                    {integration.summary.languageBytes
-                      .slice(0, 5)
-                      .map((item) => item.language)
-                      .join(", ")}
-                  </p>
-                ) : null}
-                {integration.summary.commitOverlapCount > 0 ? (
-                  <p className="fine-print">
-                    <LiveNumber value={integration.summary.commitOverlapCount} format={{ useGrouping: true }} /> commit occurrences
-                    overlap across connected repositories and count once here.
-                  </p>
-                ) : null}
-                {!integration.summary.commitIdentityComplete ? (
-                  <p className="fine-print">
-                    Some repository history could not be compared completely, so these totals may
-                    count a shared commit more than once.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {activeConnections.length > 0 ? (
-              <div className="connection-list">
-                {activeConnections.map((connection) => (
-                  <div className="connection-row" key={connection.id}>
-                    <div>
-                      <span>{connection.accountLogin}</span>
-                      <small>
-                        {connection.targetType} · {connection.repositorySelection === "all"
-                          ? "All repositories authorized"
-                          : "Selected repositories authorized"}
-                      </small>
-                    </div>
-                    {integration.canManage ? (
-                      <button
-                        type="button"
-                        className="secondary compact"
-                        disabled={busy === connection.id}
-                        onClick={() => loadRepositories(connection.id)}
-                      >
-                        {busy === connection.id ? "Loading…" : "Choose repositories"}
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {availableRepositories ? (
-              <div className="repository-picker">
-                <div className="subheading-row">
-                  <h2 ref={repositoryPickerHeading} tabIndex={-1}>
-                    Choose your team’s repositories
-                  </h2>
-                  <span>
-                    <LiveNumber value={availableRepositories.repositories.length} /> / <LiveNumber value={availableRepositories.totalCount} />
-                  </span>
-                </div>
-                <p className="muted">
-                  GitHub authorization makes repositories available here. Only repositories you
-                  add are submitted to your team. Add each project repository with its role and
-                  purpose; public and private repositories are supported.
-                </p>
-                {availableRepositories.repositories.length === 0 ? (
-                  <p className="muted">
-                    No repositories are available. Check this app’s repository access in GitHub,
-                    including organization approval for private repositories, then try again.
-                  </p>
-                ) : (
-                  <div className="repository-options">
-                    {availableRepositories.repositories.map((repository) => {
-                      const connected = connectedRepositoryIds.has(repository.repositoryId);
-                      return (
-                        <button
-                          type="button"
-                          className="repository-option"
-                          key={repository.repositoryId}
-                          disabled={connected || !canAdd}
-                          onClick={() => chooseRepository(repository)}
+                      {integration.canManage ? (
+                        <RowAction
+                          disabled={busy === connection.id}
+                          onClick={() => loadRepositories(connection.id)}
+                          className="text-rose-light!"
                         >
-                          <span>{repository.fullName}</span>
-                          <small>
-                            {connected
-                              ? "Already added"
-                              : repository.isPrivate
-                                ? "Private"
-                                : "Public"}
-                          </small>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {availableRepositories.nextPage !== undefined ? (
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy === availableRepositories.connectionId}
-                    onClick={() =>
-                      loadRepositories(
-                        availableRepositories.connectionId,
-                        availableRepositories.nextPage,
-                      )
+                          {busy === connection.id ? "Loading…" : "Choose repositories"}
+                        </RowAction>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {availableRepositories ? (
+                <div className="flex flex-col gap-2">
+                  <SectionLabel
+                    aside={
+                      <>
+                        <LiveNumber value={availableRepositories.repositories.length} /> /{" "}
+                        <LiveNumber value={availableRepositories.totalCount} />
+                      </>
                     }
                   >
-                    {busy === availableRepositories.connectionId
-                      ? "Loading…"
-                      : "Load more repositories"}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
-
-            {draft ? (
-              <div className="repository-form">
-                <div>
-                  <p className="eyebrow">Add repository</p>
-                  <h2>{draft.repository.fullName}</h2>
-                </div>
-                <label className="field">
-                  <span className="field-label">What kind of repository is this?</span>
-                  <select
-                    value={draft.kind}
-                    onChange={(event) => {
-                      const kind = repositoryKindFromValue(event.target.value);
-                      if (kind) setDraft((current) => (current ? { ...current, kind } : null));
-                    }}
-                  >
-                    {repositoryKinds.map((kind) => (
-                      <option key={kind} value={kind}>
-                        {repositoryKindLabels[kind]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {draft.kind === "other" ? (
-                  <label className="field">
-                    <span className="field-label">Kind</span>
-                    <input
-                      value={draft.customKind}
-                      maxLength={50}
-                      onChange={(event) => setDraft({ ...draft, customKind: event.target.value })}
-                    />
-                  </label>
-                ) : null}
-                <label className="field form-span">
-                  <span className="field-label">What does it contain?</span>
-                  <input
-                    value={draft.purpose}
-                    maxLength={180}
-                    placeholder="Participant web app and shared UI"
-                    onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Tracked branch</span>
-                  <input
-                    value={draft.trackedBranch}
-                    maxLength={255}
-                    onChange={(event) => setDraft({ ...draft, trackedBranch: event.target.value })}
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">Project folder, if this is a monorepo</span>
-                  <input
-                    value={draft.rootPath}
-                    maxLength={240}
-                    placeholder="apps/web"
-                    onChange={(event) => setDraft({ ...draft, rootPath: event.target.value })}
-                  />
-                </label>
-                <div className="form-actions form-span">
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy === "add-repository"}
-                    onClick={() => setDraft(null)}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="primary"
-                    disabled={
-                      busy === "add-repository" ||
-                      !draft.purpose.trim() ||
-                      !draft.trackedBranch.trim() ||
-                      (draft.kind === "other" && !draft.customKind.trim())
-                    }
-                    onClick={saveRepository}
-                  >
-                    {busy === "add-repository" ? "Checking repository…" : "Add repository"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="repository-list">
-              <div className="subheading-row">
-                <h2>Team repositories</h2>
-                {integration.policy ? (
-                  <span>
-                    <LiveNumber value={integration.repositories.length} /> / {integration.policy.maxActiveRepositories}
-                  </span>
-                ) : null}
-              </div>
-              {integration.repositories.length === 0 ? (
-                <p className="muted">No repositories have been added.</p>
-              ) : (
-                integration.repositories.map((repository, index) => (
-                  <article className="repository-card" key={repository.id}>
-                    <div className="repository-card-heading">
-                      <div>
-                        <a href={repository.url} target="_blank" rel="noreferrer">
-                          {repository.fullName}
-                        </a>
-                        <p>
-                          {repositoryKindLabels[repository.kind]} · {repository.purpose}
-                        </p>
-                      </div>
-                      <span className={`status-dot ${repository.syncState}`}>
-                        {githubRepositorySyncStateLabels[repository.syncState]}
-                      </span>
-                    </div>
-                    <dl className="repository-facts">
-                      <div>
-                        <dt>Branch</dt>
-                        <dd>
-                          {repository.trackedBranch}
-                          {repository.rootPath ? ` / ${repository.rootPath}` : ""}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Topic</dt>
-                        <dd>
-                          {repository.topicState === "missing"
-                            ? `Add ${repository.requiredTopic}`
-                            : githubRepositoryTopicStateLabels[repository.topicState]}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Commits</dt>
-                        <dd><LiveNumber value={repository.metrics.commitCount} /></dd>
-                      </div>
-                      <div>
-                        <dt>Changed files</dt>
-                        <dd>{repository.metrics.changedFiles}</dd>
-                      </div>
-                    </dl>
-                    {repository.topicState === "missing" ? (
-                      <p className="fine-print">
-                        Add <code>{repository.requiredTopic}</code> in GitHub, then refresh here.
-                      </p>
-                    ) : null}
-                    {repository.metrics.completeness === "partial" ? (
-                      <p className="fine-print">
-                        GitHub returned only part of this repository's history. These counts are
-                        context, not judging evidence.
-                      </p>
-                    ) : null}
-                    {repository.syncErrorCode ? (
-                      <p className="fine-print quiet-danger">
-                        GitHub could not update this repository. Try again or ask support.
-                      </p>
-                    ) : null}
-                    {integration.canManage ? (
-                      <div className="repository-actions">
-                        <button
-                          type="button"
-                          className="text-button"
-                          aria-label={`Move ${repository.fullName} up`}
-                          disabled={index === 0 || busy !== null}
-                          onClick={() => moveRepository(index, -1)}
-                        >
-                          Up
-                        </button>
-                        <button
-                          type="button"
-                          className="text-button"
-                          aria-label={`Move ${repository.fullName} down`}
-                          disabled={index === integration.repositories.length - 1 || busy !== null}
-                          onClick={() => moveRepository(index, 1)}
-                        >
-                          Down
-                        </button>
-                        <button
-                          type="button"
-                          className="text-button"
-                          disabled={busy !== null}
-                          onClick={() => refresh(repository)}
-                        >
-                          {busy === repository.id ? "Working…" : "Refresh"}
-                        </button>
-                        <button
-                          type="button"
-                          className="text-button quiet-danger"
-                          disabled={busy !== null}
-                          onClick={() => setArchiveId(repository.id)}
-                        >
-                          Archive
-                        </button>
-                      </div>
-                    ) : null}
-                    {archiveId === repository.id ? (
-                      <div className="archive-confirmation">
-                        <label className="field">
-                          <span className="field-label">Why are you removing it?</span>
-                          <input
-                            value={archiveReason}
-                            maxLength={180}
-                            onChange={(event) => setArchiveReason(event.target.value)}
+                    <span ref={repositoryPickerHeading} tabIndex={-1} className="outline-none">
+                      choose your team’s repositories
+                    </span>
+                  </SectionLabel>
+                  {availableRepositories.repositories.length === 0 ? (
+                    <ToolNotice>
+                      No repositories are available. Check this app’s repository access in GitHub,
+                      including organization approval for private repositories, then try again.
+                    </ToolNotice>
+                  ) : (
+                    <ul className="m-0 flex list-none flex-col divide-y divide-petal-line p-0">
+                      {availableRepositories.repositories.map((repository) => {
+                        const connected = connectedRepositoryIds.has(repository.repositoryId);
+                        return (
+                          <OptionRow
+                            key={repository.repositoryId}
+                            title={repository.fullName}
+                            detail={connected ? "added" : repository.isPrivate ? "private" : "public"}
+                            disabled={connected || !canAdd}
+                            onSelect={() => chooseRepository(repository)}
                           />
-                        </label>
-                        <div className="button-row">
-                          <button
-                            type="button"
-                            className="secondary compact"
-                            onClick={() => {
+                        );
+                      })}
+                    </ul>
+                  )}
+                  {availableRepositories.nextPage !== undefined ? (
+                    <RowAction
+                      className="self-start text-rose-light!"
+                      disabled={busy === availableRepositories.connectionId}
+                      onClick={() =>
+                        loadRepositories(
+                          availableRepositories.connectionId,
+                          availableRepositories.nextPage,
+                        )
+                      }
+                    >
+                      {busy === availableRepositories.connectionId ? "Loading…" : "Load more"}
+                    </RowAction>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {draft ? (
+                <div className="flex flex-col gap-4">
+                  <SectionLabel>add {draft.repository.fullName}</SectionLabel>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <PortalField label="What kind of repository is this?">
+                      {(id) => (
+                        <PortalSelect
+                          id={id}
+                          value={draft.kind}
+                          onValueChange={(value) => {
+                            const kind = repositoryKindFromValue(value);
+                            if (kind) setDraft((current) => (current ? { ...current, kind } : null));
+                          }}
+                          options={repositoryKinds.map((kind) => ({
+                            value: kind,
+                            label: repositoryKindLabels[kind],
+                          }))}
+                        />
+                      )}
+                    </PortalField>
+                    {draft.kind === "other" ? (
+                      <PortalField label="Kind">
+                        {(id) => (
+                          <PortalInput
+                            id={id}
+                            value={draft.customKind}
+                            maxLength={50}
+                            onChange={(event) =>
+                              setDraft({ ...draft, customKind: event.target.value })
+                            }
+                          />
+                        )}
+                      </PortalField>
+                    ) : null}
+                    <PortalField label="What does it contain?" className="sm:col-span-2">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          value={draft.purpose}
+                          maxLength={180}
+                          placeholder="Participant web app and shared UI"
+                          onChange={(event) => setDraft({ ...draft, purpose: event.target.value })}
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="Tracked branch">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          value={draft.trackedBranch}
+                          maxLength={255}
+                          onChange={(event) =>
+                            setDraft({ ...draft, trackedBranch: event.target.value })
+                          }
+                        />
+                      )}
+                    </PortalField>
+                    <PortalField label="Project folder, if this is a monorepo">
+                      {(id) => (
+                        <PortalInput
+                          id={id}
+                          value={draft.rootPath}
+                          maxLength={240}
+                          placeholder="apps/web"
+                          onChange={(event) => setDraft({ ...draft, rootPath: event.target.value })}
+                        />
+                      )}
+                    </PortalField>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <PortalButton
+                      size="xs"
+                      disabled={busy === "add-repository"}
+                      onClick={() => setDraft(null)}
+                    >
+                      Cancel
+                    </PortalButton>
+                    <PortalButton
+                      size="xs"
+                      variant="solid"
+                      disabled={
+                        busy === "add-repository" ||
+                        !draft.purpose.trim() ||
+                        !draft.trackedBranch.trim() ||
+                        (draft.kind === "other" && !draft.customKind.trim())
+                      }
+                      onClick={saveRepository}
+                    >
+                      {busy === "add-repository" ? "Checking repository…" : "Add repository"}
+                    </PortalButton>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-1">
+                <SectionLabel
+                  aside={
+                    integration.policy ? (
+                      <>
+                        <LiveNumber value={repositoryCount} /> / {integration.policy.maxActiveRepositories}
+                      </>
+                    ) : null
+                  }
+                >
+                  team repositories
+                </SectionLabel>
+                {repositoryCount === 0 ? (
+                  <p className="m-0 mt-2 text-[12.5px] text-fg/55">No repositories have been added.</p>
+                ) : (
+                  <ItemList>
+                    {integration.repositories.map((repository, index) => (
+                      <ItemRow
+                        key={repository.id}
+                        title={repository.fullName}
+                        href={repository.url}
+                        meta={
+                          <>
+                            {repository.trackedBranch}
+                            {repository.rootPath ? ` / ${repository.rootPath}` : ""} ·{" "}
+                            <LiveNumber value={repository.metrics.commitCount} /> commits ·{" "}
+                            {repository.topicState === "missing"
+                              ? "topic missing"
+                              : repository.topicState === "present"
+                                ? "topic set"
+                                : "topic unchecked"}
+                          </>
+                        }
+                        status={githubRepositorySyncStateLabels[repository.syncState].toLowerCase()}
+                        statusTone={
+                          repository.syncState === "error" || repository.syncState === "rate_limited"
+                            ? "warn"
+                            : "quiet"
+                        }
+                        notes={
+                          <>
+                            {repository.topicState === "missing" ? (
+                              <RowNote>
+                                Add <code className="text-fg/75">{repository.requiredTopic}</code> in
+                                GitHub, then refresh here.
+                              </RowNote>
+                            ) : null}
+                            {repository.metrics.completeness === "partial" ? (
+                              <RowNote>
+                                GitHub returned only part of this repository's history; these counts
+                                are context, not judging evidence.
+                              </RowNote>
+                            ) : null}
+                            {repository.syncErrorCode ? (
+                              <RowNote tone="warn">
+                                GitHub could not update this repository. Try again or ask support.
+                              </RowNote>
+                            ) : null}
+                          </>
+                        }
+                        {...(integration.canManage
+                          ? {
+                              actions: (
+                                <>
+                                  <RowAction
+                                    aria-label={`Move ${repository.fullName} up`}
+                                    disabled={index === 0 || busy !== null}
+                                    onClick={() => moveRepository(index, -1)}
+                                  >
+                                    Up
+                                  </RowAction>
+                                  <RowAction
+                                    aria-label={`Move ${repository.fullName} down`}
+                                    disabled={index === repositoryCount - 1 || busy !== null}
+                                    onClick={() => moveRepository(index, 1)}
+                                  >
+                                    Down
+                                  </RowAction>
+                                  <RowAction disabled={busy !== null} onClick={() => refresh(repository)}>
+                                    {busy === repository.id ? "Working…" : "Refresh"}
+                                  </RowAction>
+                                  <RowAction
+                                    tone="danger"
+                                    disabled={busy !== null}
+                                    onClick={() => setArchiveId(repository.id)}
+                                  >
+                                    Archive
+                                  </RowAction>
+                                </>
+                              ),
+                            }
+                          : {})}
+                      >
+                        {archiveId === repository.id ? (
+                          <ArchivePrompt
+                            reason={archiveReason}
+                            onReason={setArchiveReason}
+                            onCancel={() => {
                               setArchiveId(null);
                               setArchiveReason("");
                             }}
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            className="primary compact"
-                            disabled={!archiveReason.trim() || busy === repository.id}
-                            onClick={() => archive(repository)}
-                          >
-                            Archive
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                  </article>
-                ))
-              )}
-            </div>
-            <ErrorNotice message={error} />
-          </>
-        )}
+                            onConfirm={() => archive(repository)}
+                            busy={busy === repository.id}
+                            confirmDisabled={!archiveReason.trim()}
+                          />
+                        ) : null}
+                      </ItemRow>
+                    ))}
+                  </ItemList>
+                )}
+                {summary && !summary.commitIdentityComplete ? (
+                  <RowNote>
+                    Some history could not be compared completely, so a shared commit may count
+                    more than once.
+                  </RowNote>
+                ) : null}
+              </div>
+              <PortalError message={error} />
+            </>
+          )}
+        </ToolSheet>
         <FigmaIntegrationPanel />
-      </section>
+      </div>
     </IntegrationsScene>
   );
 }
 
-/** Mockup f11's stage: the night scene with the connected-tools heading. */
-function IntegrationsScene({
+/** The stage for the connected tools: the night scene under one outline word. */
+export function IntegrationsScene({
   team,
   members,
   onSignOut,
   children,
 }: {
-  team: CurrentTeam;
-  members: readonly CurrentTeamMember[];
+  team: ClusterTeam;
+  members: readonly ClusterMember[];
   onSignOut: () => void;
   children: ReactNode;
 }) {
@@ -980,15 +885,16 @@ function IntegrationsScene({
       onSignOut={onSignOut}
       header={<TeamCluster team={team} members={members} />}
     >
-      <div className="flex w-full max-w-[720px] flex-col items-center">
-        <p className="mb-1.5 font-ui text-lg text-rose-light">connected tools</p>
-        <p className="mb-7 text-xs text-[rgb(248_248_248/.5)]">
-          code and design your team is building ·{" "}
-          <Link to="/" viewTransition className="text-rose-light">
-            back home
-          </Link>
-        </p>
-        <div className="w-full text-left">{children}</div>
+      <div className="relative flex w-full max-w-[1000px] flex-1 flex-col gap-7 text-left">
+        <header className="flex flex-col gap-3 lg:-mt-12">
+          <OutlineHeading word="build" />
+          <p className="m-0 text-[12.5px] text-fg/55">
+            <Link to="/" viewTransition className="text-rose-light underline-offset-4 hover:underline">
+              back home
+            </Link>
+          </p>
+        </header>
+        {children}
       </div>
     </PortalScene>
   );

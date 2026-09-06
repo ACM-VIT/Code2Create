@@ -117,11 +117,7 @@ function externalEventPassHtml() {
           </div>
         </div>
       </section>
-      <div style="margin:24px 0 0">
-        <a href="{{google_wallet_url}}" style="display:inline-block;margin:4px;padding:12px 18px;border-radius:12px;background:#111111;color:#ffffff;text-decoration:none;font-weight:700">Add to Google Wallet</a>
-        <a href="{{apple_wallet_url}}" style="display:inline-block;margin:4px;padding:12px 18px;border-radius:12px;background:#111111;color:#ffffff;text-decoration:none;font-weight:700">Add to Apple Wallet</a>
-      </div>
-      <p style="margin:28px 0 0;color:#725d65;font-size:13px;line-height:1.6">Need help? Open the <a href="{{portal_url}}" style="color:#b44f76;font-weight:700">participant portal</a> or contact event support.</p>
+      <p style="margin:28px 0 0;color:#725d65;font-size:13px;line-height:1.6">Need help? Contact event support.</p>
       <p style="margin:28px 0 0;font-size:14px">Best regards,<br /><strong>ACM-VIT Student Chapter</strong></p>
     </main>
   </body>
@@ -196,7 +192,7 @@ export function defaultParticipantEmailTemplates(): ParticipantEmailTemplate[] {
     {
       templateKey: "external_event_pass",
       subject: "Your {{event_name}} event pass",
-      text: "Hi {{participant_name}},\n\nYour personal external participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nGoogle Wallet: {{google_wallet_url}}\nApple Wallet: {{apple_wallet_url}}\n\nDo not share this pass.",
+      text: "Hi {{participant_name}},\n\nYour personal external participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nDo not share this pass.",
       html: externalEventPassHtml(),
     },
   ];

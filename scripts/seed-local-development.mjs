@@ -108,7 +108,7 @@ for (const person of reviewers) {
     eventSlug: "code2create-7", personId: person.personId, seniority: person.role,
     strength: person.role === "board" ? 4 : person.role === "sc" ? 3 : 2,
     technicalDomains: ["web", "backend", "mobile"], productDomains: ["education", "operations", "accessibility"], languages: ["english"],
-    criterionKeys: criteria.map(criterion => criterion.stableKey), trainingStatus: "complete", status: "active",
+    criterionKeys: criteria.map(criterion => criterion.stableKey), status: "active",
     expectedVersion: 0, reason: "Local development fixture", clientOperationId: crypto.randomUUID(),
   });
 }
@@ -117,7 +117,7 @@ let roundId = current.rounds.find(round => round.stableKey === "local_review")?.
 if (!roundId) {
   const now = Date.now();
   const result = await ownerMutation("reviewConfiguration:publishRound", {
-    eventSlug: "code2create-7", confirmationOpensAt: now - 3_600_000,
+    eventSlug: "code2create-7", confirmationOpensAt: now - 3_600_000, confirmationClosesAt: now + 24 * 3_600_000,
     rubric: { name: reviewRubricPresets.round1.name, spreadThreshold: 2, criteria },
     round: {
       stableKey: "local_review", name: "Local review · Round 1", sequence: 1,

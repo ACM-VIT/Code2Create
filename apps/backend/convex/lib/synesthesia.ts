@@ -79,15 +79,22 @@ export async function requireSynesthesiaParticipant(ctx: ReadCtx, eventSlug: str
   return context;
 }
 
+/**
+ * The published window open at `now`. Reads every published window of the
+ * event rather than only those already started: a query's read set does not
+ * include the clock, so a window opening later would never wake subscribers
+ * on its own. With the future window in the read set, the touch scheduled
+ * for its start (see `refreshWindowClock`) is a write they all observe.
+ */
 export async function activeSynesthesiaWindow(ctx: ReadCtx, eventId: Id<"events">, now: number) {
-  const candidates = await ctx.db
+  const published = await ctx.db
     .query("synesthesiaWindows")
     .withIndex("by_event_status_start", (index) =>
-      index.eq("eventId", eventId).eq("status", "published").lte("startsAt", now),
+      index.eq("eventId", eventId).eq("status", "published"),
     )
     .order("desc")
-    .take(2);
-  return candidates.find((window) => window.endsAt > now) ?? null;
+    .take(maximumSynesthesiaWindows);
+  return published.find((window) => window.startsAt <= now && window.endsAt > now) ?? null;
 }
 
 export function trackFitsWindow(

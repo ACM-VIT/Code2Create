@@ -13,7 +13,6 @@ import {
   importBundleEndpoint,
   importBundleOptions,
 } from "./communicationsEmailAssetActions";
-import { figmaWebhook } from "./figmaWebhook";
 import { githubWebhook } from "./githubWebhook";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
 import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
@@ -65,11 +64,6 @@ http.route({
   path: "/integrations/github/webhook",
   method: "POST",
   handler: githubWebhook,
-});
-http.route({
-  path: "/integrations/figma/webhook",
-  method: "POST",
-  handler: figmaWebhook,
 });
 http.route({
   path: "/communications/cloudflare-email/events",

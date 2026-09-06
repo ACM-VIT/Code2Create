@@ -1,7 +1,4 @@
 import { api } from "@code2create/backend/api";
-import {
-  mergeSynesthesiaVoteCounts,
-} from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useNavigate } from "react-router-dom";
@@ -10,28 +7,26 @@ import type { BenefitsTileModel } from "../components/dashboard/BenefitsTile";
 import type { EventTileModel } from "../components/dashboard/EventTile";
 import type { HelpTileModel } from "../components/dashboard/HelpTile";
 import type { IntegrationsTileModel } from "../components/dashboard/IntegrationsTile";
-import type {
-  MusicRequestView,
-  MusicTileModel,
-} from "../components/dashboard/MusicTile";
 import type { ReviewTileModel } from "../components/dashboard/ReviewTile";
 import type { ServiceQueuesTileModel } from "../components/dashboard/ServiceQueuesTile";
 import type {
   CheckpointState,
   UpdatesTileModel,
 } from "../components/dashboard/UpdatesTile";
-import type {
-  ClusterMember,
-  ClusterTeam,
+import { DelayedBonsai } from "../components/portal/DelayedBonsai";
+import { PortalScene } from "../components/portal/PortalScene";
+import {
+  TeamCluster,
+  type ClusterMember,
+  type ClusterTeam,
 } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
 import { LiveNumber } from "../components/LiveNumber";
-import { useOperationRunner } from "../lib/operations";
+import { useMusicModel } from "../lib/useMusicModel";
 import type { AvailableGitHubRepository, PublicState } from "../types";
 import { DashboardScreen } from "./DashboardScreen";
 
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>;
-type RequestResult = FunctionReturnType<typeof api.synesthesiaYouTube.requestVideo>;
 type CheckpointAvailability = FunctionReturnType<typeof api.projectCheckpoints.mine>["checkpoints"][number]["availability"];
 
 function checkpointState(
@@ -71,21 +66,13 @@ export function DashboardLive({
   onSignOut: () => void;
 }) {
   const navigate = useNavigate();
-  const music = useQuery(api.synesthesiaParticipant.state, { eventSlug });
-  const voteCounts = useQuery(api.synesthesiaParticipant.voteCounts, { eventSlug,
-  });
-  const searchYouTube = useAction(api.synesthesiaYouTube.search);
   const listAvailableRepositories = useAction(api.githubActions.listAvailableRepositories,
   );
-  const requestVideo = useAction(api.synesthesiaYouTube.requestVideo);
-  const addVote = useMutation(api.synesthesiaParticipant.vote);
-  const removeVote = useMutation(api.synesthesiaParticipant.removeVote);
-  const requests = useOperationRunner<RequestResult>();
-  const votes = useOperationRunner();
+  const musicModel = useMusicModel();
   const integrationsAllowed = capabilities?.integrations ?? false;
   const github = useQuery(api.githubIntegrations.current, integrationsAllowed ? { eventSlug } : "skip",
   );
-  const figma = useQuery(api.figmaIntegrations.current, integrationsAllowed ? { eventSlug } : "skip",
+  const figma = useQuery(api.figmaLinks.current, integrationsAllowed ? { eventSlug } : "skip",
   );
   const checkpointsAllowed = capabilities?.projectCheckpoints ?? false;
   const checkpoints = useQuery(api.projectCheckpoints.mine, checkpointsAllowed ? { eventSlug } : "skip",
@@ -112,63 +99,6 @@ export function DashboardLive({
     timezone: event.timezone,
   };
 
-  const window = music?.window ?? null;
-  const counts = voteCounts && window && voteCounts.windowId === window.id ? voteCounts.counts : [];
-  const views: MusicRequestView[] = music
-    ? mergeSynesthesiaVoteCounts(music.requests, counts).map((request) => ({
-        id: request.id,
-        videoId: request.provider === "youtube" ? request.providerTrackId : null,
-        title: request.title,
-        artist: request.artist,
-        durationSeconds: request.durationSeconds,
-        state: request.state,
-        voteCount: request.voteCount,
-        hasVoted: request.hasVoted,
-        canVote: request.canVote,
-        isMine: request.isMine,
-        ...(request.publicReason !== undefined ? { publicReason: request.publicReason } : {}),
-        ...(request.playbackStartedAt !== undefined ? { playbackStartedAt: request.playbackStartedAt } : {}),
-      }))
-    : [];
-
-  const musicModel: MusicTileModel = {
-    eligible: music?.eligible ?? true,
-    suspended: music?.suspended ?? false,
-    window: music && window
-      ? {
-          name: window.name,
-          endsAt: window.endsAt,
-          requestsOpen: window.requestsOpen,
-          votingOpen: window.votingOpen,
-          playbackPaused: window.playbackPaused,
-          requestsUsed: music.usage.requests,
-          requestsAllowed: window.maxRequestsPerParticipant,
-          votesUsed: music.usage.votes,
-          votesAllowed: window.maxVotesPerParticipant,
-        }
-      : null,
-    nowPlaying: views.find((request) => request.state === "playing") ?? null,
-    queue: views.filter((request) => request.state !== "playing"),
-    search: (query) => searchYouTube({ eventSlug, query }),
-    request: async (video) => {
-      if (!window) throw new Error("No music window is open.");
-      const result = await requests.run(`song-request:${video}`, (clientOperationId) => () =>
-        requestVideo({ eventSlug, windowId: window.id, video, clientOperationId,
-          }),
-      );
-      return { created: result.created };
-    },
-    toggleVote: async (request) => {
-      const source = music?.requests.find((candidate) => candidate.id === request.id,
-      );
-      if (!source) throw new Error("That request is no longer in the window.");
-      await votes.run(`song-vote:${source.id}`, (clientOperationId) => () =>
-        (request.hasVoted ? removeVote : addVote)({ eventSlug, requestId: source.id, clientOperationId,
-          }),
-      );
-    },
-  };
-
   const connectedRepositories = (github?.repositories ?? [])
     .filter((repository) => repository.state === "active")
     .map((repository) => ({
@@ -183,7 +113,6 @@ export function DashboardLive({
   const activeGithubConnection = github?.connections.find(
     (connection) => connection.state === "active",
   );
-  const fileCount = figma?.summary?.fileCount ?? 0;
   const integrationsModel: IntegrationsTileModel = {
     available: integrationsAllowed,
     github: {
@@ -224,13 +153,8 @@ export function DashboardLive({
         : {}),
     },
     figma: {
-      connected: (figma?.connections.length ?? 0) > 0,
-      detail:
-        fileCount === 0
-          ? "Link your design files"
-          : fileCount === 1
-            ? "1 file"
-            : <><LiveNumber value={fileCount} /> files</>,
+      connected: Boolean(figma?.fileUrl),
+      detail: figma?.fileUrl ? "Design link added" : "Add your design link",
     },
     open: (target, repository) => {
       if (target === "github" && repository) {
@@ -337,6 +261,28 @@ export function DashboardLive({
     discordUrl,
     support: supportAllowed ? { open: support?.openCount ?? 0 } : null,
   };
+
+  // Seat the bento once the first snapshots are in. Seating it on defaults
+  // and again a moment later would shuffle the grid under the reader.
+  const ready =
+    musicModel.loaded &&
+    serviceQueues !== undefined &&
+    benefits !== undefined &&
+    (!integrationsAllowed || (github !== undefined && figma !== undefined)) &&
+    (!checkpointsAllowed || checkpoints !== undefined) &&
+    (!queueAllowed || queue !== undefined) &&
+    (!supportAllowed || support !== undefined);
+  if (!ready) {
+    return (
+      <PortalScene
+        tree="both"
+        onSignOut={onSignOut}
+        header={<TeamCluster team={team} members={members} editable={teamEditable} />}
+      >
+        <DelayedBonsai />
+      </PortalScene>
+    );
+  }
 
   return (
     <DashboardScreen

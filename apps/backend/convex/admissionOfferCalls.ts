@@ -12,6 +12,7 @@ import {
   currentAdmissionRsvpReminder,
 } from "./lib/admissionOfferCalls";
 import { enqueueOutboundCall, normalizedE164Phone } from "./lib/outboundCalls";
+import { normalizedText } from "./lib/strings";
 
 export const remind = internalMutation({
   args: { offerId: v.id("admissionOffers") },
@@ -72,7 +73,7 @@ export const sendNow = mutation({
     if (!normalizedE164Phone(profile?.phone)) throw new ConvexError({ code: "PHONE_UNAVAILABLE", message: "The team lead has no usable registered phone number." });
     const existing = await ctx.db.query("outboundCallDeliveries").withIndex("by_source", q => q
       .eq("eventId", event._id).eq("sourceType", "admission_offer_reminder")
-      .eq("sourceId", offer._id).eq("purpose", "participant_event_update")).unique();
+      .eq("sourceId", offer._id).eq("purpose", "participant_event_update")).order("desc").first();
     const bringForward = !existing || existing.state === "pending" || existing.state === "retry_wait";
     if (bringForward) {
       await ctx.db.patch(offer._id, { reminderAt: now, version: offer.version + 1 });
@@ -91,6 +92,58 @@ export const sendNow = mutation({
       targetType: "admission_offer", targetId: offer._id,
       nextSummary: JSON.stringify({ reminderAt: bringForward ? now : offer.reminderAt, alreadyRequested: !!existing, broughtForward: bringForward }),
       reason: "Operator requested the team's RSVP reminder now",
+    });
+    return null;
+  },
+});
+
+/** Explicit operator redial; keeps each call and its provider callbacks independent. */
+export const repeat = mutation({
+  args: {
+    eventSlug: v.string(), offerId: v.id("admissionOffers"),
+    previousDeliveryId: v.id("outboundCallDeliveries"), reason: v.string(), clientOperationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const operation = {
+      eventId: event._id, actorPersonId: person._id, clientOperationId: args.clientOperationId,
+      commandName: "admissions.rsvp.call_repeat",
+      requestFingerprint: operationFingerprint([args.offerId, args.previousDeliveryId, args.reason]),
+    };
+    if (await findOperation(ctx, operation)) return null;
+    const offer = await ctx.db.get(args.offerId);
+    if (!offer || offer.eventId !== event._id) throw new ConvexError({ code: "OFFER_NOT_FOUND", message: "The RSVP offer was not found." });
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id, eventAccessSubjectId: subject._id, permissionKey: "application.offer.manage",
+      scopeType: "application", scopeId: offer.applicationId,
+    });
+    const now = Date.now();
+    const current = await currentAdmissionRsvpReminder(ctx, offer._id, now);
+    if (!current) throw new ConvexError({ code: "RSVP_NOT_CALLABLE", message: "This team has no current unanswered RSVP reminder." });
+    const reason = normalizedText(args.reason, "Repeat-call reason", 5, 500);
+    const profile = await ctx.db.query("participantProfiles")
+      .withIndex("by_membership", q => q.eq("membershipId", current.leader._id)).unique();
+    const phone = normalizedE164Phone(profile?.phone);
+    if (!phone) throw new ConvexError({ code: "PHONE_UNAVAILABLE", message: "The team lead has no usable registered phone number." });
+    const deliveryId = await enqueueOutboundCall(ctx, {
+      eventId: event._id, targetPersonId: current.leader.personId,
+      sourceType: "admission_offer_reminder", sourceId: offer._id, purpose: "participant_event_update",
+      destinationPhone: phone, script: admissionRsvpCallScript(current.team.name, offer.expiresAt, event.timezone),
+      locale: "en-IN", scriptPolicyVersion: admissionRsvpCallScriptPolicyVersion,
+      authorizationGrantIds: current.grantIds, repeatAfterDeliveryId: args.previousDeliveryId, now,
+    });
+    await ctx.db.patch(offer._id, { reminderAt: now, version: offer.version + 1 });
+    await ctx.scheduler.runAt(offer.expiresAt, internal.admissions.expireOffer, { offerId: offer._id, expectedOfferVersion: offer.version + 1 });
+    await recordOperation(ctx, { ...operation, targetType: "admission_offer", targetId: offer._id, resultJson: "null", createdAt: now });
+    await writeAuditEvent(ctx, {
+      eventId: event._id, actorPersonId: person._id, permissionKey: "application.offer.manage", grantIds,
+      scopeType: "application", scopeId: offer.applicationId, action: "admission.rsvp_call_repeated",
+      targetType: "admission_offer", targetId: offer._id,
+      previousSummary: JSON.stringify({ deliveryId: args.previousDeliveryId }),
+      nextSummary: JSON.stringify({ deliveryId, reminderAt: now }), reason,
     });
     return null;
   },

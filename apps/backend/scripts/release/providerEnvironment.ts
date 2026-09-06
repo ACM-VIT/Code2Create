@@ -1,7 +1,5 @@
 export type LiveProviderConfiguration = {
   environment: "staging";
-  figmaAccessToken: string;
-  figmaFileKey: string;
   githubAppClientId: string;
   githubAppClientSecret: string;
   githubAppId: string;
@@ -67,8 +65,6 @@ export function readLiveProviderConfiguration(
   }
   return {
     environment: "staging",
-    figmaAccessToken: requiredValue(environment, "C2C_PROVIDER_FIGMA_ACCESS_TOKEN"),
-    figmaFileKey: identifier(environment, "C2C_PROVIDER_FIGMA_FILE_KEY", /^[a-zA-Z0-9_-]+$/, 200),
     githubAppClientId: requiredValue(environment, "GITHUB_APP_CLIENT_ID"),
     githubAppClientSecret: requiredValue(environment, "GITHUB_APP_CLIENT_SECRET"),
     githubAppId: positiveInteger(environment, "GITHUB_APP_ID"),

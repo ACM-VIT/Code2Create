@@ -1,0 +1,112 @@
+/*
+ * The memory board's tiles.
+ *
+ * The shape is the portal's — the petal corner every other card and button on
+ * the site uses — and the glow is the grid game's, because the glow is what
+ * makes a pattern readable in the instant it is shown. The lit, chosen and
+ * wrong colours come from that game too; nothing else here leaves the portal's
+ * palette.
+ *
+ * Scoped under `.memory-game` so none of it escapes the board.
+ */
+
+.memory-game {
+  /* The one pink the board uses to say "this is the thing to remember": the
+     square the pattern is showing, the pair already found, and the card still
+     face down all wear it. Only the glow distinguishes them. */
+  --memory-remember: #bf3f72;
+  --memory-wrong: #e11d48;
+}
+
+/* The board the tiles sit on. */
+.memory-game .memory-board {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+  border: 1.5px solid var(--color-petal-line);
+  border-radius: var(--radius-petal);
+  background: rgba(25, 8, 22, 0.55);
+  box-shadow:
+    0 10px 35px rgba(0, 0, 0, 0.5),
+    0 0 20px rgba(226, 134, 174, 0.12);
+  backdrop-filter: blur(12px);
+}
+
+.memory-game .memory-tile {
+  padding: 0;
+  border: 2px solid var(--color-petal-line);
+  border-radius: var(--radius-petal-sm);
+  background: rgb(0 0 0 / 0.4);
+  transition:
+    background 0.14s ease,
+    transform 0.14s ease,
+    box-shadow 0.14s ease,
+    border-color 0.14s ease;
+}
+
+.memory-game .memory-tile:not(:disabled):hover {
+  cursor: pointer;
+  border-color: var(--color-petal-edge);
+  transform: scale(1.03);
+}
+
+/*
+ * A square the pattern is showing.
+ *
+ * The same pink a face-down card wears, because both are the board saying "this
+ * is the thing to remember". Only the glow is stronger here: this one is on
+ * screen for a moment and has to carry across the whole grid at once.
+ */
+.memory-game .memory-tile.is-lit {
+  border-color: var(--color-petal-edge);
+  background: var(--memory-remember);
+  box-shadow: 0 0 24px rgba(191, 63, 114, 0.65);
+}
+
+.memory-game .memory-tile.is-lit:not(:disabled):hover {
+  border-color: var(--color-petal-edge);
+  background: var(--memory-remember);
+  box-shadow: 0 0 28px rgba(191, 63, 114, 0.8);
+}
+
+/* A square answered correctly, and a pair already found. */
+.memory-game .memory-tile.is-picked {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: var(--memory-remember);
+  box-shadow: 0 0 15px rgba(191, 63, 114, 0.5);
+}
+
+/*
+ * A card still face down.
+ *
+ * The same pink a lit square wears, with the glow turned down: a lit square is
+ * on screen for an instant and has to carry, while two dozen face-down cards
+ * are held there for the whole round.
+ */
+.memory-game .memory-tile.is-facedown {
+  /* The edge is kept rather than dropped: it is what holds the card's shape
+     against the board, and twenty-four unbordered blocks read as one mass. */
+  border-color: var(--color-petal-edge);
+  background: var(--memory-remember);
+  box-shadow: 0 0 12px rgba(191, 63, 114, 0.35);
+}
+
+.memory-game .memory-tile.is-facedown:not(:disabled):hover {
+  border-color: var(--color-rose-light);
+  background: #cb4a7e;
+  box-shadow: 0 0 16px rgba(191, 63, 114, 0.5);
+}
+
+.memory-game .memory-tile.is-wrong {
+  border-color: transparent;
+  background: var(--memory-wrong);
+  box-shadow: 0 0 24px rgba(225, 29, 72, 0.7);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .memory-game .memory-tile,
+  .memory-game .memory-tile:not(:disabled):hover {
+    transition: none;
+    transform: none;
+  }
+}

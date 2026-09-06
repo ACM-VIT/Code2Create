@@ -21,7 +21,7 @@ describe("integration operations totals", () => {
       ["team-c", { health: "needs_attention" as const }],
       ["unreadable-team", { health: "needs_attention" as const }],
     ]);
-    const figma = new Map([["team-d", { health: "ready" as const }]]);
+    const figma = new Set(["team-d"]);
 
     expect(integrationSummaryCounts(readableTeams, github, figma)).toEqual({
       totalTeamCount: 4,

@@ -1,3 +1,4 @@
+import { reviewQuestionAgentVersion } from "@code2create/domain";
 import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
@@ -37,10 +38,10 @@ import {
   questionPayloadChecksum,
 } from "./lib/reviewQuestionProtocol";
 import { maximumReviewTeamsPerEvent } from "./lib/reviewLimits";
+import { reviewProgressionBlocker } from "./lib/reviewProgression";
 
 const defaultPolicy = {
   enabled: false,
-  visualAnalysis: true,
   refreshSeconds: 120,
   maximumQuestions: 3,
   parallelAnalyses: 3,
@@ -270,13 +271,24 @@ export const configure = mutation({
     return { version };
   },
 });
+function questionEvidenceChecksum(snapshot: Doc<"reviewQuestionSets">["snapshot"]) {
+  return operationFingerprint([
+    reviewQuestionAgentVersion,
+    snapshot.projectVersionId,
+    snapshot.eventStartsAt ?? null,
+    snapshot.teamCheckpointSubmissionId ?? null,
+    snapshot.previousCheckpointSetId ?? null,
+    JSON.stringify(snapshot.githubEntries),
+  ]);
+}
+
 export async function prepareQuestionSet(
   ctx: MutationCtx,
   round: Doc<"reviewRounds">,
   team: Doc<"teams">,
   snapshot?: Awaited<ReturnType<typeof buildEvidenceCheckpoint>>,
 ) {
-  if (team.competitionCategory === "oc") return undefined;
+  if (team.competitionCategory === "oc" || await reviewProgressionBlocker(ctx, round, team._id)) return undefined;
   const config = await ctx.db
     .query("reviewQuestionPolicies")
     .withIndex("by_round", (q) => q.eq("roundId", round._id))
@@ -316,7 +328,7 @@ export async function prepareQuestionSet(
       q
         .eq("roundId", round._id)
         .eq("teamId", team._id)
-        .eq("sourceChecksum", fields.checksum)
+        .eq("sourceChecksum", questionEvidenceChecksum(fields))
         .eq("policyVersion", config.version),
     )
     .unique();
@@ -360,7 +372,7 @@ export async function prepareQuestionSet(
     policyVersion: config.version,
     policy: config.policy,
     operatorPersonId: config.operatorPersonId,
-    sourceChecksum: fields.checksum,
+    sourceChecksum: questionEvidenceChecksum(fields),
     snapshot: fields,
     state: "queued",
     attempt: 0,
@@ -761,7 +773,7 @@ export const settle = internalMutation({
         !team ||
         !policy?.policy.enabled ||
         policy.version !== job.policyVersion ||
-        (
+        questionEvidenceChecksum(
           await buildEvidenceCheckpoint(ctx, {
             eventId: job.eventId,
             round,
@@ -769,7 +781,7 @@ export const settle = internalMutation({
             actorPersonId: job.operatorPersonId,
             createdAt: Date.now(),
           })
-        ).checksum !== job.sourceChecksum
+        ) !== job.sourceChecksum
       ) {
         await ctx.db.patch(job._id, { state: "stale", updatedAt: Date.now() });
         return "stale";
@@ -867,14 +879,6 @@ const githubAccess = v.object({
   headSha: v.string(),
   rootPath: v.optional(v.string()),
 });
-const artifactAccess = v.object({
-  objectKey: v.string(),
-  storageRegion: v.string(),
-  storageBucket: v.string(),
-  storedBytes: v.number(),
-  uncompressedBytes: v.number(),
-  sha256: v.string(),
-});
 export const sourceContext = internalQuery({
   args: { jobId: v.id("reviewQuestionSets"), attempt: v.number() },
   returns: v.union(
@@ -901,20 +905,6 @@ export const sourceContext = internalQuery({
           access: v.optional(githubAccess),
         }),
       ),
-      figma: v.array(
-        v.object({
-          id: v.string(),
-          title: v.string(),
-          url: v.string(),
-          metadata: v.string(),
-          artifact: v.optional(artifactAccess),
-          previews: v.array(v.object({
-            factId: v.id("figmaNodeFacts"), nodeId: v.string(), nodeName: v.string(),
-            objectKey: v.string(), storageRegion: v.string(), storageBucket: v.string(),
-            byteCount: v.number(), sha256: v.string(),
-          })),
-        }),
-      ),
     }),
   ),
   handler: async (ctx, args) => {
@@ -927,7 +917,7 @@ export const sourceContext = internalQuery({
       !(await questionJobAuthorized(ctx, job))
     )
       return null;
-    const [project, round, checkpoint, previous] = await Promise.all([
+    const [project, round, checkpoint, previous, event] = await Promise.all([
       ctx.db.get(job.snapshot.projectVersionId),
       ctx.db.get(job.roundId),
       job.snapshot.teamCheckpointSubmissionId
@@ -936,10 +926,12 @@ export const sourceContext = internalQuery({
       job.snapshot.previousCheckpointSetId
         ? ctx.db.get(job.snapshot.previousCheckpointSetId)
         : null,
+      ctx.db.get(job.eventId),
     ]);
     if (
       !project ||
       !round ||
+      !event ||
       project.eventId !== job.eventId ||
       project.teamId !== job.teamId
     )
@@ -958,6 +950,8 @@ export const sourceContext = internalQuery({
       sourceChecksum: job.sourceChecksum,
       policy: job.policy,
       projectText: JSON.stringify({
+        officialEventStartsAt: job.snapshot.eventStartsAt === undefined ? null : new Date(job.snapshot.eventStartsAt).toISOString(),
+        submittedAt: new Date(project.submittedAt).toISOString(),
         idea: project.initialIdea,
         responses: project.intakeResponses.map((response) => ({
           question: response.question,
@@ -1013,6 +1007,8 @@ export const sourceContext = internalQuery({
               purpose: entry.purpose,
               kind: entry.kind,
               headSha: snapshot?.headSha ?? null,
+              providerCommitAt: snapshot?.providerCommitAt ?? null,
+              timestampMeaning: "capturedAt is server observation time; providerCommitAt is provider-reported commit time and is not proof of authorship",
               languages: snapshot?.languageBytes ?? [],
               coverage: snapshot?.completeness ?? "missing",
               capturedAt: snapshot?.capturedAt ?? null,
@@ -1030,77 +1026,6 @@ export const sourceContext = internalQuery({
                     name: binding.name,
                     headSha: snapshot.headSha,
                     ...(entry.rootPath ? { rootPath: entry.rootPath } : {}),
-                  },
-                }
-              : {}),
-          };
-        }),
-      ),
-      figma: await Promise.all(
-        job.snapshot.figmaEntries.map(async (entry) => {
-          const [binding, snapshot] = await Promise.all([
-            ctx.db.get(entry.bindingId),
-            entry.snapshotId ? ctx.db.get(entry.snapshotId) : null,
-          ]);
-          const artifact = snapshot?.artifactId
-            ? await ctx.db.get(snapshot.artifactId)
-            : null;
-          const readable =
-            binding &&
-            binding.eventId === job.eventId &&
-            binding.teamId === job.teamId &&
-            binding.state !== "archived" &&
-            snapshot?.figmaFileBindingId === binding._id &&
-            artifact?.state === "available" &&
-            artifact.provider === "figma" &&
-            artifact.eventId === job.eventId &&
-            artifact.teamId === job.teamId &&
-            artifact.figmaFileBindingId === binding._id &&
-            artifact.providerVersionId === snapshot.providerVersionId;
-          const previews = readable && job.policy.visualAnalysis
-            ? (await Promise.all((entry.preview?.renders ?? []).map(async (captured) => {
-                const fact = await ctx.db.get(captured.factId);
-                return fact && fact.eventId === job.eventId && fact.teamId === job.teamId &&
-                  fact.snapshotId === snapshot._id && fact.figmaFileBindingId === binding._id &&
-                  fact.providerVersionId === snapshot.providerVersionId &&
-                  fact.render.state === "available" && fact.render.sha256 === captured.sha256
-                  ? { factId: fact._id, nodeId: fact.nodeId, nodeName: fact.nodeName,
-                      objectKey: fact.render.objectKey, storageRegion: fact.render.storageRegion,
-                      storageBucket: fact.render.storageBucket, byteCount: fact.render.byteCount,
-                      sha256: fact.render.sha256 }
-                  : null;
-              }))).filter((fact) => fact !== null)
-            : [];
-          return {
-            previews,
-            id: `figma:${entry.bindingId}`,
-            title: entry.fileName,
-            url: entry.fileUrl,
-            metadata: JSON.stringify({
-              role: entry.role,
-              version: snapshot?.providerVersionId ?? null,
-              frames: snapshot?.frameCount ?? null,
-              components: snapshot?.componentCount ?? null,
-              prototypeInteractions:
-                snapshot?.prototypeInteractionCount ?? null,
-              coverage: snapshot?.completeness ?? "missing",
-              capturedAt: snapshot?.capturedAt ?? null,
-              visualAnalysis: job.policy.visualAnalysis,
-              previewCoverage: entry.preview ? {
-                state: entry.preview.state, discoveredNodes: entry.preview.discoveredNodes,
-                selectedNodes: entry.preview.selectedNodes, truncated: entry.preview.truncated,
-                capturedRenders: entry.preview.renders.length, accessibleRenders: previews.length,
-              } : "No captured renders available",
-            }),
-            ...(readable
-              ? {
-                  artifact: {
-                    objectKey: artifact.objectKey,
-                    storageRegion: artifact.storageRegion,
-                    storageBucket: artifact.storageBucket,
-                    storedBytes: artifact.storedBytes,
-                    uncompressedBytes: artifact.uncompressedBytes,
-                    sha256: artifact.sha256,
                   },
                 }
               : {}),

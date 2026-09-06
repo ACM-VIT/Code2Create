@@ -1,7 +1,6 @@
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import {
-  figmaPreviewStateLabels,
   githubRepositoryCoverageLabels,
   githubRepositorySyncStateLabels,
   githubRepositoryTopicStateLabels,
@@ -9,12 +8,11 @@ import {
   repositoryKindLabels,
   teamStatusLabels,
 } from "@code2create/domain";
-import { useAction, usePaginatedQuery, useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { eventSlug } from "../lib/config";
-import { readableError } from "../lib/errors";
 import { Icon } from "../components/Icon";
 import type { IconName } from "../components/Icon";
 import { LoadingLabel, SkeletonList } from "../components/Skeleton";
@@ -22,10 +20,6 @@ import { LoadingLabel, SkeletonList } from "../components/Skeleton";
 type IntegrationTeam = FunctionReturnType<typeof api.integrationOperations.teams>["page"][number];
 type ProviderHealth = IntegrationTeam["github"]["health"];
 type IntegrationView = "attention" | "all";
-type CheckpointLink = FunctionReturnType<typeof api.figmaActions.openFullCheckpoint> & {
-  clientNow: number;
-};
-
 function activityTime(value: number | undefined) {
   if (value === undefined) return null;
   return new Date(value).toLocaleString([], {
@@ -41,11 +35,11 @@ function plural(count: number, singular: string, many: string) {
 }
 
 function isDisconnected(team: IntegrationTeam) {
-  return team.github.health === "not_connected" && team.figma.health === "not_connected";
+  return team.github.health === "not_connected" && !team.figmaFileUrl;
 }
 
 function needsAttention(team: IntegrationTeam) {
-  return team.github.health === "needs_attention" || team.figma.health === "needs_attention";
+  return team.github.health === "needs_attention";
 }
 
 function teamRank(team: IntegrationTeam) {
@@ -100,28 +94,13 @@ function teamNote(team: IntegrationTeam) {
       `${plural(team.github.incompleteCount, "repository", "repositories")} only partly counted`,
     );
   }
-  if (team.figma.rateLimitedCount > 0) {
-    notes.push(
-      `${plural(team.figma.rateLimitedCount, "file", "files")} paused by Figma's rate limit`,
-    );
-  }
-  if (team.figma.dirtyCount > 0) {
-    notes.push(`${plural(team.figma.dirtyCount, "file", "files")} changed since the last capture`);
-  }
-  if (team.figma.incompleteCount > 0) {
-    notes.push(`${plural(team.figma.incompleteCount, "file", "files")} only partly captured`);
-  }
   if (notes.length > 0) return notes.join(" · ");
-  if (needsAttention(team)) {
-    return team.github.health === "needs_attention"
-      ? "GitHub is not reading properly"
-      : "Figma is not reading properly";
-  }
+  if (needsAttention(team)) return "GitHub is not reading properly";
   if (isDisconnected(team)) return "No repository and no design file";
   if (team.github.health === "not_connected") return "No repository";
-  if (team.figma.health === "not_connected") return "No design file";
+  if (!team.figmaFileUrl) return "No design file";
   const latest = activityTime(
-    Math.max(team.github.lastActivityAt ?? 0, team.figma.lastActivityAt ?? 0) || undefined,
+    team.github.lastActivityAt,
   );
   return latest === null ? null : `Last change ${latest}`;
 }
@@ -228,7 +207,7 @@ export function IntegrationOverview() {
         <div className="integration-health-list">
           {visible.map((team) => {
             const note = teamNote(team);
-            const connected = team.github.repositoryCount + team.figma.fileCount;
+            const connected = team.github.repositoryCount + (team.figmaFileUrl ? 1 : 0);
             const expanded = expandedTeamId === team.teamId;
             return (
               <article className="integration-health-row" key={team.teamId}>
@@ -256,8 +235,8 @@ export function IntegrationOverview() {
                     units="repositories"
                   />
                   <ProviderCount
-                    count={team.figma.fileCount}
-                    health={team.figma.health}
+                    count={team.figmaFileUrl ? 1 : 0}
+                    health={team.figmaFileUrl ? "ready" : "not_connected"}
                     icon="figma"
                     name="Figma"
                     unit="file"
@@ -309,25 +288,6 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
     eventSlug,
     teamId: team.teamId,
   });
-  const openFullCheckpoint = useAction(api.figmaActions.openFullCheckpoint);
-  const [checkpointBusy, setCheckpointBusy] = useState<string | null>(null);
-  const [checkpointError, setCheckpointError] = useState<string | null>(null);
-  const [checkpointLinks, setCheckpointLinks] = useState<Record<string, CheckpointLink>>({});
-  const [checkpointClock, setCheckpointClock] = useState(() => performance.now());
-
-  useEffect(() => {
-    const nextExpiry = Object.values(checkpointLinks)
-      .map((link) => link.clientNow + link.expiresAt - link.serverNow)
-      .filter((expiresAt) => expiresAt > checkpointClock)
-      .toSorted((left, right) => left - right)[0];
-    if (nextExpiry === undefined) return;
-    const timer = window.setTimeout(
-      () => setCheckpointClock(performance.now()),
-      Math.max(nextExpiry - performance.now(), 0) + 25,
-    );
-    return () => window.clearTimeout(timer);
-  }, [checkpointClock, checkpointLinks]);
-
   if (details === undefined) {
     return (
       <>
@@ -385,98 +345,11 @@ function IntegrationDetails({ team }: { team: IntegrationTeam }) {
         </div>
       ) : null}
 
-      {details.figmaFiles.length > 0 ? (
+      {details.figmaFileUrl ? (
         <div>
-          <h3>
-            <Icon name="figma" /> Design files
-          </h3>
-          <ul className="integration-file-list">
-            {details.figmaFiles.map((file) => {
-              const checkpoint = checkpointLinks[file.bindingId];
-              const activeCheckpoint =
-                checkpoint &&
-                checkpoint.expiresAt > checkpoint.serverNow + checkpointClock - checkpoint.clientNow
-                  ? checkpoint
-                  : null;
-              return (
-                <li key={file.bindingId}>
-                  <div>
-                    <a href={file.url} target="_blank" rel="noreferrer">
-                      {file.name}
-                    </a>
-                    <small>{file.role}</small>
-                    <small>{figmaActivity(file.lastMetadataCheckAt, file.lastFullCaptureAt)}</small>
-                    {file.contentDirty ? <small>Changed since the last capture</small> : null}
-                    {file.metadataRateLimitRetryAt ? (
-                      <small>
-                        Paused by Figma's rate limit, retrying{" "}
-                        {activityTime(file.metadataRateLimitRetryAt) ?? "soon"}
-                      </small>
-                    ) : null}
-                    <small>
-                      <LiveNumber value={file.preview.availableCount} /> of{" "}
-                      <LiveNumber value={file.preview.selectedNodeCount} /> {file.preview.selectedNodeCount === 1 ? "frame" : "frames"}
-                      {file.preview.state === "ready"
-                        ? ""
-                        : ` · ${figmaPreviewStateLabels[file.preview.state]}`}
-                      {file.preview.truncated ? " · only the first frames were taken" : ""}
-                    </small>
-                  </div>
-                  {details.canReadFigmaArtifacts && file.hasFullArtifact ? (
-                    activeCheckpoint ? (
-                      <a
-                        className="text-button"
-                        href={activeCheckpoint.url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Open checkpoint
-                      </a>
-                    ) : (
-                      <button
-                        className="text-button"
-                        type="button"
-                        disabled={checkpointBusy === file.bindingId}
-                        onClick={() => {
-                          setCheckpointBusy(file.bindingId);
-                          setCheckpointError(null);
-                          void openFullCheckpoint({ eventSlug, bindingId: file.bindingId })
-                            .then((result) => {
-                              const clientNow = performance.now();
-                              setCheckpointLinks((current) => ({
-                                ...current,
-                                [file.bindingId]: { ...result, clientNow },
-                              }));
-                              setCheckpointClock(clientNow);
-                            })
-                            .catch((error: unknown) => setCheckpointError(readableError(error)))
-                            .finally(() => setCheckpointBusy(null));
-                        }}
-                      >
-                        {checkpointBusy === file.bindingId ? "Preparing…" : "Prepare checkpoint"}
-                      </button>
-                    )
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          <a className="text-button inline-flex p-2" href={details.figmaFileUrl} target="_blank" rel="noopener noreferrer" aria-label="View Figma design" title="View Figma design"><Icon name="figma" /></a>
         </div>
-      ) : null}
-      {checkpointError ? (
-        <p className="notice error" role="alert">
-          {checkpointError}
-        </p>
       ) : null}
     </div>
   );
-}
-
-function figmaActivity(lastCheckedAt: number | undefined, lastCapturedAt: number | undefined) {
-  const checked = activityTime(lastCheckedAt);
-  const captured = activityTime(lastCapturedAt);
-  if (!checked && !captured) return "No activity yet";
-  if (!checked) return `Captured ${captured}`;
-  if (!captured) return `Checked ${checked}`;
-  return `Checked ${checked} · captured ${captured}`;
 }

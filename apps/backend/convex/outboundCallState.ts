@@ -3,10 +3,10 @@ import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { admissionRsvpCallScript, currentAdmissionRsvpReminder } from "./lib/admissionOfferCalls";
+import { venueCallResponseSchema } from "./lib/venueCallResponsePayload";
 import {
   venueConfirmationCall,
   venueCallResponseValue,
-  venueCallResponseSchema,
 } from "./lib/venueCallValidators";
 import { applyVenueCallResponse } from "./lib/venueCallResponse";
 import type { OutboundCallEventType } from "@code2create/domain";

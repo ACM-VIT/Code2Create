@@ -6,8 +6,8 @@ import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
 
-type Team = FunctionReturnType<typeof api.reviewOperations.roundTeams>["page"][number];
-type Round = FunctionReturnType<typeof api.reviewOperations.roundBoard>["round"];
+type Team = Pick<FunctionReturnType<typeof api.reviewOperations.roundTeams>["page"][number], "teamId" | "canSkip" | "state" | "version">;
+type Round = Pick<FunctionReturnType<typeof api.reviewOperations.roundBoard>["round"], "id" | "status">;
 
 export function ReviewSkip({ team, round }: { team: Team; round: Round }) {
   const save = useMutation(api.reviewParticipation.setSkipped);

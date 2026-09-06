@@ -9,6 +9,7 @@ import {
   venuePolicyFields,
 } from "./lib/reviewerVenuePolicy";
 import { v } from "convex/values";
+import { projectReviewAssessment } from "./lib/reviewPlanningFields";
 
 import {
   reviewEvidenceCheckpointFields,
@@ -54,17 +55,11 @@ import {
   eventPhaseKey,
   eventStatus,
   eventRole,
-  figmaCredentialConnectionState,
-  figmaCredentialState,
-  figmaFileBindingState,
-  figmaFileSyncState,
-  figmaWebhookState,
   githubInstallationState,
   githubRepositoryBindingState,
   githubRepositoryCoverage,
   githubRepositorySyncState,
   githubRepositoryTopicState,
-  integrationMetricCompleteness,
   integrationProviderHealth,
   intakeAnswerLength,
   intakeQuestionPurpose,
@@ -94,6 +89,7 @@ import {
   repositoryKind,
   reviewEvaluationState,
   reviewPanelStatus,
+  reviewProgressionScoreReference,
   reviewRoundStatus,
   reviewStaffingPolicy,
   reviewerClockInStatus,
@@ -125,6 +121,7 @@ import {
   venueIdentityCheckMethod,
   venuePresenceState,
   youtubeVideo,
+  ambienceMode,
 } from "./values";
 import {
   intelligenceRecommendationArguments,
@@ -332,6 +329,13 @@ export default defineSchema({
     applicationsCloseAt: v.number(),
     startsAt: v.optional(v.number()),
     endsAt: v.optional(v.number()),
+    ambience: v.optional(
+      v.object({
+        mode: ambienceMode,
+        changedAt: v.number(),
+        changedByPersonId: v.id("people"),
+      }),
+    ),
     createdByPersonId: v.optional(v.id("people")),
     version: v.number(),
     createdAt: v.number(),
@@ -3035,6 +3039,31 @@ export default defineSchema({
     .index("by_status_start", ["status", "startsAt"])
     .index("by_event_key", ["eventId", "stableKey"]),
 
+  reviewProjectBriefs: defineTable({
+    eventId: v.id("events"), teamId: v.id("teams"), projectVersionId: v.id("projectVersions"),
+    assessment: projectReviewAssessment, sourceChecksum: v.string(), model: v.string(), version: v.number(),
+    updatedByPersonId: v.id("people"), updatedAt: v.number(),
+  }).index("by_event_team", ["eventId", "teamId"]),
+
+  reviewTeamPlans: defineTable({
+    eventId: v.id("events"), roundId: v.id("reviewRounds"), teamId: v.id("teams"), panelId: v.id("reviewPanels"),
+    backupPanelId: v.optional(v.id("reviewPanels")), rationale: v.string(), version: v.number(),
+    updatedByPersonId: v.id("people"), updatedAt: v.number(),
+  }).index("by_round_team", ["roundId", "teamId"]),
+
+  reviewProgressions: defineTable({
+    eventId: v.id("events"), roundId: v.id("reviewRounds"),
+    mode: v.union(v.literal("all_advance"), v.literal("elimination")),
+    version: v.number(), closeSnapshotId: v.optional(v.id("roundCloseSnapshots")), publishedAt: v.optional(v.number()),
+    scoreReference: v.optional(reviewProgressionScoreReference),
+    updatedByPersonId: v.id("people"), updatedAt: v.number(), reason: v.string(),
+  }).index("by_event_round", ["eventId", "roundId"]),
+
+  reviewProgressionEntries: defineTable({
+    eventId: v.id("events"), roundId: v.id("reviewRounds"), progressionId: v.id("reviewProgressions"), teamId: v.id("teams"),
+    outcome: v.union(v.literal("advance"), v.literal("eliminate")), reason: v.string(),
+  }).index("by_progression_team", ["progressionId", "teamId"]),
+
   reviewRoundPauses: defineTable({
     eventId: v.id("events"),
     roundId: v.id("reviewRounds"),
@@ -3127,8 +3156,6 @@ export default defineSchema({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
-    trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"),
-    ),
     status: v.union(v.literal("active"), v.literal("inactive")),
     version: v.number(),
     createdAt: v.number(),
@@ -3151,6 +3178,7 @@ export default defineSchema({
     eventId: v.id("events"),
     roundId: v.id("reviewRounds"),
     opensAt: v.number(),
+    closesAt: v.number(),
     state: v.union(
       v.literal("scheduled"),
       v.literal("open"),
@@ -3450,7 +3478,7 @@ export default defineSchema({
     jobId: v.id("reviewQuestionSets"),
     attempt: v.number(),
     sourceId: v.string(),
-    kind: v.union(v.literal("github"), v.literal("figma")),
+    kind: v.literal("github"),
     state: v.union(
       v.literal("queued"),
       v.literal("running"),
@@ -4085,9 +4113,7 @@ export default defineSchema({
     ),
     requiredGitHubTopic: v.string(),
     maxActiveGitHubRepositoriesPerTeam: v.number(),
-    maxActiveFigmaFilesPerTeam: v.number(),
     githubFreezeAt: v.optional(v.number()),
-    figmaFreezeAt: v.optional(v.number()),
     checksum: v.string(),
     createdByPersonId: v.id("people"),
     createdAt: v.number(),
@@ -4095,6 +4121,11 @@ export default defineSchema({
   })
     .index("by_event_status", ["eventId", "status"])
     .index("by_event_version", ["eventId", "version"]),
+
+  teamFigmaLinks: defineTable({
+    eventId: v.id("events"), teamId: v.id("teams"), fileUrl: v.optional(v.string()),
+    version: v.number(), updatedByPersonId: v.id("people"), updatedAt: v.number(),
+  }).index("by_event_team", ["eventId", "teamId"]).index("by_team", ["teamId"]),
 
   githubSetupIntents: defineTable({
     eventId: v.id("events"),
@@ -4364,390 +4395,6 @@ export default defineSchema({
   })
     .index("by_binding_time", ["repositoryBindingId", "receivedAt"])
     .index("by_delivery", ["deliveryId"]),
-
-  figmaSetupIntents: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    personId: v.id("people"),
-    stateDigest: v.string(),
-    pkceVerifierCiphertext: v.string(),
-    redirectUri: v.string(),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("verifying"),
-      v.literal("completed"),
-      v.literal("failed"),
-      v.literal("expired"),
-    ),
-    attemptId: v.optional(v.string()),
-    claimExpiresAt: v.optional(v.number()),
-    credentialId: v.optional(v.id("figmaOAuthCredentials")),
-    credentialConnectionId: v.optional(v.id("figmaCredentialConnections")),
-    failureCode: v.optional(v.string()),
-    expiresAt: v.number(),
-    createdAt: v.number(),
-    completedAt: v.optional(v.number()),
-  })
-    .index("by_state_digest", ["stateDigest"])
-    .index("by_status", ["status"])
-    .index("by_team_status", ["teamId", "status"]),
-
-  figmaOAuthCredentials: defineTable({
-    figmaUserId: v.string(),
-    figmaUserHandle: v.optional(v.string()),
-    accessTokenCiphertext: v.string(),
-    refreshTokenCiphertext: v.string(),
-    tokenExpiresAt: v.number(),
-    tokenReceivedAt: v.number(),
-    scopes: v.array(v.string()),
-    status: figmaCredentialState,
-    authorizedByPersonId: v.id("people"),
-    refreshLeaseId: v.optional(v.string()),
-    refreshLeaseExpiresAt: v.optional(v.number()),
-    version: v.number(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_figma_user", ["figmaUserId"])
-    .index("by_status", ["status"]),
-
-  figmaCredentialConnections: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    credentialId: v.id("figmaOAuthCredentials"),
-    state: figmaCredentialConnectionState,
-    connectedByPersonId: v.id("people"),
-    connectedAt: v.number(),
-    lastVerifiedAt: v.number(),
-    version: v.number(),
-  })
-    .index("by_team_state", ["teamId", "state"])
-    .index("by_team_credential", ["teamId", "credentialId"])
-    .index("by_credential_state", ["credentialId", "state"]),
-
-  figmaFileBindings: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    credentialId: v.id("figmaOAuthCredentials"),
-    credentialConnectionId: v.id("figmaCredentialConnections"),
-    fileKey: v.string(),
-    mainFileKey: v.optional(v.string()),
-    url: v.string(),
-    name: v.string(),
-    role: v.string(),
-    linkAccess: v.string(),
-    editorType: v.string(),
-    versionId: v.string(),
-    observedVersionId: v.optional(v.string()),
-    lastTouchedAt: v.number(),
-    lastProviderObservedAt: v.optional(v.number()),
-    thumbnailUrl: v.optional(v.string()),
-    state: figmaFileBindingState,
-    webhookId: v.optional(v.string()),
-    webhookPasscodeDigest: v.optional(v.string()),
-    webhookState: figmaWebhookState,
-    webhookSetupLeaseId: v.optional(v.string()),
-    webhookSetupLeaseExpiresAt: v.optional(v.number()),
-    webhookSetupRetryAt: v.optional(v.number()),
-    lastProviderEventAt: v.optional(v.number()),
-    lastMetadataCheckAt: v.number(),
-    nextMetadataCheckAt: v.optional(v.number()),
-    metadataLeaseId: v.optional(v.string()),
-    metadataLeaseExpiresAt: v.optional(v.number()),
-    metadataErrorCode: v.optional(v.string()),
-    metadataRateLimitRetryAt: v.optional(v.number()),
-    metadataRateLimitPlanTier: v.optional(v.string()),
-    metadataRateLimitType: v.optional(v.string()),
-    lastFullCaptureAt: v.number(),
-    contentDirty: v.boolean(),
-    rateLimitRetryAt: v.optional(v.number()),
-    rateLimitPlanTier: v.optional(v.string()),
-    rateLimitType: v.optional(v.string()),
-    syncRevision: v.number(),
-    syncedRevision: v.number(),
-    syncState: figmaFileSyncState,
-    syncLeaseId: v.optional(v.string()),
-    syncLeaseExpiresAt: v.optional(v.number()),
-    syncErrorCode: v.optional(v.string()),
-    version: v.number(),
-    connectedAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_team_state", ["teamId", "state"])
-    .index("by_event_file", ["eventId", "fileKey"])
-    .index("by_credential_state", ["credentialId", "state"])
-    .index("by_webhook", ["webhookId"])
-    .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
-    .index("by_event_sync_state_updated", ["eventId", "syncState", "updatedAt"])
-    .index("by_event_webhook_state_updated", ["eventId", "webhookState", "updatedAt",
-    ])
-    .index("by_event_state_sync_updated", ["eventId", "state", "syncState", "updatedAt",
-    ])
-    .index("by_event_state_sync_lease", ["eventId", "state", "syncState", "syncLeaseExpiresAt",
-    ])
-    .index("by_event_state_webhook_updated", ["eventId", "state", "webhookState", "updatedAt",
-    ])
-    .index("by_state_webhook_retry", ["state", "webhookState", "webhookSetupRetryAt",
-    ])
-    .index("by_state_metadata_due", ["state", "nextMetadataCheckAt"])
-    .index("by_event_state_metadata_check", ["eventId", "state", "lastMetadataCheckAt",
-    ])
-    .index("by_event_state_rate_limit", ["eventId", "state", "rateLimitRetryAt",
-    ])
-    .index("by_event_state_metadata_rate_limit", ["eventId", "state", "metadataRateLimitRetryAt",
-    ]),
-
-  figmaFileMetrics: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    pageCount: v.number(),
-    frameCount: v.number(),
-    componentCount: v.number(),
-    componentSetCount: v.number(),
-    styleCount: v.number(),
-    nodeCount: v.number(),
-    prototypeInteractionCount: v.number(),
-    commentCount: v.number(),
-    unresolvedCommentCount: v.number(),
-    versionCount: v.number(),
-    completeness: integrationMetricCompleteness,
-    capturedAt: v.number(),
-    version: v.number(),
-  }).index("by_binding", ["figmaFileBindingId"]),
-
-  figmaTeamMetrics: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    health: integrationProviderHealth,
-    authorizationCount: v.number(),
-    fileCount: v.number(),
-    completeFileCount: v.number(),
-    incompleteFileCount: v.number(),
-    dirtyCount: v.number(),
-    webhookActiveCount: v.number(),
-    webhookUnavailableCount: v.number(),
-    rateLimitedCount: v.number(),
-    previewReadyCount: v.number(),
-    previewPendingCount: v.number(),
-    previewAttentionCount: v.number(),
-    selectedPreviewCount: v.number(),
-    availablePreviewCount: v.number(),
-    pageCount: v.number(),
-    frameCount: v.number(),
-    componentCount: v.number(),
-    componentSetCount: v.number(),
-    styleCount: v.number(),
-    nodeCount: v.number(),
-    prototypeInteractionCount: v.number(),
-    commentCount: v.number(),
-    unresolvedCommentCount: v.number(),
-    versionCount: v.number(),
-    completeness: integrationMetricCompleteness,
-    oldestMetadataCheckAt: v.optional(v.number()),
-    lastCaptureAt: v.optional(v.number()),
-    lastActivityAt: v.optional(v.number()),
-    version: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_team", ["teamId"])
-    .index("by_event_updated", ["eventId", "updatedAt"]),
-
-  figmaFileSnapshots: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    previousSnapshotId: v.optional(v.id("figmaFileSnapshots")),
-    reason: v.union(
-      v.literal("baseline"),
-      v.literal("provider_event"),
-      v.literal("manual"),
-      v.literal("reconcile"),
-    ),
-    providerVersionId: v.string(),
-    providerLastTouchedAt: v.number(),
-    pageCount: v.number(),
-    frameCount: v.number(),
-    componentCount: v.number(),
-    componentSetCount: v.number(),
-    styleCount: v.number(),
-    nodeCount: v.number(),
-    prototypeInteractionCount: v.number(),
-    commentCount: v.number(),
-    unresolvedCommentCount: v.number(),
-    versionCount: v.number(),
-    completeness: integrationMetricCompleteness,
-    artifactId: v.optional(v.id("integrationArtifacts")),
-    capturedAt: v.number(),
-  })
-    .index("by_binding_time", ["figmaFileBindingId", "capturedAt"])
-    .index("by_team_time", ["teamId", "capturedAt"]),
-
-  figmaSnapshotActivity: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    snapshotId: v.id("figmaFileSnapshots"),
-    providerVersionId: v.string(),
-    versionCount: v.number(),
-    capturedVersionCount: v.number(),
-    versionsComplete: v.boolean(),
-    commentCount: v.number(),
-    capturedCommentCount: v.number(),
-    commentsComplete: v.boolean(),
-    replyCount: v.number(),
-    resolvedThreadCount: v.number(),
-    unresolvedThreadCount: v.number(),
-    capturedAt: v.number(),
-  }).index("by_snapshot", ["snapshotId"]),
-
-  figmaVersionFacts: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    snapshotId: v.id("figmaFileSnapshots"),
-    providerVersionId: v.string(),
-    versionId: v.string(),
-    label: v.string(),
-    description: v.string(),
-    descriptionTruncated: v.boolean(),
-    userId: v.string(),
-    userHandle: v.string(),
-    providerCreatedAt: v.number(),
-    displayOrder: v.number(),
-  }).index("by_snapshot_order", ["snapshotId", "displayOrder"]),
-
-  figmaCommentFacts: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    snapshotId: v.id("figmaFileSnapshots"),
-    providerVersionId: v.string(),
-    commentId: v.string(),
-    parentCommentId: v.optional(v.string()),
-    userId: v.string(),
-    userHandle: v.string(),
-    message: v.string(),
-    messageTruncated: v.boolean(),
-    providerCreatedAt: v.number(),
-    resolvedAt: v.optional(v.number()),
-    orderId: v.optional(v.number()),
-    reactionCount: v.number(),
-    displayOrder: v.number(),
-  }).index("by_snapshot_order", ["snapshotId", "displayOrder"]),
-
-  figmaPreviewSets: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    snapshotId: v.id("figmaFileSnapshots"),
-    providerVersionId: v.string(),
-    state: v.union(
-      v.literal("pending"),
-      v.literal("running"),
-      v.literal("ready"),
-      v.literal("partial"),
-      v.literal("rate_limited"),
-      v.literal("failed"),
-    ),
-    discoveredNodeCount: v.number(),
-    selectedNodeCount: v.number(),
-    availableCount: v.number(),
-    failedCount: v.number(),
-    truncated: v.boolean(),
-    renderLeaseId: v.optional(v.string()),
-    renderLeaseExpiresAt: v.optional(v.number()),
-    retryAt: v.optional(v.number()),
-    failureCode: v.optional(v.string()),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-    completedAt: v.optional(v.number()),
-  })
-    .index("by_snapshot", ["snapshotId"])
-    .index("by_binding_time", ["figmaFileBindingId", "createdAt"])
-    .index("by_event_state_updated", ["eventId", "state", "updatedAt"])
-    .index("by_event_state_lease", ["eventId", "state", "renderLeaseExpiresAt",
-    ]),
-
-  figmaNodeFacts: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    figmaFileBindingId: v.id("figmaFileBindings"),
-    snapshotId: v.id("figmaFileSnapshots"),
-    previewSetId: v.id("figmaPreviewSets"),
-    providerVersionId: v.string(),
-    pageId: v.string(),
-    pageName: v.string(),
-    pageOrder: v.number(),
-    nodeId: v.string(),
-    nodeName: v.string(),
-    nodeType: v.string(),
-    nodeOrder: v.number(),
-    descendantCount: v.number(),
-    semanticHash: v.string(),
-    sourceWidth: v.optional(v.number()),
-    sourceHeight: v.optional(v.number()),
-    changeState: v.union(
-      v.literal("new"),
-      v.literal("changed"),
-      v.literal("unchanged"),
-      v.literal("unknown"),
-    ),
-    render: v.union(
-      v.object({ state: v.literal("pending") }),
-      v.object({
-        state: v.literal("available"),
-        objectKey: v.string(),
-        storageRegion: v.string(),
-        storageBucket: v.string(),
-        contentType: v.literal("image/png"),
-        byteCount: v.number(),
-        sha256: v.string(),
-        width: v.number(),
-        height: v.number(),
-      }),
-      v.object({ state: v.literal("failed"), failureCode: v.string() }),
-    ),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_preview_page_order", ["previewSetId", "pageOrder", "nodeOrder"])
-    .index("by_preview_node", ["previewSetId", "nodeId"])
-    .index("by_snapshot_page_order", ["snapshotId", "pageOrder", "nodeOrder"]),
-
-  integrationArtifacts: defineTable({
-    eventId: v.id("events"),
-    teamId: v.id("teams"),
-    provider: v.union(v.literal("github"), v.literal("figma")),
-    figmaFileBindingId: v.optional(v.id("figmaFileBindings")),
-    resourceKey: v.string(),
-    providerVersionId: v.string(),
-    objectKey: v.string(),
-    storageRegion: v.string(),
-    storageBucket: v.string(),
-    contentType: v.string(),
-    contentEncoding: v.optional(v.string()),
-    uncompressedBytes: v.number(),
-    storedBytes: v.number(),
-    sha256: v.string(),
-    state: v.union(v.literal("available"), v.literal("quarantined"), v.literal("deleted"),
-    ),
-    createdAt: v.number(),
-  })
-    .index("by_figma_binding_time", ["figmaFileBindingId", "createdAt"])
-    .index("by_team_provider_time", ["teamId", "provider", "createdAt"])
-    .index("by_object_key", ["objectKey"]),
-
-  figmaWebhookDeliveries: defineTable({
-    deliveryKey: v.string(),
-    webhookId: v.string(),
-    fileKey: v.optional(v.string()),
-    eventType: v.string(),
-    providerAt: v.number(),
-    state: v.union(v.literal("accepted"), v.literal("ignored")),
-    reasonCode: v.string(),
-    receivedAt: v.number(),
-  }).index("by_delivery", ["deliveryKey"]),
 
   operationsHealthSnapshots: defineTable({
     eventId: v.id("events"),
@@ -5814,4 +5461,62 @@ export default defineSchema({
   })
     .index("by_event_time", ["eventId", "serverTime"])
     .index("by_target_time", ["targetType", "targetId", "serverTime"]),
+
+  /**
+   * One finished round of one arcade game, by one person. A person may replay a
+   * game as often as they like, so this table keeps every round and the
+   * leaderboard reads the best of them. Scores are per person, never per team.
+   */
+  gameRounds: defineTable({
+    eventId: v.id("events"),
+    /** A `gameKeys` value from the domain catalogue. */
+    gameKey: v.string(),
+    personId: v.id("people"),
+    membershipId: v.id("eventMemberships"),
+    score: v.number(),
+    playedAt: v.number(),
+  })
+    // One person's own rounds for that game, best read from the end.
+    .index("by_event_game_person", ["eventId", "gameKey", "personId", "score"]),
+
+  /**
+   * An opened play of one game, issued before the round and spent when it is
+   * reported.
+   *
+   * The browser reports its own score, so the run is what a report is held
+   * against: it is stamped by the server when play begins, belongs to one
+   * person, and is consumed once. That gives a reported score a real elapsed
+   * time to be plausible against and stops one run being spent repeatedly.
+   */
+  gameRuns: defineTable({
+    eventId: v.id("events"),
+    gameKey: v.string(),
+    personId: v.id("people"),
+    startedAt: v.number(),
+    /** When the round was reported. Unset while the run is still open. */
+    consumedAt: v.optional(v.number()),
+  })
+    // The open runs of one person, to expire and to spend.
+    .index("by_person_game", ["personId", "gameKey", "startedAt"]),
+
+  /**
+   * One person's best round of one game, kept alongside `gameRounds` so the
+   * leaderboard reads people directly.
+   *
+   * Ranking straight from `gameRounds` would have to walk the score index and
+   * skip repeat rows, and one person with enough high replays would crowd
+   * everyone else out of any bounded scan. A row per person per game makes the
+   * board an exact read of the first `n` rows instead.
+   */
+  gamePersonBests: defineTable({
+    eventId: v.id("events"),
+    gameKey: v.string(),
+    personId: v.id("people"),
+    bestScore: v.number(),
+    achievedAt: v.number(),
+  })
+    // The leaderboard: the best of each person, highest first.
+    .index("by_event_game_score", ["eventId", "gameKey", "bestScore"])
+    // The row to compare against when a person finishes another round.
+    .index("by_event_game_person", ["eventId", "gameKey", "personId"]),
 });

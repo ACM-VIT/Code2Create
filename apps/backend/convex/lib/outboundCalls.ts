@@ -1,4 +1,5 @@
 import type { VenueConfirmationCall } from "@code2create/domain";
+import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -50,6 +51,7 @@ export async function enqueueOutboundCall(
       version: number;
     };
     authorizationGrantIds: Id<"permissionGrants">[];
+    repeatAfterDeliveryId?: Id<"outboundCallDeliveries">;
     now: number;
   },
 ) {
@@ -65,8 +67,19 @@ export async function enqueueOutboundCall(
         .eq("sourceId", args.sourceId)
         .eq("purpose", args.purpose),
     )
-    .unique();
-  if (existing) return existing._id;
+    .order("desc")
+    .first();
+  if (args.repeatAfterDeliveryId !== undefined) {
+    if (args.sourceType !== "admission_offer_reminder" || !existing || existing._id !== args.repeatAfterDeliveryId) {
+      throw new ConvexError({ code: "CALL_CHANGED", message: "Refresh the previous RSVP call before requesting another." });
+    }
+    if (!["completed", "busy", "no_answer", "failed"].includes(existing.state)) {
+      throw new ConvexError({ code: "CALL_NOT_REPEATABLE", message: "Wait for a definite call outcome before requesting another." });
+    }
+    if (args.now - existing.createdAt < 5 * 60_000) {
+      throw new ConvexError({ code: "CALL_COOLDOWN", message: "Wait five minutes between RSVP call requests." });
+    }
+  } else if (existing) return existing._id;
 
   const destinationPhoneE164 = normalizedE164Phone(args.destinationPhone);
   const deliveryId = await ctx.db.insert("outboundCallDeliveries", {

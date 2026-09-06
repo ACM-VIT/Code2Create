@@ -1,13 +1,18 @@
 import { ReviewQuestions } from "@/components/ReviewQuestions";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { ConvexError } from "convex/values";
 import { randomUUID } from "expo-crypto";
-import { CameraView, type BarcodeScanningResult,
-} from "expo-camera";
+import { CameraView, type BarcodeScanningResult } from "expo-camera";
 import { Stack, useRouter } from "expo-router";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState,
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
 } from "react";
 import {
   Alert,
@@ -25,6 +30,7 @@ import Svg, { Path } from "react-native-svg";
 
 import { PagingSetup } from "@/components/PagingSetup";
 import { ProjectEvidence } from "@/components/ProjectEvidence";
+import { ReviewDutyStatus } from "@/components/ReviewDutyStatus";
 import { ReviewAvailability } from "@/components/ReviewAvailability";
 import { useReviewerSession } from "@/components/ReviewerSession";
 import { JudgingSkeleton } from "@/components/skeletons";
@@ -69,6 +75,7 @@ import {
   type ReviewerDeviceRecord,
   type ReviewerPlatform,
 } from "@/lib/reviewer-device";
+import { useReviewWorkspace } from "@/lib/use-review-workspace";
 import { reviewWorkspaceKey } from "@/lib/review-workspace-key";
 import { describeError } from "@/lib/errors";
 import {
@@ -81,13 +88,14 @@ import { palette, radius } from "@/theme";
 
 type ReviewerNow = FunctionReturnType<typeof api.reviewer.now>;
 type ActiveReview = NonNullable<ReviewerNow["review"]>;
-type ReviewerAssignment = NonNullable<ReviewerNow["panel"]> | NonNullable<ReviewerNow["reserve"]>;
-type ReviewWorkspaceSnapshot = FunctionReturnType<typeof api.reviewer.reviewWorkspace>;
+type ReviewerAssignment =
+  NonNullable<ReviewerNow["panel"]> | NonNullable<ReviewerNow["reserve"]>;
+type ReviewWorkspaceSnapshot = FunctionReturnType<
+  typeof api.reviewer.reviewWorkspace
+>;
 type ScorecardSnapshot = FunctionReturnType<typeof api.reviewer.scorecard>;
-type WorkspaceReview = ActiveReview & ReviewWorkspaceSnapshot & { scorecard: ScorecardSnapshot };
-type WorkspaceLoadState =
-  | { key: string; value: ReviewWorkspaceSnapshot }
-  | { key: string; error: string };
+type WorkspaceReview = ActiveReview &
+  ReviewWorkspaceSnapshot & { scorecard: ScorecardSnapshot };
 type Rating = ScorecardSnapshot["ratings"][number];
 type Criterion = ReviewWorkspaceSnapshot["criteria"][number];
 type DeviceState =
@@ -104,8 +112,6 @@ type CorrectionCategory = "reviewer_error" | "technical_error" | "other";
 
 const scores = [0, 1, 2, 3, 4] as const;
 
-const returnChoices = [5, 10, 15, 20, 30, 45, 60] as const;
-
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug;
   const { reviewHeartbeatIssue } = useReviewerSession();
@@ -117,9 +123,10 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   } = useCameraAccess();
   const { state: notificationState, requestPermission: requestNotifications } =
     useReviewerPush(runtime.configuration.apnsEnvironment);
-  const [draftStorageState, setDraftStorageState] = useState<DraftStorageState>({
-    status: "loading",
-  },
+  const [draftStorageState, setDraftStorageState] = useState<DraftStorageState>(
+    {
+      status: "loading",
+    },
   );
   const [deviceState, setDeviceState] = useState<DeviceState>(() =>
     platform ? { status: "loading" } : { status: "ready", record: null },
@@ -131,18 +138,16 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   } | null>(null);
   const [pagingOpen, setPagingOpen] = useState(false);
   const createBusyRef = useRef(false);
-  const clockInAttempt = useMutationAttempt<FunctionReturnType<typeof api.reviewer.clockIn>>();
+  const clockInAttempt =
+    useMutationAttempt<FunctionReturnType<typeof api.reviewer.clockIn>>();
   const startAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.startReview>>();
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewOperations.startReview>
+    >();
   const router = useRouter();
   const registerDevice = useMutation(api.reviewer.registerDevice);
   const clockIn = useMutation(api.reviewer.clockIn);
   const startReview = useMutation(api.reviewOperations.startReview);
-  const loadReviewWorkspace = useAction(api.reviewer.reviewWorkspace);
-  const [workspaceLoad, setWorkspaceLoad] = useState<WorkspaceLoadState | null>(null,
-  );
-  const workspaceRequestRef = useRef<string | null>(null);
-
   useEffect(() => {
     if (!platform) return;
     let active = true;
@@ -184,56 +189,20 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     };
   }, [eventSlug, platform]);
 
-  const deviceRecord = deviceState.status === "ready" ? deviceState.record : null;
+  const deviceRecord =
+    deviceState.status === "ready" ? deviceState.record : null;
   const current = useQuery(
     api.reviewer.now,
-    deviceRecord ? { eventSlug, installationId: deviceRecord.installationId } : "skip",
+    deviceRecord
+      ? { eventSlug, installationId: deviceRecord.installationId }
+      : "skip",
   );
   const reviewSessionId = current?.review?.id;
-  const evidenceKey = `${reviewSessionId ?? "none"}:${current?.review?.startedAt ?? "preparation"}`;
-  useEffect(() => {
-    if (
-      !reviewSessionId ||
-      workspaceLoad?.key === evidenceKey ||
-      workspaceRequestRef.current === evidenceKey
-    ) {
-      return;
-    }
-    workspaceRequestRef.current = evidenceKey;
-    let active = true;
-    void loadReviewWorkspace({ eventSlug, reviewSessionId }).then(
-      (value) => {
-        if (active) setWorkspaceLoad({ key: evidenceKey, value });
-      },
-      (caught: unknown) => {
-        if (active) {
-          setWorkspaceLoad({
-            key: evidenceKey,
-            error: errorMessage(caught, "The fixed review evidence could not be loaded.",
-            ),
-          });
-        }
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [eventSlug, loadReviewWorkspace, reviewSessionId,
-    evidenceKey,
-    workspaceLoad?.key,
-  ]);
-  const workspace =
-    workspaceLoad && workspaceLoad.key === evidenceKey && "value" in workspaceLoad
-      ? workspaceLoad.value
-      : null;
-  const workspaceError =
-    workspaceLoad && workspaceLoad.key === evidenceKey && "error" in workspaceLoad
-      ? workspaceLoad.error
-      : null;
-  const retryWorkspace = () => {
-    workspaceRequestRef.current = null;
-    setWorkspaceLoad(null);
-  };
+  const {
+    workspace,
+    error: workspaceError,
+    retry: retryWorkspace,
+  } = useReviewWorkspace(eventSlug, current?.review);
   const scorecard = useQuery(
     api.reviewer.scorecard,
     reviewSessionId ? { eventSlug, reviewSessionId } : "skip",
@@ -242,17 +211,21 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     current?.review && workspace && scorecard
       ? { ...current.review, ...workspace, scorecard }
       : null;
-  const heartbeatStatus = current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status;
+  const heartbeatStatus =
+    current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status;
 
   const setError = (message: string | null) => {
-    setErrorState(message === null ? null : { message, raisedWhile: heartbeatStatus },
+    setErrorState(
+      message === null ? null : { message, raisedWhile: heartbeatStatus },
     );
   };
-  const visibleError = error && error.raisedWhile === heartbeatStatus ? error.message : null;
+  const visibleError =
+    error && error.raisedWhile === heartbeatStatus ? error.message : null;
   const presenceNeedsRetry =
     current?.review?.status === "awaiting_presence" &&
     !current.review.assignment.reviewerPresenceConfirmed;
-  const canClearPresenceOperation = current !== undefined && !presenceNeedsRetry;
+  const canClearPresenceOperation =
+    current !== undefined && !presenceNeedsRetry;
 
   useEffect(() => {
     if (!canClearPresenceOperation) return;
@@ -263,7 +236,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }).catch((caught: unknown) => {
       if (active) {
         setErrorState({
-          message: errorMessage(caught, "The saved presence confirmation could not be cleared.",
+          message: errorMessage(
+            caught,
+            "The saved presence confirmation could not be cleared.",
           ),
           raisedWhile: heartbeatStatus,
         });
@@ -283,7 +258,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     } catch {
       setDeviceState({
         status: "error",
-        message: "This phone could not clear its saved setup. Reinstall the reviewer app.",
+        message:
+          "This phone could not clear its saved setup. Reinstall the reviewer app.",
       });
     } finally {
       setBusy(null);
@@ -294,7 +270,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return (
       <Panel>
         <Text style={styles.heading}>Project reviews</Text>
-        <Text style={styles.body}>Open reviewer mode on an assigned Android phone or iPhone.</Text>
+        <Text style={styles.body}>
+          Open reviewer mode on an assigned Android phone or iPhone.
+        </Text>
       </Panel>
     );
   }
@@ -339,9 +317,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return (
       <Panel>
         <Text style={styles.heading}>Set up reviewer mode</Text>
-        <Text style={styles.body}>
-          This creates one installation record for the signed-in reviewer on this phone.
-        </Text>
+        <Text style={styles.body}>Set up once to join your panel.</Text>
         <Action
           disabled={busy !== null}
           label={busy === "create" ? "Preparing…" : "Set up this phone"}
@@ -372,7 +348,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     current.device.cameraReady === cameraReady &&
     current.device.notificationsReady === notificationsReady &&
     current.device.pushTokenFingerprint ===
-      (notificationState.status === "ready" ? notificationState.fingerprint : undefined) &&
+      (notificationState.status === "ready"
+        ? notificationState.fingerprint
+        : undefined) &&
     current.device.encryptedDraftReady === encryptedDraftReady;
   const panelMode = reviewerPanelMode({
     deviceIsCurrent: deviceIsCurrent && checksMeetRound,
@@ -382,47 +360,60 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   const saveDeviceRegistration = async () => {
     if (busy) return;
-    let attemptedRecord = deviceRecord;
     setBusy("register");
     setError(null);
     try {
-      const prepared = await prepareReviewerRegistration(eventSlug, deviceRecord, {
-        appBuild: runtime.configuration.appBuild,
-        cameraReady,
-        ...(notificationState.status === "ready"
-          ? {
-              push: {
-                token: notificationState.token,
-                provider: notificationState.provider,
-                environment: notificationState.environment,
-              },
-            }
-          : {}),
-        encryptedDraftReady,
-        expectedVersion: current.device?.version ?? 0,
-      },
+      const prepared = await prepareReviewerRegistration(
+        eventSlug,
+        deviceRecord,
+        {
+          appBuild: runtime.configuration.appBuild,
+          cameraReady,
+          ...(notificationState.status === "ready"
+            ? {
+                push: {
+                  token: notificationState.token,
+                  provider: notificationState.provider,
+                  environment: notificationState.environment,
+                },
+              }
+            : {}),
+          encryptedDraftReady,
+          expectedVersion: current.device?.version ?? 0,
+        },
       );
-      attemptedRecord = prepared.record;
       setDeviceState({ status: "ready", record: prepared.record });
       const command = prepared.attempt;
-      await registerDevice({
-        eventSlug,
-        installationId: prepared.record.installationId,
-        name: prepared.record.deviceName,
-        platform: prepared.record.platform,
-        appBuild: command.appBuild,
-        cameraReady: command.cameraReady,
-        ...(command.push
-          ? {
-              pushToken: command.push.token,
-              pushProvider: command.push.provider,
-              pushEnvironment: command.push.environment,
-            }
-          : {}),
-        encryptedDraftReady: command.encryptedDraftReady,
-        expectedVersion: command.expectedVersion,
-        clientOperationId: command.clientOperationId,
-      });
+      try {
+        await registerDevice({
+          eventSlug,
+          installationId: prepared.record.installationId,
+          name: prepared.record.deviceName,
+          platform: prepared.record.platform,
+          appBuild: command.appBuild,
+          cameraReady: command.cameraReady,
+          ...(command.push
+            ? {
+                pushToken: command.push.token,
+                pushProvider: command.push.provider,
+                pushEnvironment: command.push.environment,
+              }
+            : {}),
+          encryptedDraftReady: command.encryptedDraftReady,
+          expectedVersion: command.expectedVersion,
+          clientOperationId: command.clientOperationId,
+        });
+      } catch (caught) {
+        if (caught instanceof ConvexError) {
+          const record = await clearReviewerRegistration(
+            eventSlug,
+            prepared.record,
+            command.clientOperationId,
+          );
+          setDeviceState({ status: "ready", record });
+        }
+        throw caught;
+      }
       const nextRecord = await clearReviewerRegistration(
         eventSlug,
         prepared.record,
@@ -430,14 +421,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       );
       setDeviceState({ status: "ready", record: nextRecord });
     } catch (caught) {
-      if (caught instanceof ConvexError && attemptedRecord.registrationAttempt) {
-        const nextRecord = await clearReviewerRegistration(
-          eventSlug,
-          attemptedRecord,
-          attemptedRecord.registrationAttempt.clientOperationId,
-        );
-        setDeviceState({ status: "ready", record: nextRecord });
-      }
       setError(errorMessage(caught, "This phone could not be registered."));
     } finally {
       setBusy(null);
@@ -449,16 +432,19 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     setBusy("clock_in");
     setError(null);
     try {
-      await clockInAttempt.run("reviewer-clock-in", () => {
-        const args = {
-          eventSlug,
-          roundId: assignment.round.id,
-          installationId: deviceRecord.installationId,
-          expectedVersion: assignment.clockIn?.version ?? 0,
-          clientOperationId: randomUUID(),
-        };
-        return () => clockIn(args);
-      });
+      await clockInAttempt.run(
+        `reviewer-clock-in:${assignment.round.id}`,
+        () => {
+          const args = {
+            eventSlug,
+            roundId: assignment.round.id,
+            installationId: deviceRecord.installationId,
+            expectedVersion: assignment.clockIn?.version ?? 0,
+            clientOperationId: randomUUID(),
+          };
+          return () => clockIn(args);
+        },
+      );
     } catch (caught) {
       setError(errorMessage(caught, "Clock-in could not be completed."));
     } finally {
@@ -471,7 +457,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     setBusy("start");
     setError(null);
     try {
-      await startAttempt.run("review-start", () => {
+      await startAttempt.run(`review-start:${current.review.id}`, () => {
         const args = {
           eventSlug,
           reviewSessionId: current.review.id,
@@ -490,16 +476,24 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
   const pagingSettings = (
     <>
-      {panelMode !== "setup" || notificationsReady ? (
-        <QuietAction label="Paging settings" onPress={() => setPagingOpen(true)} />
+      {!current.review && (panelMode !== "setup" || notificationsReady) ? (
+        <QuietAction
+          label="Paging settings"
+          onPress={() => setPagingOpen(true)}
+        />
       ) : null}
-      <Sheet onClose={() => setPagingOpen(false)} title="Getting paged" visible={pagingOpen}>
+      <Sheet
+        onClose={() => setPagingOpen(false)}
+        title="Getting paged"
+        visible={pagingOpen && !current.review}
+      >
         <PagingSetup
           eventSlug={eventSlug}
           onDone={() => setPagingOpen(false)}
           requestPermission={requestNotifications}
           tokenMissing={
-            notificationState.status !== "ready" && notificationState.status !== "loading"
+            notificationState.status !== "ready" &&
+            notificationState.status !== "loading"
           }
           tokenRejected={current.device?.pushTokenStatus === "invalid"}
         />
@@ -507,9 +501,20 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     </>
   );
 
+  const dutyStatus = (
+    <ReviewDutyStatus
+      assignment={assignment}
+      canChangeDuty={
+        assignment?.clockIn?.status === "present" && !current.review
+      }
+      eventSlug={eventSlug}
+      installationId={deviceRecord.installationId}
+    />
+  );
+
   if (panelMode === "empty") {
     return (
-      <Panel>
+      <Panel dutyStatus={dutyStatus}>
         <ReviewAvailability eventSlug={eventSlug} />
         <Nothing>No current review duty</Nothing>
         {pagingSettings}
@@ -521,7 +526,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const clockedIn = assignment?.clockIn?.status === "present";
   const review = current.review;
   const everyonePresent = review
-    ? review.assignment.reviewerPresenceCount === review.assignment.reviewerCount
+    ? review.assignment.reviewerPresenceCount ===
+      review.assignment.reviewerCount
     : false;
 
   const liveScoring = Boolean(
@@ -542,18 +548,20 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     (review.status === "active" || review.status === "scoring")
   ) {
     return (
-      <Panel>
+      <Panel dutyStatus={dutyStatus}>
         <JudgingSkeleton />
       </Panel>
     );
   }
 
   return (
-    <Panel>
+    <Panel dutyStatus={dutyStatus}>
       {/* During live scoring the criterion is the page; the round name yields. */}
       {liveScoring ? null : (
         <Text style={styles.heading}>
-          {assignment?.round.name ?? review?.round.name ?? "Set up reviewer mode"}
+          {assignment?.round.name ??
+            review?.round.name ??
+            "Set up reviewer mode"}
         </Text>
       )}
 
@@ -585,17 +593,16 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       {round?.isPaused ? (
         <View style={styles.pauseNotice}>
           <Text style={styles.value}>New reviews are paused.</Text>
-          <Text style={styles.body}>
-            Keep this assignment open. A review already underway may continue and finish, but
-            another one cannot start yet.
-          </Text>
+          <Text style={styles.body}>Finish any review already underway.</Text>
         </View>
       ) : null}
 
-      {panelMode === "setup" ? (
+      {panelMode === "setup" && !review ? (
         <ReviewerSetup
           busy={busy !== null || notificationState.status === "loading"}
           cameraReady={cameraReady}
+          requiresCamera={round?.requiresCamera ?? false}
+          requiresPaging={round?.requiresNotifications ?? false}
           draftsReady={encryptedDraftReady}
           onOpenPaging={() => setPagingOpen(true)}
           onRegister={saveDeviceRegistration}
@@ -616,8 +623,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
       {pagingSettings}
 
-      {cameraError ? <Problem>{cameraError}</Problem> : null}
-      {notificationState.status === "unavailable" ? (
+      {cameraError && !review ? <Problem>{cameraError}</Problem> : null}
+      {notificationState.status === "unavailable" && !review ? (
         <Problem>{notificationState.message}</Problem>
       ) : null}
       {draftStorageState.status === "unavailable" ? (
@@ -637,45 +644,46 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
         />
       ) : null}
 
-      {clockedIn && !review ? (
-        <View style={styles.waiting}>
-          {assignment ? (
-            <AvailabilityControl
-              eventSlug={eventSlug}
-              installationId={deviceRecord.installationId}
-              assignment={assignment}
-            />
-          ) : null}
-        </View>
-      ) : null}
-
       {review ? (
         <>
           {liveScoring ? null : <View style={styles.rule} />}
           {workspaceReview ? (
-            <ReviewHeading review={workspaceReview} serverNow={current.serverNow} />
+            <ReviewHeading
+              review={workspaceReview}
+              serverNow={current.serverNow}
+            />
           ) : (
             <JudgingSkeleton />
           )}
           {workspaceError ? (
             <View style={styles.waiting}>
               <Problem>{workspaceError}</Problem>
-              <QuietAction label="Retry fixed evidence" onPress={retryWorkspace} />
+              <QuietAction
+                label="Retry project details"
+                onPress={retryWorkspace}
+              />
             </View>
           ) : null}
           {review.status === "awaiting_presence" ? (
-            <ConflictReport eventSlug={eventSlug} review={review} />
+            <ConflictReport
+              key={`conflict:${review.id}`}
+              eventSlug={eventSlug}
+              review={review}
+            />
           ) : null}
-          {!review.assignment.reviewerPresenceConfirmed && review.status === "awaiting_presence" ? (
+          {!review.assignment.reviewerPresenceConfirmed &&
+          review.status === "awaiting_presence" ? (
             <ReviewQrScanner
+              key={`presence:${review.id}`}
               eventSlug={eventSlug}
               installationId={deviceRecord.installationId}
               reviewSessionId={review.id}
             />
           ) : null}
-          {review.assignment.reviewerPresenceConfirmed && review.status === "awaiting_presence" ? (
+          {review.assignment.reviewerPresenceConfirmed &&
+          review.status === "awaiting_presence" ? (
             <View style={styles.waiting}>
-              <Text style={styles.value}>Your place is confirmed.</Text>
+              <Text style={styles.value}>You’re checked in.</Text>
               <Text style={styles.body}>
                 {everyonePresent
                   ? round?.isPaused
@@ -685,7 +693,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
                       : "Every reviewer is here. The panel coordinator will start."
                   : `${review.assignment.reviewerPresenceCount} of ${review.assignment.reviewerCount} reviewers are confirmed.`}
               </Text>
-              {everyonePresent && review.assignment.isCoordinator && !round?.isPaused ? (
+              {everyonePresent &&
+              review.assignment.isCoordinator &&
+              !round?.isPaused ? (
                 <Action
                   disabled={busy !== null}
                   label={busy === "start" ? "Starting…" : "Start review"}
@@ -694,7 +704,8 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
               ) : null}
             </View>
           ) : null}
-          {workspaceReview && (review.status === "active" || review.status === "scoring") ? (
+          {workspaceReview &&
+          (review.status === "active" || review.status === "scoring") ? (
             <ReviewWorkspace
               key={reviewWorkspaceKey(workspaceReview)}
               eventSlug={eventSlug}
@@ -722,25 +733,32 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 }
 
 function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
-  const options = useQuery(api.scoreGovernance.myCorrectionOptions, { eventSlug,
+  const options = useQuery(api.scoreGovernance.myCorrectionOptions, {
+    eventSlug,
   });
   const requestCorrection = useMutation(api.scoreGovernance.requestCorrection);
-  const [selectedScorecardId, setSelectedScorecardId] = useState<string | null>(null,
+  const [selectedScorecardId, setSelectedScorecardId] = useState<string | null>(
+    null,
   );
-  const [category, setCategory] = useState<CorrectionCategory>("reviewer_error");
+  const [category, setCategory] =
+    useState<CorrectionCategory>("reviewer_error");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.scoreGovernance.requestCorrection>>();
+    useMutationAttempt<
+      FunctionReturnType<typeof api.scoreGovernance.requestCorrection>
+    >();
   const requestPending = requestAttempt.hasPending("correction-request");
 
   if (options === undefined || options.length === 0) return null;
 
   const submit = async () => {
-    const option = options.find((candidate) => candidate.scorecardId === selectedScorecardId,
+    const option = options.find(
+      (candidate) => candidate.scorecardId === selectedScorecardId,
     );
-    if (!option || !option.canRequest || reason.trim().length < 5 || busy) return;
+    if (!option || !option.canRequest || reason.trim().length < 5 || busy)
+      return;
     setBusy(true);
     setError(null);
     try {
@@ -758,7 +776,8 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
       setSelectedScorecardId(null);
       setReason("");
     } catch (caught) {
-      setError(errorMessage(caught, "The correction request could not be sent."),
+      setError(
+        errorMessage(caught, "The correction request could not be sent."),
       );
     } finally {
       setBusy(false);
@@ -768,9 +787,7 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Submitted scorecards</Text>
-      <Text style={styles.body}>
-        A correction changes only your own scorecard and needs operations approval.
-      </Text>
+      <Text style={styles.body}>Changes need ops approval.</Text>
       {options.map((option) => {
         const selected = selectedScorecardId === option.scorecardId;
         return (
@@ -778,12 +795,16 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
             <Text style={styles.value}>{option.teamName}</Text>
             <Text style={styles.meta}>{option.roundName}</Text>
             {option.currentCase?.state === "requested" ? (
-              <Text style={styles.body}>Correction requested · waiting for operations</Text>
+              <Text style={styles.body}>
+                Correction requested · waiting for operations
+              </Text>
             ) : null}
             {option.currentCase?.state === "rejected" ? (
               <Text style={styles.body}>
                 Request declined
-                {option.currentCase.decisionReason ? ` · ${option.currentCase.decisionReason}` : ""}
+                {option.currentCase.decisionReason
+                  ? ` · ${option.currentCase.decisionReason}`
+                  : ""}
               </Text>
             ) : null}
             {option.currentCase?.state === "closed" ? (
@@ -830,7 +851,13 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
                 />
                 <Action
                   disabled={busy || reason.trim().length < 5}
-                  label={busy ? "Sending…" : requestPending ? "Confirm request" : "Send request"}
+                  label={
+                    busy
+                      ? "Sending…"
+                      : requestPending
+                        ? "Confirm request"
+                        : "Send request"
+                  }
                   onPress={submit}
                 />
                 <QuietAction
@@ -851,127 +878,12 @@ function CorrectionRequests({ eventSlug }: { eventSlug: string }) {
   );
 }
 
-function AvailabilityControl({
+function ConflictReport({
   eventSlug,
-  installationId,
-  assignment,
+  review,
 }: {
   eventSlug: string;
-  installationId: string;
-  assignment: NonNullable<ReviewerNow["panel"]> | NonNullable<ReviewerNow["reserve"]>;
-}) {
-  const setAvailability = useMutation(api.reviewer.setAvailability);
-  const [open, setOpen] = useState(false);
-  const [endingShift, setEndingShift] = useState(false);
-  const [reason, setReason] = useState("");
-  const [returnMinutes, setReturnMinutes] = useState<number>(10);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const availabilityAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewer.setAvailability>>();
-  const availabilityPending = availabilityAttempt.hasPending("reviewer-availability",
-  );
-
-  const clockIn = assignment.clockIn;
-  if (!clockIn) return null;
-
-  const stepAway = async () => {
-    const minutes = returnMinutes;
-    if (!endingShift && (!Number.isSafeInteger(minutes) || minutes < 1)) {
-      setError("Expected return must be a positive whole number of minutes.");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      await availabilityAttempt.run("reviewer-availability", () => {
-        const args = {
-          eventSlug,
-          roundId: assignment.round.id,
-          installationId,
-          status: endingShift
-            ? ("clocked_out" as const)
-            : ("temporarily_unavailable" as const),
-          reason,
-          ...(endingShift ? {} : { expectedReturnMinutes: minutes }),
-          expectedVersion: clockIn.version,
-          clientOperationId: randomUUID(),
-        };
-        return () => setAvailability(args);
-      });
-    } catch (caught) {
-      setError(errorMessage(caught, "Availability could not be changed."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <QuietAction label="Change duty status" onPress={() => setOpen(true)} />
-      <Sheet onClose={() => setOpen(false)} title={endingShift ? "End my shift" : "Step away"}
-        visible={open}
-      >
-        <ChipRow
-          accent={palette.judging}
-          selected={endingShift ? "end" : "break"}
-          options={[
-            ["break", "Short break"],
-            ["end", "End shift"],
-          ]}
-          onSelect={(value) => {
-            if (!busy && !availabilityPending) setEndingShift(value === "end");
-          }}
-        />
-        <Text style={styles.label}>Reason</Text>
-        <TextInput
-          editable={!busy && !availabilityPending}
-          onChangeText={(value) => {
-            setReason(value);
-            setError(null);
-          }}
-          placeholder="For example: returning after a break"
-          placeholderTextColor={palette.faint}
-          style={styles.input}
-          value={reason}
-        />
-        {!endingShift ? (
-          <>
-        <Text style={styles.label}>Expected return in minutes</Text>
-        <ChipRow
-          accent={palette.judging}
-          onSelect={(value) => {
-            if (busy || availabilityPending) return;
-            setReturnMinutes(Number(value));
-            setError(null);
-          }}
-          options={returnChoices.map((minutes) => [String(minutes), String(minutes)] as const,
-              )}
-          selected={String(returnMinutes)}
-        />
-          </>
-        ) : null}
-        <Action
-          disabled={busy || reason.trim().length < 3}
-          label={
-            busy
-              ? "Updating…"
-              : availabilityPending
-                ? "Confirm earlier update"
-                : endingShift
-                  ? "Confirm end of shift"
-                  : "Confirm step away"
-          }
-          onPress={stepAway}
-        />
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-      </Sheet>
-    </>
-  );
-}
-
-function ConflictReport({ eventSlug, review,
-}: { eventSlug: string; review: ActiveReview;
+  review: ActiveReview;
 }) {
   const reportConflict = useMutation(api.reviewer.reportConflict);
   const [open, setOpen] = useState(false);
@@ -979,7 +891,9 @@ function ConflictReport({ eventSlug, review,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const conflictAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewer.reportConflict>>();
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewer.reportConflict>
+    >();
   const conflictPending = conflictAttempt.hasPending("review-conflict");
 
   const submit = async () => {
@@ -1008,8 +922,14 @@ function ConflictReport({ eventSlug, review,
       <Pressable accessibilityRole="button" onPress={() => setOpen(true)}>
         <Text style={styles.textButton}>I have a conflict with this team</Text>
       </Pressable>
-      <Sheet onClose={() => setOpen(false)} title="Report a conflict" visible={open}>
-        <Text style={styles.body}>The team returns to the queue for another panel.</Text>
+      <Sheet
+        onClose={() => setOpen(false)}
+        title="Report a conflict"
+        visible={open}
+      >
+        <Text style={styles.body}>
+          The team returns to the queue for another panel.
+        </Text>
         <TextInput
           editable={!busy && !conflictPending}
           multiline
@@ -1113,7 +1033,9 @@ function ReviewQrScanner({
           value={manualCode}
         />
         <Action
-          disabled={manualCode.replaceAll(/[^A-Z0-9]/g, "").length !== 12 || busy}
+          disabled={
+            manualCode.replaceAll(/[^A-Z0-9]/g, "").length !== 12 || busy
+          }
           label="Confirm team code"
           onPress={() => confirm(manualCode)}
         />
@@ -1135,16 +1057,24 @@ function ReviewQrScanner({
             await requestPermission();
           }}
         />
-        <QuietAction label="Type code instead" onPress={() => setManualOpen(true)} />
+        <QuietAction
+          label="Type code instead"
+          onPress={() => setManualOpen(true)}
+        />
       </View>
     );
   }
   if (!scanning) {
     return (
       <View style={styles.waiting}>
-        <Text style={styles.body}>Ask the team to open its current review code.</Text>
+        <Text style={styles.body}>
+          Ask the team to open its current review code.
+        </Text>
         <Action label="Scan team code" onPress={() => setScanning(true)} />
-        <QuietAction label="Type code instead" onPress={() => setManualOpen(true)} />
+        <QuietAction
+          label="Type code instead"
+          onPress={() => setManualOpen(true)}
+        />
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     );
@@ -1203,17 +1133,27 @@ function ClockInControl({
     <View style={styles.waiting}>
       {!clockedIn ? (
         <Text style={styles.meta}>
-          Report {formatDeviceTime(assignment.round.reviewerReportAt)} · clock-in opens {formatDeviceTime(assignment.round.clockInOpensAt)}
+          Report {formatDeviceTime(assignment.round.reviewerReportAt)} ·
+          clock-in opens {formatDeviceTime(assignment.round.clockInOpensAt)}
         </Text>
       ) : null}
       <DutyRing
         accent={palette.judging}
         busy={busy === "clock_in"}
         {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
-        disabled={busy !== null || !checksMeetRound ||
+        disabled={
+          busy !== null ||
+          !checksMeetRound ||
           !confirmedForReview ||
-          (!clockedIn && !clockInOpen)}
-        label={clockedIn ? "On duty" : assignment.clockIn ? "Return to duty" : "Clock in"}
+          (!clockedIn && !clockInOpen)
+        }
+        label={
+          clockedIn
+            ? "On duty"
+            : assignment.clockIn
+              ? "Return to duty"
+              : "Clock in"
+        }
         on={clockedIn}
         onPress={onPress}
       />
@@ -1226,8 +1166,12 @@ function ClockInControl({
   );
 }
 
-function ReviewHeading({ review, serverNow,
-}: { review: WorkspaceReview; serverNow: number;
+function ReviewHeading({
+  review,
+  serverNow,
+}: {
+  review: WorkspaceReview;
+  serverNow: number;
 }) {
   const scoring =
     review.status === "active" ||
@@ -1272,7 +1216,8 @@ function ReviewClock({
   discussionEnded: boolean;
 }) {
   const estimatedServerNow = useEstimatedServerNow(serverNow);
-  const remainingSeconds = Math.ceil((plannedEndAt - estimatedServerNow) / 1_000,
+  const remainingSeconds = Math.ceil(
+    (plannedEndAt - estimatedServerNow) / 1_000,
   );
   const absoluteSeconds = Math.max(0, remainingSeconds);
   const hours = Math.floor(absoluteSeconds / 3_600);
@@ -1300,9 +1245,10 @@ function ReviewDiscussionControls({
   review: WorkspaceReview;
 }) {
   const end = useMutation(api.reviewOperations.endDiscussion);
-  const attempt = useMutationAttempt<
-    FunctionReturnType<typeof api.reviewOperations.endDiscussion>
-  >();
+  const attempt =
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewOperations.endDiscussion>
+    >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isDiscussion = review.status === "active";
@@ -1335,7 +1281,7 @@ function ReviewDiscussionControls({
     <View style={styles.waiting}>
       <Text style={styles.meta}>
         {isDiscussion
-          ? "End the discussion when the team has finished. Everyone can then submit their scores and final comments."
+          ? "Everyone submits after the discussion ends."
           : `Discussion finished · ${review.submittedScorecardCount} of ${review.assignment.reviewerCount} scorecards submitted`}
       </Text>
       {isDiscussion ? (
@@ -1366,13 +1312,16 @@ function ReviewWorkspace({
   review: WorkspaceReview;
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
   return (
     <View style={styles.workspace}>
       <Pressable
         accessibilityRole="button"
         hitSlop={8}
         onPress={() => setEvidenceOpen(true)}
-        style={({ pressed }) => [styles.evidenceLink, pressed ? styles.disabled : null,
+        style={({ pressed }) => [
+          styles.evidenceLink,
+          pressed ? styles.disabled : null,
         ]}
       >
         <Text style={styles.evidenceLinkText}>Project details</Text>
@@ -1380,15 +1329,39 @@ function ReviewWorkspace({
       </Pressable>
       <ReviewQuestions eventSlug={eventSlug} reviewSessionId={review.id} />
       <ReviewDiscussionControls eventSlug={eventSlug} review={review} />
-      <ScorecardEditor eventSlug={eventSlug} installationId={installationId} review={review} />
-      {review.assignment.isCoordinator && review.scorecard.status !== "correction_open" ? (
-        <CoordinatorNotes eventSlug={eventSlug} review={review} />
+      <ScorecardEditor
+        eventSlug={eventSlug}
+        installationId={installationId}
+        review={review}
+      />
+      {review.assignment.isCoordinator &&
+      review.scorecard.status !== "correction_open" ? (
+        notesOpen ||
+        (review.scorecard.status === "submitted" &&
+          !review.sharedNotesComplete) ? (
+          <CoordinatorNotes eventSlug={eventSlug} review={review} />
+        ) : (
+          <QuietAction
+            label={
+              review.sharedNotesComplete ? "Panel notes" : "Add panel notes"
+            }
+            onPress={() => setNotesOpen(true)}
+          />
+        )
       ) : null}
-      {review.scorecard.status === "submitted" && review.assignment.completionReady ? (
+      {review.scorecard.status === "submitted" &&
+      review.assignment.completionReady ? (
         <ReviewCompletion eventSlug={eventSlug} review={review} />
       ) : null}
-      <Sheet onClose={() => setEvidenceOpen(false)} title="Project details" visible={evidenceOpen}>
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.evidenceSheet}>
+      <Sheet
+        onClose={() => setEvidenceOpen(false)}
+        title="Project details"
+        visible={evidenceOpen}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          style={styles.evidenceSheet}
+        >
           <ProjectEvidence eventSlug={eventSlug} review={review} />
         </ScrollView>
       </Sheet>
@@ -1396,10 +1369,18 @@ function ReviewWorkspace({
   );
 }
 
-function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
+function ReviewCompletion({
+  eventSlug,
+  review,
+}: {
+  eventSlug: string;
+  review: WorkspaceReview;
+}) {
   const completeReview = useMutation(api.reviewOperations.completeReview);
   const completeAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewOperations.completeReview>>();
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewOperations.completeReview>
+    >();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1413,7 +1394,8 @@ function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: Wo
           eventSlug,
           reviewSessionId: review.id,
           expectedVersion: review.version,
-          reason: "Completed in the reviewer app after every panel scorecard was submitted",
+          reason:
+            "Completed in the reviewer app after every panel scorecard was submitted",
           clientOperationId: randomUUID(),
         };
         return () => completeReview(args);
@@ -1428,10 +1410,14 @@ function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: Wo
   const confirm = () => {
     Alert.alert(
       "Complete review?",
-      "Every panel scorecard is submitted. This ends the review for the whole panel and makes everyone ready for the next team.",
+      "All scores are submitted. Finish and return to the queue?",
       [
         { text: "Not yet", style: "cancel" },
-        { text: "Complete review", style: "destructive", onPress: () => void complete() },
+        {
+          text: "Complete review",
+          style: "destructive",
+          onPress: () => void complete(),
+        },
       ],
     );
   };
@@ -1440,8 +1426,8 @@ function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: Wo
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Panel finished</Text>
       <Text style={styles.body}>
-        All {review.assignment.reviewerCount} panel scorecards are submitted. Any reviewer can
-        close this review.
+        {review.assignment.reviewerCount} of {review.assignment.reviewerCount}{" "}
+        scorecards submitted.
       </Text>
       <Action
         disabled={busy}
@@ -1459,7 +1445,13 @@ function ReviewCompletion({ eventSlug, review }: { eventSlug: string; review: Wo
   );
 }
 
-function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: WorkspaceReview }) {
+function CoordinatorNotes({
+  eventSlug,
+  review,
+}: {
+  eventSlug: string;
+  review: WorkspaceReview;
+}) {
   const saveSharedNotes = useMutation(api.reviewOperations.saveSharedNotes);
   const [initialNotes] = useState(() => ({
     reviewSessionId: review.id,
@@ -1468,21 +1460,29 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
     commitments: review.sharedCommitments ?? "",
   }));
   const [findings, setFindings] = useState(review.sharedFindings ?? "");
-  const [commitments, setCommitments] = useState(review.sharedCommitments ?? "",
+  const [commitments, setCommitments] = useState(
+    review.sharedCommitments ?? "",
   );
   const [notesVersion, setNotesVersion] = useState(review.sharedNotesVersion);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [localState, setLocalState] = useState<"loading" | "ready" | "restored">("loading");
+  const [localState, setLocalState] = useState<
+    "loading" | "ready" | "restored"
+  >("loading");
   const editRevisionRef = useRef(0);
   const mountedRef = useRef(true);
-  const saveAttempt = useMutationAttempt<{ sharedNotesVersion: number; editRevision: number;
+  const saveAttempt = useMutationAttempt<{
+    sharedNotesVersion: number;
+    editRevision: number;
   }>();
-  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalCoordinatorNotes),
+  const [localDraftWriter] = useState(() =>
+    createLatestDraftWriter(saveLocalCoordinatorNotes),
   );
-  const effectiveNotesVersion = Math.max(notesVersion, review.sharedNotesVersion,
+  const effectiveNotesVersion = Math.max(
+    notesVersion,
+    review.sharedNotesVersion,
   );
 
   useLayoutEffect(() => {
@@ -1515,7 +1515,10 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
       },
       (caught: unknown) => {
         if (mountedRef.current) {
-          setLocalError(errorMessage(caught, "The encrypted panel notes could not be updated.",
+          setLocalError(
+            errorMessage(
+              caught,
+              "The encrypted panel notes could not be updated.",
             ),
           );
         }
@@ -1531,7 +1534,10 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
         if (stored) {
           setFindings(stored.findings);
           setCommitments(stored.commitments);
-          setNotesVersion(Math.max(stored.serverNotesVersion, initialNotes.serverNotesVersion,
+          setNotesVersion(
+            Math.max(
+              stored.serverNotesVersion,
+              initialNotes.serverNotesVersion,
             ),
           );
           editRevisionRef.current += 1;
@@ -1543,7 +1549,8 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
       })
       .catch((caught: unknown) => {
         if (!active) return;
-        setLocalError(errorMessage(caught, "Encrypted panel-note storage is unavailable."),
+        setLocalError(
+          errorMessage(caught, "Encrypted panel-note storage is unavailable."),
         );
         setLocalState("ready");
       });
@@ -1556,7 +1563,13 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
     if (!dirty || localState === "loading") return;
     const timer = setTimeout(() => void persistLocalNotes(), 250);
     return () => clearTimeout(timer);
-  }, [commitments, dirty, effectiveNotesVersion, findings, localState, persistLocalNotes,
+  }, [
+    commitments,
+    dirty,
+    effectiveNotesVersion,
+    findings,
+    localState,
+    persistLocalNotes,
   ]);
 
   useEffect(() => {
@@ -1605,14 +1618,15 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
           await clearLocalCoordinatorNotes(eventSlug, review.id);
           setLocalError(null);
         } catch (caught) {
-          setLocalError(errorMessage(caught, "The saved local panel notes could not be cleared.",
+          setLocalError(
+            errorMessage(
+              caught,
+              "The saved local panel notes could not be cleared.",
             ),
           );
         }
       } else {
-        setError(
-          "The earlier panel notes were confirmed. Your newer edits are still here; save again.",
-        );
+        setError("Earlier notes saved. Save your latest edits.");
       }
     } catch (caught) {
       setError(errorMessage(caught, "The shared notes could not be saved."));
@@ -1653,9 +1667,21 @@ function CoordinatorNotes({ eventSlug, review }: { eventSlug: string; review: Wo
       />
       <QuietAction
         disabled={
-          busy || localState === "loading" || !dirty || !findings.trim() || !commitments.trim()
+          busy ||
+          localState === "loading" ||
+          !dirty ||
+          !findings.trim() ||
+          !commitments.trim()
         }
-        label={busy ? "Saving…" : dirty ? "Save panel notes" : "Panel notes saved"}
+        label={
+          busy
+            ? "Saving…"
+            : !dirty &&
+                review.sharedFindings?.trim() &&
+                review.sharedCommitments?.trim()
+              ? "Panel notes saved"
+              : "Save panel notes"
+        }
         onPress={save}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -1685,31 +1711,43 @@ function ScorecardEditor({
   const [step, setStep] = useState(() =>
     firstUnratedStep(review.criteria, review.scorecard.ratings),
   );
-  const [privateNote, setPrivateNote] = useState(review.scorecard.privateNote ?? "",
+  const [privateNote, setPrivateNote] = useState(
+    review.scorecard.privateNote ?? "",
   );
   const [finalComment, setFinalComment] = useState(
     review.scorecard.finalComment ?? "",
   );
-  const [draftVersion, setDraftVersion] = useState(review.scorecard.draftVersion,
+  const [draftVersion, setDraftVersion] = useState(
+    review.scorecard.draftVersion,
   );
   const [dirty, setDirty] = useState(false);
-  const [submitted, setSubmitted] = useState(review.scorecard.status === "submitted",
+  const [submitted, setSubmitted] = useState(
+    review.scorecard.status === "submitted",
   );
   const [busy, setBusy] = useState<"save" | "submit" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [localState, setLocalState] = useState<"loading" | "ready" | "restored">("loading");
+  const [localState, setLocalState] = useState<
+    "loading" | "ready" | "restored"
+  >("loading");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitUncertain, setSubmitUncertain] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const editRevisionRef = useRef(0);
-  const saveAttempt = useMutationAttempt<{ draftVersion: number; editRevision: number;
+  const saveAttempt = useMutationAttempt<{
+    draftVersion: number;
+    editRevision: number;
   }>();
   const submitAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewer.submitScorecard>>();
-  const [localDraftWriter] = useState(() => createLatestDraftWriter(saveLocalScorecardDraft),
+    useMutationAttempt<
+      FunctionReturnType<typeof api.reviewer.submitScorecard>
+    >();
+  const [localDraftWriter] = useState(() =>
+    createLatestDraftWriter(saveLocalScorecardDraft),
   );
   const mountedRef = useRef(true);
-  const effectiveDraftVersion = Math.max(draftVersion, review.scorecard.draftVersion,
+  const effectiveDraftVersion = Math.max(
+    draftVersion,
+    review.scorecard.draftVersion,
   );
 
   useLayoutEffect(() => {
@@ -1722,7 +1760,9 @@ function ScorecardEditor({
             ratings: ratings.map((rating) => ({
               criterionId: rating.criterionId,
               score: rating.score,
-              ...(rating.evidenceNote !== undefined ? { evidenceNote: rating.evidenceNote } : {}),
+              ...(rating.evidenceNote !== undefined
+                ? { evidenceNote: rating.evidenceNote }
+                : {}),
             })),
             privateNote,
             finalComment,
@@ -1749,7 +1789,10 @@ function ScorecardEditor({
       },
       (caught: unknown) => {
         if (mountedRef.current) {
-          setLocalError(errorMessage(caught, "The encrypted local draft could not be updated.",
+          setLocalError(
+            errorMessage(
+              caught,
+              "The encrypted local draft could not be updated.",
             ),
           );
         }
@@ -1761,7 +1804,9 @@ function ScorecardEditor({
     let active = true;
     const restore = async () => {
       try {
-        const stored = await loadLocalScorecardDraft(eventSlug, initialDraft.scorecardId,
+        const stored = await loadLocalScorecardDraft(
+          eventSlug,
+          initialDraft.scorecardId,
         );
         if (!active) return;
         if (initialDraft.submitted) {
@@ -1770,27 +1815,31 @@ function ScorecardEditor({
           return;
         }
         if (stored) {
-          const restoredRatings: Rating[] = stored.ratings.flatMap((storedRating) => {
-            const criterion = initialDraft.criteria.find(
-              (candidate) => candidate.id === storedRating.criterionId,
-            );
-            if (!criterion) return [];
-            return [
-              {
-                criterionId: criterion.id,
-                score: storedRating.score,
-                ...(storedRating.evidenceNote !== undefined
-                  ? { evidenceNote: storedRating.evidenceNote }
-                  : {}),
-              },
-            ];
-          },
+          const restoredRatings: Rating[] = stored.ratings.flatMap(
+            (storedRating) => {
+              const criterion = initialDraft.criteria.find(
+                (candidate) => candidate.id === storedRating.criterionId,
+              );
+              if (!criterion) return [];
+              return [
+                {
+                  criterionId: criterion.id,
+                  score: storedRating.score,
+                  ...(storedRating.evidenceNote !== undefined
+                    ? { evidenceNote: storedRating.evidenceNote }
+                    : {}),
+                },
+              ];
+            },
           );
           setRatings(restoredRatings);
           setStep(firstUnratedStep(initialDraft.criteria, restoredRatings));
           setPrivateNote(stored.privateNote);
           setFinalComment(stored.finalComment);
-          setDraftVersion(Math.max(stored.serverDraftVersion, initialDraft.serverDraftVersion,
+          setDraftVersion(
+            Math.max(
+              stored.serverDraftVersion,
+              initialDraft.serverDraftVersion,
             ),
           );
           editRevisionRef.current += 1;
@@ -1801,7 +1850,8 @@ function ScorecardEditor({
         if (active) setLocalState("ready");
       } catch (caught) {
         if (!active) return;
-        setLocalError(errorMessage(caught, "Encrypted local draft storage is unavailable."),
+        setLocalError(
+          errorMessage(caught, "Encrypted local draft storage is unavailable."),
         );
         setLocalState("ready");
       }
@@ -1848,12 +1898,23 @@ function ScorecardEditor({
   // the draft to whichever device the reviewer signs into next.
   const saveRef = useRef<() => Promise<number | null>>(async () => null);
   useEffect(() => {
-    if (!dirty || submitted || submitUncertain || localState === "loading" || busy !== null) return;
+    if (
+      !dirty ||
+      submitted ||
+      submitUncertain ||
+      localState === "loading" ||
+      busy !== null
+    )
+      return;
     const timer = setTimeout(() => {
       void saveRef.current();
     }, 1_200);
     return () => clearTimeout(timer);
-  }, [busy, dirty, localState, privateNote,
+  }, [
+    busy,
+    dirty,
+    localState,
+    privateNote,
     finalComment,
     ratings,
     submitUncertain,
@@ -1868,7 +1929,8 @@ function ScorecardEditor({
 
   const setScore = (criterionId: Criterion["id"], score: number) => {
     setRatings((current) => {
-      const existing = current.find((rating) => rating.criterionId === criterionId,
+      const existing = current.find(
+        (rating) => rating.criterionId === criterionId,
       );
       if (!existing) return [...current, { criterionId, score }];
       return current.map((rating) =>
@@ -1878,11 +1940,15 @@ function ScorecardEditor({
     edit();
   };
 
-  const setEvidenceNote = (criterionId: Criterion["id"], evidenceNote: string,
+  const setEvidenceNote = (
+    criterionId: Criterion["id"],
+    evidenceNote: string,
   ) => {
     setRatings((current) =>
       current.map((rating) =>
-        rating.criterionId === criterionId ? { ...rating, evidenceNote } : rating,
+        rating.criterionId === criterionId
+          ? { ...rating, evidenceNote }
+          : rating,
       ),
     );
     edit();
@@ -1918,7 +1984,8 @@ function ScorecardEditor({
           await clearLocalScorecardDraft(eventSlug, review.scorecard.id);
           setLocalError(null);
         } catch (caught) {
-          setLocalError(errorMessage(caught, "The saved local draft could not be cleared."),
+          setLocalError(
+            errorMessage(caught, "The saved local draft could not be cleared."),
           );
         }
         return result.draftVersion;
@@ -1961,7 +2028,10 @@ function ScorecardEditor({
         await clearLocalScorecardDraft(eventSlug, review.scorecard.id);
         setLocalError(null);
       } catch (caught) {
-        setLocalError(errorMessage(caught, "The submitted local draft could not be cleared.",
+        setLocalError(
+          errorMessage(
+            caught,
+            "The submitted local draft could not be cleared.",
           ),
         );
       }
@@ -1979,7 +2049,8 @@ function ScorecardEditor({
       await submit(effectiveDraftVersion);
       return;
     }
-    const problem = submissionProblem(review.criteria, ratings) ??
+    const problem =
+      submissionProblem(review.criteria, ratings) ??
       (review.scorecard.requiresFinalComment && finalComment.trim().length < 3
         ? "Leave a final comment about the review before submitting."
         : null);
@@ -1991,10 +2062,13 @@ function ScorecardEditor({
     if (version === null) return;
     Alert.alert(
       "Submit scorecard?",
-      "Your scores become fixed. Only an audited correction opened by operations can change them.",
+      "Scores lock after submission. Ask ops if a correction is needed.",
       [
         { text: "Keep editing", style: "cancel" },
-        { text: "Submit", style: "destructive", onPress: () => void submit(version),
+        {
+          text: "Submit",
+          style: "destructive",
+          onPress: () => void submit(version),
         },
       ],
     );
@@ -2005,13 +2079,11 @@ function ScorecardEditor({
       <View style={styles.outcome}>
         <DrawnMark kind="check" />
         <Text style={styles.outcomeTitle}>Scorecard submitted</Text>
-        <Text style={styles.outcomeBody}>
-          Your scores are locked, and stay yours alone until release.
-        </Text>
+        <Text style={styles.outcomeBody}>Scores saved.</Text>
         <Text style={styles.outcomeNext}>
           {review.assignment.reviewerCount > 1
-            ? "When the rest of the panel has submitted, the next review takes over this screen on its own."
-            : "The next review takes over this screen on its own."}
+            ? `${review.submittedScorecardCount} of ${review.assignment.reviewerCount} scorecards submitted`
+            : "Ready to complete this review."}
         </Text>
       </View>
     );
@@ -2019,7 +2091,8 @@ function ScorecardEditor({
 
   const correcting = review.scorecard.status === "correction_open";
   // A background save must never lock the inputs; only submitting does.
-  const locked = busy === "submit" || localState === "loading" || submitUncertain;
+  const locked =
+    busy === "submit" || localState === "loading" || submitUncertain;
   const summaryStep = review.criteria.length;
   const criterion = step < summaryStep ? review.criteria[step] : undefined;
   const rating = criterion
@@ -2034,10 +2107,14 @@ function ScorecardEditor({
     <View style={styles.scorecard}>
       <View style={styles.stepMeter}>
         {review.criteria.map((candidate, index) => {
-          const rated = ratings.some((entry) => entry.criterionId === candidate.id,
+          const rated = ratings.some(
+            (entry) => entry.criterionId === candidate.id,
           );
           return (
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${candidate.label}, ${index + 1} of ${review.criteria.length}`}
+              accessibilityState={{ selected: index === step }}
               hitSlop={8}
               key={candidate.id}
               onPress={() => setStep(index)}
@@ -2087,7 +2164,11 @@ function ScorecardEditor({
           {error ? <Problem>{error}</Problem> : null}
           <View style={styles.stepDock}>
             <Action
-              disabled={rating === undefined || stepNoteMissing || localState === "loading"}
+              disabled={
+                rating === undefined ||
+                stepNoteMissing ||
+                localState === "loading"
+              }
               label={step + 1 === summaryStep ? "Review scores" : "Next"}
               onPress={() => setStep(step + 1)}
             />
@@ -2098,13 +2179,16 @@ function ScorecardEditor({
         </View>
       ) : (
         <View style={styles.criterion}>
-          <Meta>Every score, before it locks</Meta>
+          <Meta>Review your scores</Meta>
           <View>
             {review.criteria.map((candidate, index) => {
-              const entry = ratings.find((found) => found.criterionId === candidate.id,
+              const entry = ratings.find(
+                (found) => found.criterionId === candidate.id,
               );
               return (
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${candidate.label}: ${entry ? entry.score : "not rated"}`}
                   key={candidate.id}
                   onPress={() => setStep(index)}
                   style={({ pressed }) => [
@@ -2114,7 +2198,9 @@ function ScorecardEditor({
                   ]}
                 >
                   <Text style={styles.summaryLabel}>{candidate.label}</Text>
-                  <Text style={entry ? styles.summaryScore : styles.summaryMissing}>
+                  <Text
+                    style={entry ? styles.summaryScore : styles.summaryMissing}
+                  >
                     {entry ? entry.score : "—"}
                   </Text>
                 </Pressable>
@@ -2163,7 +2249,9 @@ function ScorecardEditor({
             <Problem>{error}</Problem>
           ) : null}
           <Action
-            disabled={busy === "submit" || localState === "loading" ||
+            disabled={
+              busy === "submit" ||
+              localState === "loading" ||
               review.status === "active"
             }
             label={
@@ -2190,8 +2278,12 @@ const drawnMarkPaths = {
 } as const;
 
 /** A verdict disc that springs in, then draws its stroke. */
-function DrawnMark({ kind, size = 84,
-}: { kind: "check" | "cross"; size?: number;
+function DrawnMark({
+  kind,
+  size = 84,
+}: {
+  kind: "check" | "cross";
+  size?: number;
 }) {
   const [pop] = useState(() => new Animated.Value(0));
   const [draw] = useState(() => new Animated.Value(0));
@@ -2224,19 +2316,30 @@ function DrawnMark({ kind, size = 84,
           borderRadius: size / 2,
           backgroundColor: kind === "check" ? palette.judging : palette.urgent,
           opacity: pop,
-          transform: [{ scale: pop.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1],
+          transform: [
+            {
+              scale: pop.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.4, 1],
               }),
             },
           ],
         },
       ]}
     >
-      <Svg fill="none" height={size * 0.58} viewBox="0 0 24 24" width={size * 0.58}>
+      <Svg
+        fill="none"
+        height={size * 0.58}
+        viewBox="0 0 24 24"
+        width={size * 0.58}
+      >
         <AnimatedPath
           d={mark.d}
           stroke={kind === "check" ? palette.onJudging : palette.onUrgent}
           strokeDasharray={mark.length}
-          strokeDashoffset={draw.interpolate({ inputRange: [0, 1], outputRange: [mark.length, 0],
+          strokeDashoffset={draw.interpolate({
+            inputRange: [0, 1],
+            outputRange: [mark.length, 0],
           })}
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -2250,13 +2353,25 @@ function DrawnMark({ kind, size = 84,
 /** The step to open on: the first unscored criterion, or the summary. */
 function firstUnratedStep(criteria: Criterion[], ratings: Rating[]) {
   const gap = criteria.findIndex(
-    (criterion) => !ratings.some((rating) => rating.criterionId === criterion.id),
+    (criterion) =>
+      !ratings.some((rating) => rating.criterionId === criterion.id),
   );
   return gap === -1 ? criteria.length : gap;
 }
 
-function Panel({ children }: { children: React.ReactNode }) {
-  return <View style={styles.panel}>{children}</View>;
+function Panel({
+  children,
+  dutyStatus,
+}: {
+  children: React.ReactNode;
+  dutyStatus?: React.ReactNode;
+}) {
+  return (
+    <View style={styles.panel}>
+      <Fragment>{children}</Fragment>
+      {dutyStatus}
+    </View>
+  );
 }
 
 function reviewerPlatform(): ReviewerPlatform | null {
@@ -2294,9 +2409,11 @@ function anchorText(criterion: Criterion, score: number) {
 }
 
 function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
-  if (ratings.length !== criteria.length) return "Rate every assigned criterion before submitting.";
+  if (ratings.length !== criteria.length)
+    return "Rate every assigned criterion before submitting.";
   for (const criterion of criteria) {
-    const rating = ratings.find((candidate) => candidate.criterionId === criterion.id,
+    const rating = ratings.find(
+      (candidate) => candidate.criterionId === criterion.id,
     );
     if (!rating) return "Rate every assigned criterion before submitting.";
     if (
@@ -2311,9 +2428,13 @@ function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
 
 function dutyStateDetail(current: ReviewerNow) {
   if (current.reserve) {
-    return current.reserve.status === "paged" ? "You have been paged" : "On call";
+    return current.reserve.status === "paged"
+      ? "You have been paged"
+      : "On call";
   }
-  return "Waiting for a team";
+  return current.panel
+    ? `${current.panel.name} · waiting for a team`
+    : "Waiting for a team";
 }
 
 function errorMessage(caught: unknown, fallback: string) {
@@ -2355,7 +2476,11 @@ const styles = StyleSheet.create({
   body: { color: palette.muted, fontSize: 15, lineHeight: 22 },
   value: { color: palette.text, fontSize: 16, lineHeight: 22 },
   idea: { color: palette.text, fontSize: 18, lineHeight: 26 },
-  question: { color: palette.muted, fontSize: 14, lineHeight: 21, marginTop: 8,
+  question: {
+    color: palette.muted,
+    fontSize: 14,
+    lineHeight: 21,
+    marginTop: 8,
   },
   guidance: { color: palette.faint, fontSize: 13, lineHeight: 19 },
   meta: { color: palette.faint, fontSize: 13, lineHeight: 18 },
@@ -2393,9 +2518,16 @@ const styles = StyleSheet.create({
     borderColor: palette.urgent,
     borderRadius: radius.tile,
   },
-  textButton: { color: palette.muted, fontSize: 14, textDecorationLine: "underline",
+  textButton: {
+    color: palette.muted,
+    fontSize: 14,
+    textDecorationLine: "underline",
   },
-  camera: { width: "100%", height: 330, borderRadius: radius.tile, overflow: "hidden",
+  camera: {
+    width: "100%",
+    height: 330,
+    borderRadius: radius.tile,
+    overflow: "hidden",
   },
   contextBar: {
     flexDirection: "row",
@@ -2404,7 +2536,11 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   contextText: { flex: 1, gap: 3 },
-  contextTeam: { color: palette.text, fontSize: 18, fontWeight: "600", letterSpacing: -0.3,
+  contextTeam: {
+    color: palette.text,
+    fontSize: 18,
+    fontWeight: "600",
+    letterSpacing: -0.3,
   },
   contextDetail: { color: palette.muted, fontSize: 13 },
   clockChip: {
@@ -2447,16 +2583,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 12,
   },
-  evidenceRow: { borderTopWidth: 1, borderTopColor: palette.tile, paddingTop: 10, gap: 3,
+  evidenceRow: {
+    borderTopWidth: 1,
+    borderTopColor: palette.tile,
+    paddingTop: 10,
+    gap: 3,
   },
   criterion: { paddingTop: 6, gap: 10 },
   stepMeter: { flexDirection: "row", gap: 6 },
-  stepSegment: { flex: 1, height: 4, borderRadius: 2, backgroundColor: palette.tile,
+  stepSegment: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: palette.tile,
   },
   stepSegmentDone: { backgroundColor: palette.judging },
   stepSegmentCurrent: { backgroundColor: palette.strong },
   scorecard: { gap: 12, paddingTop: 4 },
-  outcome: { alignItems: "center", gap: 10, paddingVertical: 36, paddingHorizontal: 12,
+  outcome: {
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 36,
+    paddingHorizontal: 12,
   },
   outcomeTitle: {
     marginTop: 10,
@@ -2465,7 +2613,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     letterSpacing: -0.4,
   },
-  outcomeBody: { color: palette.muted, fontSize: 15, lineHeight: 21, textAlign: "center",
+  outcomeBody: {
+    color: palette.muted,
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: "center",
   },
   outcomeNext: {
     marginTop: 14,
@@ -2475,7 +2627,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   drawnDisc: { alignItems: "center", justifyContent: "center" },
-  failBlock: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 6,
+  failBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingVertical: 6,
   },
   failText: { flex: 1, gap: 3 },
   failTitle: { color: palette.text, fontSize: 16, fontWeight: "600" },
@@ -2487,7 +2643,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 16,
   },
-  summaryRowRule: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: palette.strong,
+  summaryRowRule: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.strong,
   },
   summaryPressed: { opacity: 0.6 },
   summaryLabel: { flex: 1, color: palette.text, fontSize: 16 },
@@ -2498,7 +2656,11 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   summaryMissing: { color: palette.faint, fontSize: 20 },
-  criterionLabel: { color: palette.text, fontSize: 19, fontWeight: "600", letterSpacing: -0.3,
+  criterionLabel: {
+    color: palette.text,
+    fontSize: 19,
+    fontWeight: "600",
+    letterSpacing: -0.3,
   },
   criterionQuestion: { color: palette.muted, fontSize: 16, lineHeight: 22 },
   scoreRow: { flexDirection: "row", gap: 8, marginTop: 4 },

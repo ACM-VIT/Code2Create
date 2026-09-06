@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { ReviewQuestionSource } from "@code2create/domain";
 
 /** Preserve numeric constants, source structure, and node IDs; remove contacts and credentials. */
@@ -107,86 +106,10 @@ export function reviewSourceBatches(
       size = 0;
       bytes = 0;
     }
-    if (source.image) {
-      if (batch.length) batches.push(batch);
-      batches.push([source]);
-      batch = [];
-      size = 0;
-      bytes = 0;
-      continue;
-    }
     batch.push(source);
     size += source.text.length;
     bytes += sourceBytes;
   }
   if (batch.length) batches.push(batch);
   return batches;
-}
-const figmaNode = z
-  .object({
-    id: z.string(),
-    type: z.string(),
-    name: z.string().optional(),
-    children: z.array(z.unknown()).optional(),
-  })
-  .loose();
-/** Every node, complete text, properties, interactions, and parent relationship. */
-export function figmaQuestionNodes(
-  raw: string,
-  source: Omit<ReviewQuestionSource, "text" | "coverage">,
-) {
-  const file = z
-    .object({
-      document: z.unknown(),
-      components: z.unknown().optional(),
-      componentSets: z.unknown().optional(),
-      styles: z.unknown().optional(),
-    })
-    .parse(JSON.parse(raw));
-  const sources: ReviewQuestionSource[] = [
-    {
-      ...source,
-      id: `${source.id}:metadata`,
-      text: reviewSourceText(
-        JSON.stringify({
-          components: file.components,
-          componentSets: file.componentSets,
-          styles: file.styles,
-          scope:
-            "Complete stored document structure. Rendered visual appearance and runtime behavior have not been inspected.",
-        }),
-      ),
-      coverage: "captured",
-    },
-  ];
-  const stack: { value: unknown; parentId: string | null }[] = [
-    { value: file.document, parentId: null },
-  ];
-  while (stack.length) {
-    const item = stack.pop();
-    if (!item) break;
-    const node = figmaNode.parse(item.value);
-    const { children, ...properties } = node;
-    sources.push({
-      ...source,
-      id: `${source.id}:node:${node.id}`,
-      title:
-        `${source.title.slice(0, 350)} · ${node.name ?? node.type} (${node.id})`.slice(
-          0,
-          500,
-        ),
-      ...(source.url
-        ? {
-            url: `${source.url}${source.url.includes("?") ? "&" : "?"}node-id=${encodeURIComponent(node.id)}`,
-          }
-        : {}),
-      text: reviewSourceText(
-        JSON.stringify({ parentId: item.parentId, ...properties }),
-      ),
-      coverage: "captured",
-    });
-    for (let i = (children?.length ?? 0) - 1; i >= 0; i--)
-      stack.push({ value: children?.[i], parentId: node.id });
-  }
-  return sources;
 }

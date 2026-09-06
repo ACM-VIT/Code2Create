@@ -29,6 +29,7 @@ import {
 } from "./lib/operationsAttentionDetectors";
 import type { AttentionProposal } from "./lib/operationsAttentionProposals";
 import {
+  defaultReviewScoringBufferSeconds,
   maximumReviewPanelsPerRound,
   maximumReviewersPerPanel,
   maximumReviewTeamsPerEvent,
@@ -181,7 +182,7 @@ async function readSweepRoundContext(
     .withIndex("by_round", (q) => q.eq("roundId", round._id))
     .unique();
   return { event, round, isPaused: pause !== null,
-    scoringBufferSeconds: queuePolicy?.scoringBufferSeconds ?? 90,
+    scoringBufferSeconds: queuePolicy?.scoringBufferSeconds ?? defaultReviewScoringBufferSeconds,
   };
 }
 

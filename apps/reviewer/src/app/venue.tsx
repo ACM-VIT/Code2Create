@@ -103,9 +103,7 @@ export default function VenueScreen() {
   if (!venue.installationId || state?.eligible === false)
     return (
       <DutyScreen title="Venue">
-        <Body>
-          Finish your reviewer profile and phone registration in Judging first.
-        </Body>
+        <Body>Complete your phone setup in Judging.</Body>
         <Action
           label="Open Judging"
           onPress={() => router.push("/duty/reviews")}
@@ -144,17 +142,9 @@ export default function VenueScreen() {
       </View>
       {error ? <Problem>{error}</Problem> : null}
       {venue.issue && localTracking ? <Problem>{venue.issue}</Problem> : null}
-      {!active ? (
-        <Body>
-          Organizers need to enable venue checks for the live event window.
-        </Body>
-      ) : null}
+      {!active ? <Meta>Venue checks are off.</Meta> : null}
       {!state.deviceReady ? (
         <Section title="Set up your reviewer phone">
-          <Body>
-            Register this phone in Judging to enable location checks and
-            departure notices.
-          </Body>
           <Action
             label="Open Judging"
             onPress={() => router.push("/duty/reviews")}
@@ -164,37 +154,32 @@ export default function VenueScreen() {
       {active && state.deviceReady && policy ? (
         <>
           {status === "left" ? (
-            <Section title="Please inform the review desk">
-              <Body>
-                You have been outside longer than {policy.absenceGraceMinutes}{" "}
-                minutes. Report leaving below, or refresh your location if you
-                are back. We may call {policy.callDelayMinutes} minutes after
-                the reminder if this stays unresolved.
-              </Body>
-            </Section>
+            <Problem>
+              Outside the venue? Report leaving below, or refresh if you’re
+              back.
+            </Problem>
           ) : null}
           {status === "reported_left" ? (
             <Section title="The desk has been informed">
               <Body>
                 {state.departure?.reason ?? "Your departure is recorded."}
               </Body>
-              <Meta>
-                You’re off duty. When you’re back, clock in from Reviews.
-              </Meta>
+              <Meta>Clock in from Judging when you return.</Meta>
               <Action
-                label="Go to Reviews"
+                label="Open Judging"
                 onPress={() => router.push("/duty/reviews")}
               />
             </Section>
           ) : (
             <Section title="Leaving the venue?">
-              <Body>
-                {state?.reviewInProgress
-                  ? "Finish this review and its scorecards before leaving."
-                  : "You’ll be taken off duty so your place can be covered. Your reason is visible to the desk."}
-              </Body>
+              {state.reviewInProgress ? (
+                <Meta>
+                  Finish this review and its scorecards before leaving.
+                </Meta>
+              ) : null}
               {leaving ? (
                 <>
+                  <Meta>This ends your duty and informs the desk.</Meta>
                   <Text style={styles.inputLabel}>Reason for leaving</Text>
                   <TextInput
                     accessibilityLabel="Reason for leaving"
@@ -204,7 +189,7 @@ export default function VenueScreen() {
                     maxLength={300}
                     multiline
                     editable={!busy}
-                    placeholder="For example, taking a meal break"
+                    placeholder="Meal break, heading home…"
                     placeholderTextColor={palette.muted}
                   />
                   <Action
@@ -247,11 +232,11 @@ export default function VenueScreen() {
             </Section>
           )}
           <Section title="Location checks">
-            <Body>
-              Allow location to check whether you are at this venue. Organizers
-              see your venue status and last check time. Precise coordinates and
-              travel history are not saved.
-            </Body>
+            {!venue.localConfigured ? (
+              <Meta>
+                Shares venue status with ops. Coordinates aren’t saved.
+              </Meta>
+            ) : null}
             {localTracking ? (
               <>
                 <Action
@@ -261,32 +246,31 @@ export default function VenueScreen() {
                 />
                 {!venue.backgroundEnabled ? (
                   <>
-                    <Meta>
-                      {venue.backgroundGranted
-                        ? "Location is allowed in the background. Start checks to monitor the venue with the app closed."
-                        : "For checks with the app closed, choose ‘Allow all the time’ or ‘Always’ in the next permission screen. A location indicator stays visible during checks."}
-                    </Meta>
+                    {!venue.backgroundGranted ? (
+                      <Meta>Choose “Always” or “Allow all the time”.</Meta>
+                    ) : null}
                     <Action
                       disabled={busy}
-                      label={venue.backgroundGranted ? "Start background checks" : "Allow background checks"}
+                      label={
+                        venue.backgroundGranted
+                          ? "Start background checks"
+                          : "Allow background checks"
+                      }
                       onPress={() => run(enableBackgroundVenueTracking)}
                     />
                   </>
                 ) : (
-                  <Meta>
-                    Background checks are enabled until the event window ends.
-                  </Meta>
+                  <Meta>Background checks on</Meta>
                 )}
-                <QuietAction
-                  disabled={busy}
-                  label="Stop location checks"
-                  onPress={() => run(disableVenueTracking)}
-                />
               </>
             ) : (
               <Action
                 disabled={busy}
-                label={venue.foregroundGranted ? "Enable venue checks" : "Allow location and check venue"}
+                label={
+                  venue.foregroundGranted
+                    ? "Enable venue checks"
+                    : "Allow location and check venue"
+                }
                 onPress={() =>
                   run(async () => {
                     if (!venue.installationId || !venue.ownerId) return;
@@ -301,14 +285,17 @@ export default function VenueScreen() {
                 }
               />
             )}
+            {venue.localConfigured ? (
+              <QuietAction
+                disabled={busy}
+                label="Stop location checks"
+                onPress={() => run(disableVenueTracking)}
+              />
+            ) : null}
             <QuietAction
               label="Open location settings"
               onPress={() => run(() => Linking.openSettings())}
             />
-            <Meta>
-              Without fresh location, your status becomes unavailable. You can
-              still report leaving.
-            </Meta>
           </Section>
           <VenueCallSetting eventSlug={eventSlug} />
         </>

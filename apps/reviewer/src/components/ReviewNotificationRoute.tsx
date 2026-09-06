@@ -5,11 +5,13 @@ import { Platform } from "react-native";
 import { z } from "zod";
 
 import { useReviewerSession } from "@/components/ReviewerSession";
+import "@/lib/push-notifications";
 
-const availabilityNotification = z.object({
+const reviewNotification = z.object({
   kind: z.enum([
     "reviewer_availability_confirmation",
     "reviewer_shift_reminder",
+    "reviewer_venue_absence",
   ]),
 });
 
@@ -27,23 +29,28 @@ export function ReviewNotificationRoute() {
     ) {
       return;
     }
-    const openAvailability = (response: Notifications.NotificationResponse) => {
+    const openReview = (response: Notifications.NotificationResponse) => {
+      const notification = reviewNotification.safeParse(
+        response.notification.request.content.data,
+      );
       if (
         response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER ||
-        !availabilityNotification.safeParse(
-          response.notification.request.content.data,
-        ).success
+        !notification.success
       ) {
         return;
       }
       // Fetch the signed-in reviewer's current requests instead of trusting a push's round state.
-      router.navigate("/duty/reviews");
+      router.navigate(
+        notification.data.kind === "reviewer_venue_absence"
+          ? "/venue"
+          : "/duty/reviews",
+      );
       Notifications.clearLastNotificationResponse();
     };
     const subscription =
-      Notifications.addNotificationResponseReceivedListener(openAvailability);
+      Notifications.addNotificationResponseReceivedListener(openReview);
     const response = Notifications.getLastNotificationResponse();
-    if (response) openAvailability(response);
+    if (response) openReview(response);
     return () => subscription.remove();
   }, [canReview, navigation?.key, router]);
 

@@ -32,7 +32,8 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     .filter((time) => time > now)
     .sort((left, right) => left - right)[0];
   const boundarySoon = nextBoundary !== undefined && nextBoundary - now < 60 * 60_000;
-  const musicScore = !music.eligible ? 5 : music.window === null ? 20 : music.nowPlaying ? 88 : 80;
+  // Between windows the room is still worth a seat, ahead of anything idle.
+  const musicScore = !music.eligible ? 5 : music.window === null ? 30 : music.nowPlaying ? 88 : 80;
   const bothConnected = integrations.github.connected && integrations.figma.connected;
   const openCheckpoint = updates.checkpoints.some((checkpoint) => checkpoint.state === "open" || checkpoint.state === "late");
   const upcomingCheckpoint = updates.checkpoints.some((checkpoint) => checkpoint.state === "upcoming");
@@ -47,7 +48,9 @@ export function tileRelevance(models: DashboardModels): Candidate[] {
     { key: "updates", score: !updates.available ? 10 : openCheckpoint ? 92 : upcomingCheckpoint ? 55 : 15, prefer: ["tall", "box"] },
     ...(reviewScore > 0 ? [{ key: "review" as const, score: reviewScore, prefer: ["wide", "box"] as const }] : []),
     { key: "queues", score: queuesScore, prefer: ["box", "tall"] },
-    { key: "help", score: help.support && help.support.open > 0 ? 50 : 35, prefer: ["box", "wide"] },
+    // Help earns a seat only while a support thread is open; otherwise it
+    // waits behind every tile that has something of the night to show.
+    { key: "help", score: help.support && help.support.open > 0 ? 50 : 8, prefer: ["box", "wide"] },
     { key: "benefits", score: !benefits.available ? 5 : benefits.benefits.length > 0 ? 70 : 8, prefer: ["box", "tall"] },
   ];
 }

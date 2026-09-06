@@ -1,3 +1,4 @@
+import { isRoundReviewer } from "./reviewRoster";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -24,7 +25,8 @@ export async function currentShiftReminder(
     !["published", "open"].includes(round.status) ||
     round.staffing.assignmentReminderSeconds === 0 ||
     now >= shiftStartsAt ||
-    now >= round.endsAt
+    now >= round.endsAt ||
+    !(await isRoundReviewer(ctx, round._id, confirmation.personId))
   )
     return null;
   const [clockIn, subject] = await Promise.all([

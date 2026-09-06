@@ -48,104 +48,47 @@ afterAll(() => {
 });
 
 describe("participant review queue projection", () => {
-  test("new Figma renders refresh future preparation while keeping earlier captured evidence fixed", async () => {
+  test("Figma links are versioned, permissioned and excluded from agent evidence", async () => {
     const backend = seededBackend();
     const fixture = await seedQueueFixture(backend);
+    const actor = asParticipant(backend, fixture);
+    const args = { eventSlug: fixture.eventSlug, fileUrl: "https://www.figma.com/design/Abc123/Project?node-id=1-2", expectedVersion: 0, clientOperationId: "figma-link-save" };
+    expect(await actor.query(api.figmaLinks.current, { eventSlug: fixture.eventSlug })).toBeNull();
+    await expect(actor.mutation(api.figmaLinks.save, args)).rejects.toThrow("does not have permission");
+    await backend.run(async ctx => {
+      for (const permissionKey of ["integration.read", "integration.figma.manage"] as const) await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId, personId: fixture.personId, eventAccessSubjectId: fixture.subjectId,
+        permissionKey, scopeType: "team", scopeId: fixture.teamId, sourceType: "manual", sourceId: permissionKey,
+        grantedByPersonId: fixture.personId, reason: "Participant link test",
+      });
+    });
+    expect(await actor.mutation(api.figmaLinks.save, args)).toEqual({ version: 1 });
+    expect(await actor.mutation(api.figmaLinks.save, args)).toEqual({ version: 1 });
+    expect(await actor.query(api.figmaLinks.current, { eventSlug: fixture.eventSlug })).toEqual({ fileUrl: args.fileUrl, version: 1, canEdit: true });
+    await expect(actor.mutation(api.figmaLinks.save, { ...args, clientOperationId: "stale-edit" })).rejects.toThrow("A teammate changed");
+    expect(await backend.run(ctx => ctx.db.query("teamFigmaLinks").collect())).toHaveLength(1);
     await seedAwaitingReview(backend, fixture);
     await prepareAutomaticQueue(backend, fixture);
-    const figma = await seedQuestionFigma(backend, fixture);
     const prepared = await prepareQuestionFixture(backend, fixture, false);
-    expect(prepared.context.figma[0]?.previews).toEqual([]);
-    await backend.run(async (ctx) => {
-      await ctx.db.patch(figma.factId, {
-        render: {
-          state: "available",
-          objectKey: "captured/figma.png",
-          storageRegion: "ap-south-1",
-          storageBucket: "test-evidence",
-          contentType: "image/png",
-          byteCount: 68,
-          sha256: "a".repeat(64),
-          width: 1,
-          height: 1,
-        },
-      });
-      await ctx.db.patch(figma.previewSetId, {
-        state: "ready",
-        availableCount: 1,
-      });
-    });
-    // The in-progress job continues to use exactly what it captured.
-    expect(
-      (
-        await backend.query(internal.reviewQuestions.sourceContext, {
-          jobId: prepared.jobId,
-          attempt: 1,
-        })
-      )?.figma[0]?.previews,
-    ).toEqual([]);
-    const nextId = await backend.run(async (ctx) => {
+    const job = await backend.run(ctx => ctx.db.get(prepared.jobId));
+    expect(job?.snapshot).toMatchObject({ figmaFileUrl: args.fileUrl, expectedResourceCount: 0 });
+    expect(JSON.stringify(prepared.context)).not.toContain(args.fileUrl);
+    expect(prepared.context).not.toHaveProperty("figma");
+    expect(JSON.parse(prepared.context.projectText)).toMatchObject({ officialEventStartsAt: new Date(fixture.now - 60000).toISOString() });
+    await actor.mutation(api.figmaLinks.save, { ...args, fileUrl: "", expectedVersion: 1, clientOperationId: "clear-link" });
+    expect(await actor.query(api.figmaLinks.current, { eventSlug: fixture.eventSlug })).toEqual({ fileUrl: null, version: 2, canEdit: true });
+    // A review retains the link selected at preparation; subsequent edits do not inspect any file.
+    expect((await backend.run(ctx => ctx.db.get(prepared.jobId)))?.snapshot.figmaFileUrl).toBe(args.fileUrl);
+    const sameQuestionSet = await backend.run(async ctx => {
       const round = await ctx.db.get(fixture.roundId);
       const team = await ctx.db.get(fixture.teamId);
       if (!round || !team) throw new Error("Review fixture missing");
       return prepareQuestionSet(ctx, round, team);
     });
-    if (!nextId) throw new Error("Updated question set missing");
-    expect(nextId).not.toBe(prepared.jobId);
-    await backend.mutation(internal.reviewQuestions.claim, { jobId: nextId });
-    const context = await backend.query(
-      internal.reviewQuestions.sourceContext,
-      { jobId: nextId, attempt: 1 },
-    );
-    expect(context?.sourceChecksum).not.toBe(prepared.context.sourceChecksum);
-    expect(context?.figma[0]?.previews).toEqual([
-      expect.objectContaining({ factId: figma.factId, sha256: "a".repeat(64) }),
-    ]);
-    // Changed storage contents cannot silently replace a captured image.
-    await backend.run(async (ctx) => {
-      const fact = await ctx.db.get(figma.factId);
-      if (!fact || fact.render.state !== "available")
-        throw new Error("Render missing");
-      await ctx.db.patch(fact._id, {
-        render: { ...fact.render, sha256: "b".repeat(64) },
-      });
-    });
-    expect(
-      (
-        await backend.query(internal.reviewQuestions.sourceContext, {
-          jobId: nextId,
-          attempt: 1,
-        })
-      )?.figma[0]?.previews,
-    ).toEqual([]);
-    // Ops can keep structural Figma analysis while disabling image inspection.
-    await backend.run(async (ctx) => {
-      const policy = await ctx.db
-        .query("reviewQuestionPolicies")
-        .withIndex("by_round", (q) => q.eq("roundId", fixture.roundId))
-        .unique();
-      if (!policy) throw new Error("Policy missing");
-      await ctx.db.patch(policy._id, {
-        policy: { ...policy.policy, visualAnalysis: false },
-        version: 2,
-      });
-    });
-    const textOnlyId = await backend.run(async (ctx) => {
-      const round = await ctx.db.get(fixture.roundId);
-      const team = await ctx.db.get(fixture.teamId);
-      if (!round || !team) throw new Error("Review fixture missing");
-      return prepareQuestionSet(ctx, round, team);
-    });
-    if (!textOnlyId) throw new Error("Text-only set missing");
-    await backend.mutation(internal.reviewQuestions.claim, {
-      jobId: textOnlyId,
-    });
-    const textOnly = await backend.query(
-      internal.reviewQuestions.sourceContext,
-      { jobId: textOnlyId, attempt: 1 },
-    );
-    expect(textOnly?.figma[0]?.previews).toEqual([]);
-    expect(textOnly?.figma[0]?.artifact).toBeDefined();
+    expect(sameQuestionSet).toBe(prepared.jobId);
+    await backend.run(ctx => ctx.db.patch(fixture.eventId, { status: "complete" }));
+    expect(await actor.query(api.figmaLinks.current, { eventSlug: fixture.eventSlug })).toMatchObject({ canEdit: false });
+    await expect(actor.mutation(api.figmaLinks.save, { ...args, expectedVersion: 2, clientOperationId: "after-event" })).rejects.toThrow("until the event ends");
   });
 
   test("synthesizes all batches across odd reduction levels and permits no extra questions", async () => {
@@ -449,7 +392,7 @@ describe("participant review queue projection", () => {
     await backend.run((ctx) =>
       ctx.db.patch(sessionId, { status: "cancelled" }),
     );
-    await prepareAutomaticQueue(backend, fixture);
+    const reviewerPersonId = await prepareAutomaticQueue(backend, fixture);
     await backend.run(async (ctx) => {
       const now = Date.now();
       await insertPermissionGrant(ctx, {
@@ -462,21 +405,6 @@ describe("participant review queue projection", () => {
         sourceType: "manual",
         sourceId: "routing-test",
         reason: "Test automatic placement",
-      });
-      await ctx.db.insert("reviewerProfiles", {
-        eventId: fixture.eventId,
-        personId: fixture.personId,
-        seniority: "board",
-        strength: 4,
-        technicalDomains: ["React"],
-        productDomains: [],
-        languages: [],
-        criterionKeys: ["technical_execution"],
-        trainingStatus: "complete",
-        status: "active",
-        version: 1,
-        createdAt: now,
-        updatedAt: now,
       });
       const criterionId = await ctx.db.insert("reviewRubricCriteria", {
         eventId: fixture.eventId,
@@ -535,7 +463,7 @@ describe("participant review queue projection", () => {
       const confirmation = await ctx.db
         .query("reviewerRoundConfirmations")
         .withIndex("by_roundId_and_personId", (q) =>
-          q.eq("roundId", fixture.roundId).eq("personId", fixture.personId),
+          q.eq("roundId", fixture.roundId).eq("personId", reviewerPersonId),
         )
         .unique();
       if (!confirmation) throw new Error("Confirmation missing");
@@ -1491,7 +1419,7 @@ async function seedAwaitingReview(backend: BackendTest, fixture: Fixture) {
       teamId: fixture.teamId,
       projectVersionId,
       githubEntries: [],
-      figmaEntries: [],
+
       expectedResourceCount: 0,
       capturedResourceCount: 0,
       completeness: "complete",
@@ -1580,8 +1508,12 @@ function restoreEnvironment(name: string, value: string | undefined) {
 }
 
 async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
-  await backend.run(async (ctx) => {
+  return backend.run(async (ctx) => {
     const now = Date.now();
+    const reviewerPersonId = await ctx.db.insert("people", { authUserId: "independent-queue-reviewer", verifiedEmail: "queue-reviewer@example.test", displayName: "Independent reviewer", status: "active", createdAt: now, updatedAt: now });
+    const reviewerSubjectId = await ctx.db.insert("eventAccessSubjects", { eventId: fixture.eventId, personId: reviewerPersonId, accessVersion: 1, displayName: "Independent reviewer", emailNormalized: "queue-reviewer@example.test", linkedBy: "roster_claim", status: "active", createdAt: now, updatedAt: now });
+    await ctx.db.insert("reviewerProfiles", { eventId: fixture.eventId, personId: reviewerPersonId, seniority: "board", strength: 4, technicalDomains: ["React"], productDomains: [], languages: [], criterionKeys: ["technical_execution"], status: "active", version: 1, createdAt: now, updatedAt: now });
+
     await ctx.db.insert("reviewQueuePolicies", {
       routingPreference: "skills_then_wait",
       eventId: fixture.eventId,
@@ -1609,8 +1541,8 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
       eventId: fixture.eventId,
       roundId: fixture.roundId,
       panelId: fixture.panelId,
-      personId: fixture.personId,
-      eventAccessSubjectId: fixture.subjectId,
+      personId: reviewerPersonId,
+      eventAccessSubjectId: reviewerSubjectId,
       seatSeniority: "lead",
       assignedCriterionIds: [],
       isCoordinator: true,
@@ -1619,7 +1551,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
     });
     const deviceId = await ctx.db.insert("reviewerDevices", {
       eventId: fixture.eventId,
-      personId: fixture.personId,
+      personId: reviewerPersonId,
       installationId: "queue-phone",
       name: "Queue phone",
       platform: "android",
@@ -1636,7 +1568,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
     await ctx.db.insert("reviewerClockIns", {
       eventId: fixture.eventId,
       roundId: fixture.roundId,
-      reviewerPersonId: fixture.personId,
+      reviewerPersonId,
       reviewerDeviceId: deviceId,
       status: "present",
       clockedInAt: now,
@@ -1646,7 +1578,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
     await ctx.db.insert("reviewerRoundConfirmations", {
       eventId: fixture.eventId,
       roundId: fixture.roundId,
-      personId: fixture.personId,
+      personId: reviewerPersonId,
       status: "confirmed",
       windows: [{ startsAt: now - 60000, endsAt: now + 3600000 }],
       version: 1,
@@ -1664,8 +1596,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
       policyVersion: "test-1",
       requiredGitHubTopic: "test",
       maxActiveGitHubRepositoriesPerTeam: 3,
-      maxActiveFigmaFilesPerTeam: 3,
-    };
+      };
     const policyId = await ctx.db.insert("integrationPolicyVersions", {
       eventId: fixture.eventId,
       ...policy,
@@ -1694,6 +1625,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
       publishedIntegrationPolicyId: policyId,
       publishedAttendancePlanVersionId: planId,
     });
+    return reviewerPersonId;
   });
 }
 
@@ -1736,7 +1668,6 @@ async function prepareQuestionFixture(
       enabled: true,
       refreshSeconds: 120,
       maximumQuestions: 6,
-      visualAnalysis: true,
       parallelAnalyses: 3,
       batchCharacters: 80000,
       maximumAttempts: 3,
@@ -1773,7 +1704,7 @@ async function prepareQuestionFixture(
     protocolVersion: reviewQuestionProtocolVersion,
     jobId,
     attempt: 1,
-    images: [],
+
     stage: "questions",
     partId: "final",
     partAttempt: 1,
@@ -1870,138 +1801,6 @@ async function prepareQuestionFixture(
   };
 }
 
-async function seedQuestionFigma(backend: BackendTest, fixture: Fixture) {
-  return backend.run(async (ctx) => {
-    const now = Date.now();
-    const credentialId = await ctx.db.insert("figmaOAuthCredentials", {
-      figmaUserId: "test-designer",
-      accessTokenCiphertext: "unused-test-ciphertext",
-      refreshTokenCiphertext: "unused-test-ciphertext",
-      tokenExpiresAt: now + 3600000,
-      tokenReceivedAt: now,
-      scopes: [],
-      status: "active",
-      authorizedByPersonId: fixture.personId,
-      version: 1,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const credentialConnectionId = await ctx.db.insert(
-      "figmaCredentialConnections",
-      {
-        eventId: fixture.eventId,
-        teamId: fixture.teamId,
-        credentialId,
-        state: "active",
-        connectedByPersonId: fixture.personId,
-        connectedAt: now,
-        lastVerifiedAt: now,
-        version: 1,
-      },
-    );
-    const bindingId = await ctx.db.insert("figmaFileBindings", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      credentialId,
-      credentialConnectionId,
-      fileKey: "test-file",
-      url: "https://www.figma.com/design/test-file/Project",
-      name: "Project screens",
-      role: "UI",
-      linkAccess: "view",
-      editorType: "figma",
-      versionId: "captured-v1",
-      lastTouchedAt: now,
-      state: "active",
-      webhookState: "active",
-      lastMetadataCheckAt: now,
-      lastFullCaptureAt: now,
-      contentDirty: false,
-      syncRevision: 1,
-      syncedRevision: 1,
-      syncState: "ready",
-      version: 1,
-      connectedAt: now,
-      updatedAt: now,
-    });
-    const artifactId = await ctx.db.insert("integrationArtifacts", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      provider: "figma",
-      figmaFileBindingId: bindingId,
-      resourceKey: "test-file",
-      providerVersionId: "captured-v1",
-      objectKey: "captured/structure.json.gz",
-      storageRegion: "ap-south-1",
-      storageBucket: "test-evidence",
-      contentType: "application/json",
-      contentEncoding: "gzip",
-      uncompressedBytes: 100,
-      storedBytes: 80,
-      sha256: "c".repeat(64),
-      state: "available",
-      createdAt: now,
-    });
-    const snapshotId = await ctx.db.insert("figmaFileSnapshots", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      figmaFileBindingId: bindingId,
-      reason: "baseline",
-      providerVersionId: "captured-v1",
-      providerLastTouchedAt: now,
-      pageCount: 1,
-      frameCount: 1,
-      componentCount: 0,
-      componentSetCount: 0,
-      styleCount: 0,
-      nodeCount: 3,
-      prototypeInteractionCount: 0,
-      commentCount: 0,
-      unresolvedCommentCount: 0,
-      versionCount: 1,
-      completeness: "complete",
-      artifactId,
-      capturedAt: now,
-    });
-    const previewSetId = await ctx.db.insert("figmaPreviewSets", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      figmaFileBindingId: bindingId,
-      snapshotId,
-      providerVersionId: "captured-v1",
-      state: "pending",
-      discoveredNodeCount: 1,
-      selectedNodeCount: 1,
-      availableCount: 0,
-      failedCount: 0,
-      truncated: false,
-      createdAt: now,
-      updatedAt: now,
-    });
-    const factId = await ctx.db.insert("figmaNodeFacts", {
-      eventId: fixture.eventId,
-      teamId: fixture.teamId,
-      figmaFileBindingId: bindingId,
-      snapshotId,
-      previewSetId,
-      providerVersionId: "captured-v1",
-      pageId: "0:1",
-      pageName: "Page",
-      pageOrder: 0,
-      nodeId: "1:1",
-      nodeName: "Dashboard",
-      nodeType: "FRAME",
-      nodeOrder: 0,
-      descendantCount: 0,
-      semanticHash: "d".repeat(64),
-      changeState: "new",
-      render: { state: "pending" },
-      createdAt: now,
-      updatedAt: now,
-    });
-    return { factId, previewSetId };
-  });
-}
 
 async function grantParticipationOperations(backend: BackendTest, fixture: Fixture) {
   await backend.run(async ctx => {

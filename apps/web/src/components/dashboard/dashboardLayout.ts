@@ -143,24 +143,26 @@ export type Candidate = {
 };
 
 /**
- * Seats the seven most relevant tiles. Higher scores choose first and take
- * the most prominent free slot of a shape they prefer; ties keep the order
- * given. Tiles left over are not shown at all.
+ * Seats the seven most relevant tiles, most relevant in the most prominent
+ * slot. Shape preference can move a tile by one place at most: it takes the
+ * best-fitting of the next two free slots, so a headline never falls to the
+ * bottom because the wide spots ran out, and nothing quiet lands in a tall
+ * column ahead of what matters. Ties keep the order given; tiles left over
+ * are not shown at all.
  */
 export function composeDashboard(candidates: readonly Candidate[]): Partial<Record<TileKey, Slot>> {
   const ranked = candidates
     .map((candidate, index) => ({ ...candidate, index }))
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .slice(0, slots.length);
-  const free = new Set<Slot>(slots);
+  const free = [...slots];
   const seating: Partial<Record<TileKey, Slot>> = {};
   for (const candidate of ranked) {
-    const shapes = [...candidate.prefer, "wide", "tall", "box"] as const;
-    const slot = shapes
-      .map((shape) => slots.find((option) => free.has(option) && slotShape[option] === shape))
-      .find((option): option is Slot => option !== undefined);
+    const window = free.slice(0, 2);
+    const slot =
+      window.find((option) => candidate.prefer.includes(slotShape[option])) ?? free[0];
     if (!slot) break;
-    free.delete(slot);
+    free.splice(free.indexOf(slot), 1);
     seating[candidate.key] = slot;
   }
   return seating;

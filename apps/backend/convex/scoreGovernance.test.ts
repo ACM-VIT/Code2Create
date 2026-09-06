@@ -19,6 +19,313 @@ import {
   normalizeIntakePolicy,
 } from "./lib/intakePolicy";
 import schema from "./schema";
+import { reviewProgressionBlocker } from "./lib/reviewProgression";
+
+describe("project-specific review planning", () => {
+  test("briefs account for all sources; assignments are retryable, conflict checked and resolved before closing", async () => {
+    const backend = seededBackend();
+    const f = await seedCorrectionFixture(backend);
+    const setup = await backend.run(async ctx => {
+      for (const permissionKey of ["round.manage", "round.read", "round.close", "review.configuration.publish"] as const) await insertPermissionGrant(ctx, { eventId: f.eventId, personId: f.personId, eventAccessSubjectId: f.subjectId, permissionKey, scopeType: "event", sourceType: "manual", sourceId: "planning-test", grantedByPersonId: f.personId, reason: "Plan competitive projects" });
+      const applicationId = await ctx.db.insert("applications", { eventId: f.eventId, teamId: f.teamId, submittedProjectVersionId: f.projectVersionId, admissionPolicyVersionId: f.admissionPolicyVersionId, humanDecision: "accept", state: "offer_sent", decisionStage: "released", experienceBand: "mixed_or_external", assignedReviewCount: 0, completedReviewCount: 0, contentVersion: 1, version: 1, submittedAt: f.now });
+      const session = await ctx.db.get(f.reviewSessionId);
+      if (!session) throw new Error("Session missing");
+      const reviewer = await ctx.db.insert("people", { authUserId: "independent-planning-reviewer", verifiedEmail: "reviewer@example.test", displayName: "Independent reviewer", status: "active", createdAt: f.now, updatedAt: f.now });
+      await ctx.db.insert("reviewPanelMembers", { eventId: f.eventId, roundId: f.roundId, panelId: session.panelId, personId: reviewer, eventAccessSubjectId: f.subjectId, assignedCriterionIds: [], isCoordinator: true, status: "active", assignedAt: f.now, seatSeniority: "lead" });
+      return { applicationId, panelId: session.panelId, reviewer };
+    });
+    const actor = reviewerClient(backend, f);
+    const finding = { text: "A proposal described in the submitted idea.", sourceIds: ["idea"] };
+    const brief = { eventSlug: f.eventSlug, teamId: f.teamId, projectVersionId: f.projectVersionId, assessment: { examinedSourceIds: ["idea"], title: "Fixture project", summary: finding, users: finding, minimumDeliverable: finding, architecture: finding, implementationEvidence: finding, primaryPool: "Web/App/Backend", secondaryPools: [], specialistSkills: ["Backend"], panelFitReason: "Backend implementation and product scope", risksToProbe: [finding], suggestedQuestions: [{ criterionKey: "technical_execution", question: "What is implemented?", why: "Separate the proposal from evidence.", sourceIds: ["idea"] }], limitations: ["Intake evidence only"] }, sourceChecksum: "a".repeat(64), model: "analysis-model", expectedVersion: 0, reason: "Read every submitted source", clientOperationId: "save-planning-brief" };
+    await expect(actor.mutation(api.reviewPlanning.saveBrief, { ...brief, assessment: { ...brief.assessment, examinedSourceIds: [] }, clientOperationId: "missing-source" })).rejects.toThrow("every submission source");
+    expect(await actor.mutation(api.reviewPlanning.saveBrief, brief)).toEqual({ version: 1 });
+    expect(await actor.mutation(api.reviewPlanning.saveBrief, brief)).toEqual({ version: 1 });
+    const assign = { eventSlug: f.eventSlug, teamId: f.teamId, roundId: f.roundId, panelId: setup.panelId, rationale: "Independent reviewer covers the project's backend workflow", expectedVersion: 0, expectedRoundVersion: 1, clientOperationId: "assign-planning-team" };
+    expect(await actor.mutation(api.reviewPlanning.assign, assign)).toEqual({ version: 1 });
+    expect(await actor.mutation(api.reviewPlanning.assign, assign)).toEqual({ version: 1 });
+    let view = await actor.query(api.reviewPlanning.workspace, { eventSlug: f.eventSlug, roundId: f.roundId });
+    expect(view.teams[0]).toMatchObject({ briefCurrent: true, inQueue: false, status: "offer_sent", plan: { panelId: setup.panelId, version: 1 } });
+    await expect(actor.mutation(api.reviewPlanning.assign, { ...assign, clientOperationId: "stale-plan" })).rejects.toThrow("changed");
+    await expect(actor.mutation(api.roundExports.start, { eventSlug: f.eventSlug, roundId: f.roundId, expectedRoundVersion: 1, reason: "Attempt closing without outcome", clientOperationId: "close-unresolved-plan" })).rejects.toThrow("planned teams have no review outcome");
+    await backend.run(async ctx => {
+      const ownMembership = await ctx.db.insert("eventMemberships", { eventId: f.eventId, personId: setup.reviewer, eventAccessSubjectId: f.subjectId, participantClass: "vit_student", eligibilityStatus: "eligible", onboardingStatus: "accepted", acceptedParticipantPolicyVersionIds: [], createdAt: f.now, updatedAt: f.now });
+      await ctx.db.insert("teamMembers", { eventId: f.eventId, teamId: f.teamId, membershipId: ownMembership, role: "member", source: "created", status: "active", joinedAt: f.now });
+    });
+    await expect(actor.mutation(api.reviewPlanning.assign, { ...assign, expectedVersion: 1, clientOperationId: "own-team-conflict" })).rejects.toThrow("conflict");
+    await backend.run(ctx => ctx.db.patch(f.teamId, { competitionCategory: "oc" }));
+    view = await actor.query(api.reviewPlanning.workspace, { eventSlug: f.eventSlug, roundId: f.roundId });
+    expect(view.teams).toEqual([]);
+    await expect(actor.mutation(api.reviewPlanning.saveBrief, { ...brief, expectedVersion: 1, clientOperationId: "oc-brief" })).rejects.toThrow("competitive");
+    await expect(actor.mutation(api.reviewPlanning.assign, { ...assign, expectedVersion: 1, clientOperationId: "oc-plan" })).rejects.toThrow("competitive");
+  });
+});
+
+describe("review round progression", () => {
+  async function fixture() {
+    const backend = seededBackend();
+    const source = await seedCorrectionFixture(backend);
+    await prepareCorrectionSubmission(backend, source);
+    const setup = await backend.run(async ctx => {
+      for (const permissionKey of ["round.read", "round.close", "score.values.read"] as const) await insertPermissionGrant(ctx, {
+        eventId: source.eventId, personId: source.personId, eventAccessSubjectId: source.subjectId, permissionKey, scopeType: "round", scopeId: source.roundId,
+        sourceType: "manual", sourceId: "progression-test", grantedByPersonId: source.personId, reason: "Review progression decisions",
+      });
+      const original = await ctx.db.get(source.roundId);
+      const team = await ctx.db.get(source.teamId);
+      if (!original || !team) throw new Error("Fixture missing.");
+      const { _id, _creationTime, ...fields } = original;
+      const laterId = await ctx.db.insert("reviewRounds", { ...fields, stableKey: "later", name: "Later review", sequence: original.sequence + 1, status: "published" });
+      const { _id: _teamId, _creationTime: _teamCreated, ...teamFields } = team;
+      const otherId = await ctx.db.insert("teams", { ...teamFields, name: "Other competitor" });
+      const ocId = await ctx.db.insert("teams", { ...teamFields, name: "OC", competitionCategory: "oc" });
+      const evaluation = await ctx.db.query("reviewEvaluations").withIndex("by_session", q => q.eq("reviewSessionId", source.reviewSessionId)).unique();
+      if (!evaluation) throw new Error("Evaluation missing.");
+      const snapshotId = await ctx.db.insert("roundCloseSnapshots", {
+        eventId: source.eventId, roundId: source.roundId, rubricVersionId: source.rubricVersionId, revision: 1,
+        roundConfigurationChecksum: "configuration", resultCount: 3, exclusionCount: 0, withdrawnCount: 0, checksum: "snapshot", createdByPersonId: source.personId, createdAt: source.now,
+      });
+      for (const [id, points] of [[source.teamId, 80], [otherId, 70], [ocId, 99]] as const) await ctx.db.insert("roundCloseEntries", {
+        eventId: source.eventId, roundId: source.roundId, closeSnapshotId: snapshotId, teamId: id, createdAt: source.now,
+        payload: { kind: "result", reviewSessionId: source.reviewSessionId, evaluationId: evaluation._id, evaluationInputChecksum: evaluation.inputChecksum, criterionResults: [], totalPoints: points },
+      });
+      await ctx.db.patch(source.roundId, { status: "closed", activeCloseSnapshotId: snapshotId });
+      return { laterId, otherId, ocId, snapshotId, roundVersion: original.version };
+    });
+    const actor = reviewerClient(backend, source);
+    const common = { eventSlug: source.eventSlug, roundId: source.roundId, expectedRoundVersion: setup.roundVersion, reason: "Board reviewed the finalized results" };
+    const blocker = (teamId: Id<"teams">) => backend.run(async ctx => {
+      const later = await ctx.db.get(setup.laterId);
+      if (!later) throw new Error("Later round missing");
+      return reviewProgressionBlocker(ctx, later, teamId);
+    });
+    return { backend, source, ...setup, actor, common, blocker };
+  }
+
+  test("non-eliminatory rounds continue; elimination requires complete explicit decisions and excludes OC", async () => {
+    const f = await fixture();
+    expect(await f.blocker(f.source.teamId)).toBeNull();
+    const settings = { ...f.common, mode: "elimination" as const, expectedVersion: 0, clientOperationId: "configure-elimination" };
+    expect(await f.actor.mutation(api.reviewProgression.configure, settings)).toEqual({ version: 1 });
+    expect(await f.actor.mutation(api.reviewProgression.configure, settings)).toEqual({ version: 1 });
+    expect(await f.blocker(f.source.teamId)).toContain("publish its progression decisions");
+    const workspace = await f.actor.query(api.reviewProgression.workspace, { eventSlug: f.source.eventSlug, roundId: f.source.roundId });
+    expect(workspace.teams.map(t => t.teamId)).toEqual([f.source.teamId, f.otherId]);
+    const decisions = [
+      { teamId: f.source.teamId, outcome: "advance" as const, reason: "Strong finalized review and viable prototype scope" },
+      { teamId: f.otherId, outcome: "eliminate" as const, reason: "Board approved the cutoff after reviewing scores" },
+    ];
+    const publication = { ...f.common, closeSnapshotId: f.snapshotId, expectedVersion: 1, decisions, clientOperationId: "apply-progression" };
+    for (const [key, invalid] of [["missing", decisions.slice(0, 1)], ["duplicate", [decisions[0]!, decisions[0]!]], ["oc", [...decisions, { teamId: f.ocId, outcome: "advance" as const, reason: "OC must never enter competition" }]]] as const) {
+      await expect(f.actor.mutation(api.reviewProgression.publish, { ...publication, decisions: [...invalid], clientOperationId: key })).rejects.toThrow("every competitive team");
+    }
+    await expect(f.actor.mutation(api.reviewProgression.publish, { ...publication, decisions: decisions.map(d => ({ ...d, reason: "" })), clientOperationId: "no-reasons" })).rejects.toThrow();
+    expect(await f.backend.run(ctx => ctx.db.query("reviewProgressionEntries").collect())).toHaveLength(0);
+    expect(await f.actor.mutation(api.reviewProgression.publish, publication)).toEqual({ version: 2 });
+    expect(await f.actor.mutation(api.reviewProgression.publish, publication)).toEqual({ version: 2 });
+    expect(await f.blocker(f.source.teamId)).toBeNull();
+    expect(await f.blocker(f.otherId)).toContain("has not advanced");
+    expect(await f.blocker(f.ocId)).toContain("has not advanced");
+    await expect(f.actor.mutation(api.reviewProgression.publish, { ...publication, clientOperationId: "stale" })).rejects.toThrow("changed");
+    await f.backend.run(ctx => ctx.db.patch(f.source.roundId, { status: "open", activeCloseSnapshotId: undefined }));
+    expect(await f.blocker(f.source.teamId)).toContain("publish its progression decisions");
+    expect((await f.actor.query(api.reviewProgression.workspace, { eventSlug: f.source.eventSlug, roundId: f.source.roundId })).published).toBe(false);
+  });
+
+  test("combined-score references reject changed weights and snapshots before applying outcomes", async () => {
+    const f = await fixture();
+    await f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "elimination", expectedVersion: 0, clientOperationId: "configure-reference" });
+    await f.backend.run(ctx => ctx.db.insert("reviewAggregationPolicies", { eventId: f.source.eventId, version: 3, status: "published", rounds: [{ roundId: f.source.roundId, weight: 100 }], checksum: "weights", publishedByPersonId: f.source.personId, publishedAt: f.source.now, reason: "Finalized score reference" }));
+    const args = { ...f.common, expectedVersion: 1, closeSnapshotId: f.snapshotId, decisions: [{ teamId: f.source.teamId, outcome: "advance" as const, reason: "Reviewed the final score and evidence" }, { teamId: f.otherId, outcome: "eliminate" as const, reason: "Reviewed the agreed competitive cutoff" }], scoreReference: { policyVersion: 3, rounds: [{ roundId: f.source.roundId, closeSnapshotId: f.snapshotId }] }, clientOperationId: "apply-reference" };
+    await expect(f.actor.mutation(api.reviewProgression.publish, { ...args, scoreReference: { ...args.scoreReference, policyVersion: 2 }, clientOperationId: "old-weights" })).rejects.toThrow("weights changed");
+    const differentSnapshot = await f.backend.run(async ctx => {
+      const snapshot = await ctx.db.get(f.snapshotId);
+      if (!snapshot) throw new Error("Snapshot missing");
+      const { _id, _creationTime, ...fields } = snapshot;
+      return ctx.db.insert("roundCloseSnapshots", { ...fields, revision: 2 });
+    });
+    await expect(f.actor.mutation(api.reviewProgression.publish, { ...args, scoreReference: { policyVersion: 3, rounds: [{ roundId: f.source.roundId, closeSnapshotId: differentSnapshot }] }, clientOperationId: "old-source" })).rejects.toThrow("contributing round changed");
+    expect(await f.backend.run(ctx => ctx.db.query("reviewProgressionEntries").collect())).toHaveLength(0);
+    expect(await f.actor.mutation(api.reviewProgression.publish, args)).toEqual({ version: 2 });
+  });
+
+  test("a planned skip in a later round does not prevent deciding the preceding round", async () => {
+    const f = await fixture();
+    const stateId = await f.backend.run(ctx => ctx.db.insert("teamRoundStates", { eventId: f.source.eventId, roundId: f.laterId, teamId: f.otherId, state: "skipped", priority: 0, callAttemptCount: 0, version: 1, updatedByPersonId: f.source.personId, updatedAt: f.source.now }));
+    expect(await f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "elimination", expectedVersion: 0, clientOperationId: "configure-with-future-skip" })).toEqual({ version: 1 });
+    await f.backend.run(ctx => ctx.db.patch(stateId, { state: "queued" }));
+    await expect(f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "all_advance", expectedVersion: 1, clientOperationId: "change-after-queue" })).rejects.toThrow("already has activity");
+    await f.backend.run(async ctx => {
+      await ctx.db.patch(stateId, { state: "skipped" });
+      const session = await ctx.db.get(f.source.reviewSessionId);
+      if (!session) throw new Error("Session missing");
+      const { _id, _creationTime, ...fields } = session;
+      await ctx.db.insert("reviewSessions", { ...fields, roundId: f.laterId, teamId: f.otherId, status: "cancelled" });
+    });
+    await expect(f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "all_advance", expectedVersion: 1, clientOperationId: "change-after-session-skip" })).rejects.toThrow("already has activity");
+  });
+
+  test("opening an empty later round still allows configuring and publishing progression", async () => {
+    const f = await fixture();
+    await f.backend.run(ctx => insertPermissionGrant(ctx, {
+      eventId: f.source.eventId, personId: f.source.personId,
+      eventAccessSubjectId: f.source.subjectId, permissionKey: "round.manage",
+      scopeType: "round", scopeId: f.laterId, sourceType: "manual",
+      sourceId: "open-later-round", grantedByPersonId: f.source.personId,
+      reason: "Open the next review round",
+    }));
+    await f.actor.mutation(api.reviewOperations.openRound, {
+      eventSlug: f.source.eventSlug, roundId: f.laterId, expectedVersion: f.roundVersion,
+      reason: "Prepare the next review round", clientOperationId: "open-empty-round",
+    });
+    await f.actor.mutation(api.reviewProgression.configure, {
+      ...f.common, mode: "elimination", expectedVersion: 0, clientOperationId: "configure-after-open",
+    });
+    expect(await f.blocker(f.source.teamId)).toContain("publish its progression decisions");
+    await f.actor.mutation(api.reviewProgression.publish, {
+      ...f.common, expectedVersion: 1, closeSnapshotId: f.snapshotId,
+      decisions: [
+        { teamId: f.source.teamId, outcome: "advance", reason: "Reviewed the final score and evidence" },
+        { teamId: f.otherId, outcome: "eliminate", reason: "Reviewed the agreed competitive cutoff" },
+      ],
+      clientOperationId: "publish-after-open",
+    });
+    expect(await f.blocker(f.source.teamId)).toBeNull();
+    expect(await f.blocker(f.otherId)).toContain("has not advanced");
+  });
+
+  test("published combined-score decisions expire with their inputs and cannot be invalidated after later activity", async () => {
+    const f = await fixture();
+    const earlier = await f.backend.run(async ctx => {
+      const round = await ctx.db.get(f.source.roundId);
+      const snapshot = await ctx.db.get(f.snapshotId);
+      if (!round || !snapshot) throw new Error("Fixture missing");
+      const { _id, _creationTime, ...roundFields } = round;
+      const roundId = await ctx.db.insert("reviewRounds", {
+        ...roundFields, stableKey: "earlier", name: "Earlier review", sequence: round.sequence - 1,
+      });
+      const { _id: _snapshotId, _creationTime: _snapshotCreated, ...snapshotFields } = snapshot;
+      const snapshotId = await ctx.db.insert("roundCloseSnapshots", { ...snapshotFields, roundId });
+      const entries = await ctx.db.query("roundCloseEntries").withIndex("by_snapshot_team", q => q.eq("closeSnapshotId", f.snapshotId)).collect();
+      for (const { _id: _entryId, _creationTime: _entryCreated, ...entry } of entries) {
+        await ctx.db.insert("roundCloseEntries", { ...entry, roundId, closeSnapshotId: snapshotId });
+      }
+      await ctx.db.patch(roundId, { activeCloseSnapshotId: snapshotId });
+      for (const permissionKey of ["score.values.read", "review.configuration.publish"] as const) {
+        await insertPermissionGrant(ctx, {
+          eventId: f.source.eventId, personId: f.source.personId, eventAccessSubjectId: f.source.subjectId,
+          permissionKey, scopeType: "event", sourceType: "manual", sourceId: "score-reference-test",
+          grantedByPersonId: f.source.personId, reason: "Verify combined-score progression",
+        });
+      }
+      return { roundId, snapshotId };
+    });
+    const weights = {
+      eventSlug: f.source.eventSlug,
+      rounds: [{ roundId: earlier.roundId, weight: 50 }, { roundId: f.source.roundId, weight: 50 }],
+      expectedVersion: 0, reason: "Combine the two finalized reviews", clientOperationId: "initial-weights",
+    };
+    await f.actor.mutation(api.reviewAggregation.publish, weights);
+    await f.actor.mutation(api.reviewProgression.configure, {
+      ...f.common, mode: "elimination", expectedVersion: 0, clientOperationId: "configure-combined",
+    });
+    const publication = {
+      ...f.common, expectedVersion: 1, closeSnapshotId: f.snapshotId,
+      decisions: [
+        { teamId: f.source.teamId, outcome: "advance" as const, reason: "Reviewed the final score and evidence" },
+        { teamId: f.otherId, outcome: "eliminate" as const, reason: "Reviewed the agreed competitive cutoff" },
+      ],
+      scoreReference: {
+        policyVersion: 1,
+        rounds: [
+          { roundId: earlier.roundId, closeSnapshotId: earlier.snapshotId },
+          { roundId: f.source.roundId, closeSnapshotId: f.snapshotId },
+        ],
+      },
+      clientOperationId: "publish-combined",
+    };
+    const assertPublication = async (published: boolean) => {
+      const workspace = await f.actor.query(api.reviewProgression.workspace, {
+        eventSlug: f.source.eventSlug, roundId: f.source.roundId,
+      });
+      expect(workspace.published).toBe(published);
+      const result = await f.actor.query(api.reviewAggregation.results, { eventSlug: f.source.eventSlug });
+      expect(result.state).toBe("ready");
+      expect(result.teams.find(team => team.teamId === f.source.teamId)).toMatchObject({
+        competitionStatus: published ? "eligible" : "awaiting_decision",
+        totalPoints: published ? 80 : null,
+      });
+      expect(result.teams.find(team => team.teamId === f.otherId)?.competitionStatus)
+        .toBe(published ? "eliminated" : "awaiting_decision");
+      if (published) expect(await f.blocker(f.source.teamId)).toBeNull();
+      else expect(await f.blocker(f.source.teamId)).toContain("publish its progression decisions");
+    };
+    await f.actor.mutation(api.reviewProgression.publish, publication);
+    await assertPublication(true);
+
+    await f.actor.mutation(api.reviewAggregation.publish, {
+      ...weights, expectedVersion: 1, clientOperationId: "changed-weights",
+      rounds: [{ roundId: earlier.roundId, weight: 25 }, { roundId: f.source.roundId, weight: 75 }],
+    });
+    await assertPublication(false);
+    await f.actor.mutation(api.reviewProgression.publish, {
+      ...publication, expectedVersion: 2,
+      scoreReference: { ...publication.scoreReference, policyVersion: 2 },
+      clientOperationId: "review-new-weights",
+    });
+    await assertPublication(true);
+
+    const replacementId = await f.backend.run(async ctx => {
+      const snapshot = await ctx.db.get(earlier.snapshotId);
+      if (!snapshot) throw new Error("Snapshot missing");
+      const { _id, _creationTime, ...fields } = snapshot;
+      const snapshotId = await ctx.db.insert("roundCloseSnapshots", { ...fields, revision: 2 });
+      const entries = await ctx.db.query("roundCloseEntries").withIndex("by_snapshot_team", q => q.eq("closeSnapshotId", earlier.snapshotId)).collect();
+      for (const { _id: _entryId, _creationTime: _entryCreated, ...entry } of entries) {
+        await ctx.db.insert("roundCloseEntries", { ...entry, closeSnapshotId: snapshotId });
+      }
+      await ctx.db.patch(earlier.roundId, { activeCloseSnapshotId: snapshotId });
+      return snapshotId;
+    });
+    await assertPublication(false);
+    await f.actor.mutation(api.reviewProgression.publish, {
+      ...publication, expectedVersion: 3,
+      scoreReference: {
+        policyVersion: 2,
+        rounds: [{ roundId: earlier.roundId, closeSnapshotId: replacementId }, publication.scoreReference.rounds[1]!],
+      },
+      clientOperationId: "review-new-snapshot",
+    });
+    await assertPublication(true);
+
+    await f.backend.run(ctx => ctx.db.insert("teamRoundStates", {
+      eventId: f.source.eventId, roundId: f.laterId, teamId: f.source.teamId, state: "queued",
+      priority: 0, callAttemptCount: 0, version: 1, updatedByPersonId: f.source.personId, updatedAt: f.source.now,
+    }));
+    await expect(f.actor.mutation(api.reviewAggregation.publish, {
+      ...weights, expectedVersion: 2, clientOperationId: "change-locked-weights",
+    })).rejects.toThrow("already has activity");
+    await assertPublication(true);
+  });
+
+  test("later-round activity locks progression and score access is required to publish", async () => {
+    const f = await fixture();
+    await f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "elimination", expectedVersion: 0, clientOperationId: "configure" });
+    const stateId = await f.backend.run(ctx => ctx.db.insert("teamRoundStates", {
+      eventId: f.source.eventId, roundId: f.laterId, teamId: f.source.teamId, state: "queued",
+      priority: 0, callAttemptCount: 0, version: 1, updatedByPersonId: f.source.personId, updatedAt: f.source.now,
+    }));
+    await expect(f.actor.mutation(api.reviewProgression.configure, { ...f.common, mode: "all_advance", expectedVersion: 1, clientOperationId: "change-late" })).rejects.toThrow("already has activity");
+    await f.backend.run(async ctx => {
+      await ctx.db.delete(stateId);
+      const grants = await ctx.db.query("permissionGrants").collect();
+      for (const grant of grants) if (grant.permissionKey === "score.values.read" && grant.eventAccessSubjectId === f.source.subjectId) await ctx.db.patch(grant._id, { status: "revoked" });
+    });
+    const workspace = await f.actor.query(api.reviewProgression.workspace, { eventSlug: f.source.eventSlug, roundId: f.source.roundId });
+    expect(workspace.canReadScores).toBe(false);
+    expect(workspace.teams).toEqual([]);
+    await expect(f.actor.mutation(api.reviewProgression.publish, { ...f.common, expectedVersion: 1, closeSnapshotId: f.snapshotId, decisions: [], clientOperationId: "without-scores" })).rejects.toThrow();
+  });
+});
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -168,6 +475,20 @@ describe("combined review results", () => {
     const result = await read();
     expect(result.state).toBe("ready");
     expect(result.teams[0]?.totalPoints).toBe(66);
+    const progressionId = await backend.run(async ctx => {
+      const round = await ctx.db.get(secondRoundId);
+      if (!round?.activeCloseSnapshotId) throw new Error("Snapshot missing");
+      return ctx.db.insert("reviewProgressions", { eventId: fixture.eventId, roundId: secondRoundId, mode: "elimination", version: 1, updatedByPersonId: fixture.personId, updatedAt: fixture.now, reason: "Finalists pending" });
+    });
+    expect((await read()).teams[0]).toMatchObject({ totalPoints: null, weightedPoints: 66, competitionStatus: "awaiting_decision" });
+    await backend.run(async ctx => {
+      const round = await ctx.db.get(secondRoundId);
+      await ctx.db.patch(progressionId, { closeSnapshotId: round?.activeCloseSnapshotId });
+      await ctx.db.insert("reviewProgressionEntries", { eventId: fixture.eventId, roundId: secondRoundId, progressionId, teamId: fixture.teamId, outcome: "eliminate", reason: "Operator chose the final cutoff" });
+    });
+    expect((await read()).teams[0]).toMatchObject({ totalPoints: null, weightedPoints: 66, competitionStatus: "eliminated" });
+    await backend.run(ctx => ctx.db.patch(progressionId, { mode: "all_advance" }));
+
     expect(
       await actor.mutation(api.reviewAggregation.publish, {
         ...publication,
@@ -1021,7 +1342,7 @@ async function seedCorrectionFixture(backend: BackendTest) {
       teamId,
       projectVersionId,
       githubEntries: [],
-      figmaEntries: [],
+
       expectedResourceCount: 0,
       capturedResourceCount: 0,
       completeness: "complete",

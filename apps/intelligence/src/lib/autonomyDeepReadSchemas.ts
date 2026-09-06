@@ -5,7 +5,6 @@ import {
   operationsAutonomyAttendanceSessionJobStates,
   operationsAutonomyAttendanceStationStates,
   operationsAutonomyEmergencyPackStates,
-  operationsAutonomyFigmaWebhookStates,
   operationsAutonomyFailureClasses,
   operationsAutonomyGithubTopicStates,
   operationsAutonomyIncidentManualModeStates,
@@ -90,13 +89,7 @@ const integrationJobSchema = v.variant("provider", [
     ...integrationCommon,
     topicState: v.picklist(operationsAutonomyGithubTopicStates),
   }),
-  v.strictObject({
-    provider: v.literal("figma"),
-    ...integrationCommon,
-    webhookState: v.picklist(operationsAutonomyFigmaWebhookStates),
-    lastMetadataCheckAt: nonNegativeInteger,
-    lastFullCaptureAt: nonNegativeInteger,
-  }),
+
 ]);
 
 const roundExportCountsSchema = v.strictObject({

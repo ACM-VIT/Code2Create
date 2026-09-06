@@ -92,7 +92,7 @@ async function addPart(
     job.policy.instructions,
     args.level,
     JSON.stringify(
-      args.sources.map((s) => [s.id, s.title, s.text, s.coverage, s.image ?? null]),
+      args.sources.map((s) => [s.id, s.title, s.text, s.coverage]),
     ),
   ]);
   const matches = await Promise.all(
@@ -144,7 +144,7 @@ export const initialize = internalMutation({
     collections: v.array(
       v.object({
         sourceId: v.string(),
-        kind: v.union(v.literal("github"), v.literal("figma")),
+        kind: v.literal("github"),
       }),
     ),
   },

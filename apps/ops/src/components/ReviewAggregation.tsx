@@ -201,7 +201,7 @@ export function CombinedReviewResults() {
                   ))}
                   <td>
                     {team.totalPoints === null
-                      ? "Incomplete"
+                      ? team.competitionStatus === "eliminated" ? "Eliminated" : team.competitionStatus === "awaiting_decision" ? "Awaiting progression decision" : "Incomplete"
                       : <LiveNumber value={team.totalPoints} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false }} />}
                   </td>
                 </tr>

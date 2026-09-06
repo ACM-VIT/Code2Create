@@ -175,8 +175,6 @@ export const profile = query({
       productDomains: v.array(v.string()),
       languages: v.array(v.string()),
       criterionKeys: v.array(v.string()),
-      trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"),
-      ),
       status: v.union(v.literal("active"), v.literal("inactive")),
       version: v.number(),
     }),
@@ -223,7 +221,6 @@ export const profile = query({
       productDomains: reviewerProfile.productDomains,
       languages: reviewerProfile.languages,
       criterionKeys: reviewerProfile.criterionKeys,
-      trainingStatus: reviewerProfile.trainingStatus,
       status: reviewerProfile.status,
       version: reviewerProfile.version,
     };
@@ -241,8 +238,6 @@ export const saveProfile = mutation({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
-    trainingStatus: v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"),
-    ),
     status: v.union(v.literal("active"), v.literal("inactive")),
     expectedVersion: v.number(),
     reason: v.string(),
@@ -259,7 +254,6 @@ export const saveProfile = mutation({
       args.expectedVersion,
       args.seniority,
       args.strength,
-      args.trainingStatus,
       args.status,
       args.contactPhone ?? null,
       JSON.stringify(args.technicalDomains),
@@ -345,7 +339,6 @@ export const saveProfile = mutation({
       productDomains: normalizedList(args.productDomains, "Product domain", 20),
       languages: normalizedList(args.languages, "Language", 12),
       criterionKeys,
-      trainingStatus: args.trainingStatus,
       status: args.status,
       version: currentVersion + 1,
       updatedAt: now,
@@ -433,11 +426,6 @@ export const candidates = query({
           productDomains: v.array(v.string()),
           languages: v.array(v.string()),
           criterionKeys: v.array(v.string()),
-          trainingStatus: v.union(
-            v.literal("pending"),
-            v.literal("complete"),
-            v.literal("blocked"),
-          ),
           status: v.union(v.literal("active"), v.literal("inactive")),
           version: v.number(),
         }),
@@ -543,7 +531,6 @@ export const candidates = query({
               productDomains: profile.productDomains,
               languages: profile.languages,
               criterionKeys: profile.criterionKeys,
-              trainingStatus: profile.trainingStatus,
               status: profile.status,
               version: profile.version,
             }
@@ -691,6 +678,7 @@ export const publishRound = mutation({
   args: {
     eventSlug: v.string(),
     confirmationOpensAt: v.number(),
+    confirmationClosesAt: v.number(),
     rubric: v.object({
       name: v.string(),
       spreadThreshold: v.number(),
@@ -742,6 +730,7 @@ export const publishRound = mutation({
     const subject = await requireEventSubject(ctx, event._id, actor._id);
     const requestFingerprint = operationFingerprint([
       args.confirmationOpensAt,
+      args.confirmationClosesAt,
       JSON.stringify(args.rubric),
       JSON.stringify(args.round),
       JSON.stringify(args.panels),
@@ -780,7 +769,10 @@ export const publishRound = mutation({
     validateStaffingPolicy(args.round.staffing, args.round.requiredPanelSize);
     if (
       !Number.isSafeInteger(args.confirmationOpensAt) ||
-      args.confirmationOpensAt > args.round.clockInOpensAt
+      args.confirmationOpensAt > args.round.clockInOpensAt ||
+      !Number.isSafeInteger(args.confirmationClosesAt) ||
+      args.confirmationClosesAt <= args.confirmationOpensAt ||
+      args.confirmationClosesAt > args.round.endsAt
     ) {
       throw new ConvexError({
         code: "INVALID_CONFIRMATION_TIME",
@@ -811,6 +803,9 @@ export const publishRound = mutation({
         code: "REVIEW_ROUND_LIMIT_REACHED",
         message: `An event can publish at most ${maximumReviewRoundsPerEvent} review rounds.`,
       });
+    }
+    if (roundCapacityProbe.some(existing => existing.sequence === args.round.sequence)) {
+      throw new ConvexError({ code: "DUPLICATE_ROUND_SEQUENCE", message: "Each review round needs a unique sequence so progression follows the right order." });
     }
     if (
       !Number.isInteger(args.round.sequence) ||
@@ -989,13 +984,12 @@ export const publishRound = mutation({
         reviewerSubject.status !== "active" ||
         (allReviewerIds.includes(reviewerPersonId) &&
           (!reviewerProfile ||
-        reviewerProfile.status !== "active" ||
-        reviewerProfile.trainingStatus !== "complete"
+        reviewerProfile.status !== "active"
       ))
       ) {
         throw new ConvexError({
           code: "REVIEWER_NOT_READY",
-          message: "Every panel member needs active event access and completed reviewer training.",
+          message: "Every planned panel member needs active event access and an active reviewer profile.",
         });
       }
       reviewerContexts.set(reviewerPersonId, {
@@ -1150,7 +1144,7 @@ export const publishRound = mutation({
       eventId: event._id,
       roundId,
       opensAt: args.confirmationOpensAt,
-      endsAt: args.round.endsAt,
+      closesAt: args.confirmationClosesAt,
       personIds: rosteredReviewerIds,
       now,
     });

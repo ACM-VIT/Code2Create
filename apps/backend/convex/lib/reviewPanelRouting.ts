@@ -1,8 +1,10 @@
+import { hasReviewConflict } from "./reviewConflict";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { matchingPermissionGrantIds } from "./permissions";
 import { reviewerConfirmedForReview } from "./reviewConfirmation";
 import {
+  defaultReviewScoringBufferSeconds,
   maximumReviewPanelsPerRound,
   maximumReviewersPerPanel,
 } from "./reviewLimits";
@@ -13,6 +15,8 @@ export type ReviewPanelRoute = {
   panel: Doc<"reviewPanels">;
   matchedDomains: string[];
   estimatedWaitSeconds: number;
+  selection: "planned" | "backup" | "automatic";
+  planVersion?: number;
 };
 function domainText(value: string) {
   return value
@@ -158,20 +162,12 @@ export async function routeReviewTeam(
                   .eq("reviewerPersonId", member.personId),
               )
               .unique(),
-            ctx.db
-              .query("reviewerConflicts")
-              .withIndex("by_reviewer_team_status", (q) =>
-                q
-                  .eq("reviewerPersonId", member.personId)
-                  .eq("teamId", team._id)
-                  .eq("status", "active"),
-              )
-              .first(),
+            hasReviewConflict(ctx, round.eventId, member.personId, team._id),
           ]);
           if (
             !profile ||
             profile.status !== "active" ||
-            profile.trainingStatus !== "complete" ||
+
             clock?.status !== "present" ||
             conflict ||
             !(await reviewerConfirmedForReview(
@@ -207,7 +203,7 @@ export async function routeReviewTeam(
         ),
       ]);
       const pace = observedPace(
-        round.reviewDurationSeconds + (policy?.scoringBufferSeconds ?? 90),
+        round.reviewDurationSeconds + (policy?.scoringBufferSeconds ?? defaultReviewScoringBufferSeconds),
         completed.flatMap((session) =>
           session.startedAt !== undefined && session.completedAt !== undefined
             ? [(session.completedAt - session.startedAt) / 1000]
@@ -221,7 +217,7 @@ export async function routeReviewTeam(
             current.plannedEndAt === undefined
               ? pace
               : (current.plannedEndAt - now) / 1000 +
-                  (policy?.scoringBufferSeconds ?? 90),
+                  (policy?.scoringBufferSeconds ?? defaultReviewScoringBufferSeconds),
           )
         : 0;
       return {
@@ -243,8 +239,16 @@ export async function routeReviewTeam(
       };
     }),
   );
-  return rankReviewPanelRoutes(
-    routes.filter((route) => route !== null),
-    policy?.routingPreference ?? "skills_then_wait",
-  )[0];
+  const eligible = routes.filter((route) => route !== null);
+  const plan = await ctx.db.query("reviewTeamPlans")
+    .withIndex("by_round_team", q => q.eq("roundId", round._id).eq("teamId", team._id)).unique();
+  if (plan) {
+    for (const selection of ["planned", "backup"] as const) {
+      const panelId = selection === "planned" ? plan.panelId : plan.backupPanelId;
+      const planned = eligible.find(route => route.panel._id === panelId);
+      if (planned) return { ...planned, selection, planVersion: plan.version };
+    }
+  }
+  const route = rankReviewPanelRoutes(eligible, policy?.routingPreference ?? "skills_then_wait")[0];
+  return route ? { ...route, selection: "automatic" } : undefined;
 }

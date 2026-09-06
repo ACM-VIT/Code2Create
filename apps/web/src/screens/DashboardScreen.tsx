@@ -10,20 +10,33 @@ import { ReviewTile } from "../components/dashboard/ReviewTile";
 import { ServiceQueuesTile } from "../components/dashboard/ServiceQueuesTile";
 import { SquadTile } from "../components/dashboard/SquadTile";
 import { UpdatesTile } from "../components/dashboard/UpdatesTile";
-import { areasValue, composeDashboard, gridTemplates } from "../components/dashboard/dashboardLayout";
+import {
+  areasValue,
+  composeDashboard,
+  gridTemplates,
+  type Slot,
+  type TileKey,
+} from "../components/dashboard/dashboardLayout";
 import { tileRelevance, type DashboardModels } from "../components/dashboard/relevance";
 import { useReducedMotion } from "../components/dashboard/useReducedMotion";
 import { PortalScene } from "../components/portal/PortalScene";
+import { RoomNav } from "../components/portal/RoomNav";
 import { TeamCluster, type ClusterMember, type ClusterTeam } from "../components/portal/TeamCluster";
 
 type DashboardGridStyle = CSSProperties & Record<`--dash-${string}`, string>;
 
-/**
- * The dashboard bento: the mockup's seven slots, filled by whichever tiles
- * matter most right now. An active review takes the horizontal hero; music
- * can expand when opened. Tiles take plain data and
- * callbacks, so the live app and the gallery render the same screen.
- */
+type Seating = Partial<Record<TileKey, Slot>>;
+
+function useStableSeating(proposed: Seating): Seating {
+  const board = Object.keys(proposed).sort().join(",");
+  const [held, setHeld] = useState({ board, seating: proposed });
+  if (held.board !== board) {
+    setHeld({ board, seating: proposed });
+    return proposed;
+  }
+  return held.seating;
+}
+
 export function DashboardScreen({
   team,
   members,
@@ -38,7 +51,7 @@ export function DashboardScreen({
 } & DashboardModels) {
   const [musicOpen, setMusicOpen] = useState(false);
   const reducedMotion = useReducedMotion();
-  const seating = composeDashboard(tileRelevance(models));
+  const seating = useStableSeating(composeDashboard(tileRelevance(models)));
   const musicSlot = seating.music ?? null;
   const focus = musicOpen && musicSlot ? musicSlot : null;
 
@@ -79,12 +92,13 @@ export function DashboardScreen({
       tree="both"
       onSignOut={onSignOut}
       header={<TeamCluster team={team} members={members} editable={teamEditable} />}
+      nav={<RoomNav current="home" />}
     >
-      <div className="flex w-full max-w-[1200px] flex-1 flex-col justify-center lg:pt-8 lg:pb-6">
+      <div className="flex w-full max-w-[1200px] flex-1 flex-col justify-center pt-10 lg:pt-8 lg:pb-6">
         <h1 className="sr-only">Dashboard</h1>
         <div
           style={gridStyle}
-          className={`relative grid h-[max(1080px,calc(100dvh-176px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-176px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)] ${seating.review === "hero" ? "[--dash-hero-min:300px] md:[--dash-hero-min:280px]" : ""}`}
+          className={`relative grid h-[max(1080px,calc(100dvh-216px))] grid-cols-[var(--dash-cols)] grid-rows-[var(--dash-rows)] gap-4 [grid-template-areas:var(--dash-areas)] md:h-[max(640px,calc(100dvh-216px))] md:grid-cols-[var(--dash-cols-md)] md:grid-rows-[var(--dash-rows-md)] md:[grid-template-areas:var(--dash-areas-md)] lg:h-[max(460px,min(880px,calc(100dvh-232px)))] lg:grid-cols-[var(--dash-cols-lg)] lg:grid-rows-[var(--dash-rows-lg)] lg:gap-[18px] lg:[grid-template-areas:var(--dash-areas-lg)] ${seating.review === "hero" ? "[--dash-hero-min:300px] md:[--dash-hero-min:280px]" : ""}`}
         >
           {seating.event ? <EventTile slot={seating.event} model={models.event} /> : null}
           {seating.squad ? <SquadTile slot={seating.squad} team={team} members={members} /> : null}

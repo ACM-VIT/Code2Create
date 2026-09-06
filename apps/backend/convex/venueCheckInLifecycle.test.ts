@@ -236,6 +236,48 @@ describe("staffed venue check-in lifecycle", () => {
     expect(finalState.counters.reduce((total, shard) => total + shard.checkedIn, 0)).toBe(2);
   });
 
+  test.each(["submitted", "selected", "offer_pending"] as const)(
+    "rejects staffed check-in for %s participants even with an identity exception",
+    async (onboardingStatus) => {
+      const now = Date.UTC(2027, 7, 8, 9, 0, 0);
+      const backend = convexTest(schema, modules);
+      const fixture = await seedFixture(backend, now);
+
+      for (const { membershipId, identityCheckMethod } of [
+        { membershipId: fixture.leadMembershipId, identityCheckMethod: "vit_id" },
+        { membershipId: fixture.memberMembershipId, identityCheckMethod: "external_photo_id" },
+      ] as const) {
+        await backend.run((ctx) => ctx.db.patch(membershipId, { onboardingStatus }));
+        for (const method of [identityCheckMethod, "approved_exception"] as const) {
+          await expect(
+            backend.run((ctx) =>
+              recordStaffedVenueCheckIn(ctx, {
+                eventId: fixture.eventId,
+                membershipId,
+                stationId: fixture.stationId,
+                identityCheckMethod: method,
+                ...(method === "approved_exception"
+                  ? { checkInReason: "Staff verified identity using the approved fallback." }
+                  : {}),
+                actorPersonId: fixture.operatorPersonId,
+                now,
+              }),
+            ),
+          ).rejects.toThrow("Only a participant on a confirmed team can check in");
+        }
+      }
+
+      const arrival = await backend.run(async (ctx) => ({
+        checkIn: await ctx.db.query("venueCheckIns").first(),
+        counter: await ctx.db.query("venueCheckInCounterShards").first(),
+        team: await ctx.db.get(fixture.teamId),
+      }));
+      expect(arrival.checkIn).toBeNull();
+      expect(arrival.counter).toBeNull();
+      expect(arrival.team?.status).toBe("confirmed");
+    },
+  );
+
   test("rejects an identity method that does not match the participant class", async () => {
     const now = Date.UTC(2027, 7, 8, 9, 0, 0);
     const backend = convexTest(schema, modules);

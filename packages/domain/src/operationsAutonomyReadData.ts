@@ -57,7 +57,7 @@ export const operationsAutonomyParticipantDeliveryTemplateKeys = [
   "offer_expired",
   "external_event_pass",
 ] as const;
-export const operationsAutonomyIntegrationProviders = ["github", "figma"] as const;
+export const operationsAutonomyIntegrationProviders = ["github"] as const;
 export const operationsAutonomyIntegrationStates = [
   "setup",
   "active",
@@ -73,12 +73,6 @@ export const operationsAutonomyIntegrationSyncStates = [
   "error",
 ] as const;
 export const operationsAutonomyGithubTopicStates = ["present", "missing", "unknown"] as const;
-export const operationsAutonomyFigmaWebhookStates = [
-  "pending",
-  "active",
-  "unavailable",
-  "error",
-] as const;
 export const operationsAutonomyRoundExportStates = [
   "generating",
   "uploaded",
@@ -187,17 +181,10 @@ type OperationsAutonomyIntegrationJobCommon = OptionalFailure & {
   retryAt?: number;
 };
 
-export type OperationsAutonomyIntegrationJob =
-  | (OperationsAutonomyIntegrationJobCommon & {
-      provider: "github";
-      topicState: (typeof operationsAutonomyGithubTopicStates)[number];
-    })
-  | (OperationsAutonomyIntegrationJobCommon & {
-      provider: "figma";
-      webhookState: (typeof operationsAutonomyFigmaWebhookStates)[number];
-      lastMetadataCheckAt: number;
-      lastFullCaptureAt: number;
-    });
+export type OperationsAutonomyIntegrationJob = OperationsAutonomyIntegrationJobCommon & {
+  provider: "github";
+  topicState: (typeof operationsAutonomyGithubTopicStates)[number];
+};
 
 export type OperationsAutonomyRoundExportCounts = {
   team: number;

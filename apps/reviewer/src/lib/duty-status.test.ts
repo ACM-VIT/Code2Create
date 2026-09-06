@@ -1,8 +1,54 @@
 import { describe, expect, test } from "vitest";
 
-import { helpStatus, incidentStatus, judgingStatus, reviewerPanelMode } from "./judging-status";
+import {
+  helpStatus,
+  incidentStatus,
+  judgingStatus,
+  reviewerPanelMode,
+} from "./judging-status";
 
 describe("judging duty status", () => {
+  test.each([
+    ["present", "On call"],
+    ["temporarily_unavailable", "On break"],
+    ["clocked_out", "Clocked out"],
+    [null, "Not clocked in"],
+  ] as const)("shows a reserve's %s duty state", (clockInStatus, status) => {
+    expect(
+      judgingStatus(
+        {
+          deviceRegistered: true,
+          assignment: "reserve",
+          clockInStatus,
+          heartbeat: null,
+          review: null,
+        },
+        false,
+        true,
+      ),
+    ).toEqual({ status, active: false });
+  });
+
+  test("keeps an assigned scorecard reachable after panel duty ends", () => {
+    expect(
+      judgingStatus(
+        {
+          deviceRegistered: true,
+          assignment: null,
+          clockInStatus: null,
+          heartbeat: null,
+          review: {
+            reviewerPresenceConfirmed: true,
+            scoredCount: 2,
+            criterionCount: 5,
+          },
+        },
+        false,
+        true,
+      ),
+    ).toMatchObject({ status: "2 of 5 scored", active: true });
+  });
+
   test("uses the root-owned page signal before reviewer state", () => {
     expect(judgingStatus(undefined, true, true)).toEqual({
       status: "Needed at a table",
@@ -15,7 +61,7 @@ describe("judging duty status", () => {
       judgingStatus(
         {
           deviceRegistered: true,
-          panelAssigned: true,
+          assignment: "panel",
           clockInStatus: "present",
           heartbeat: null,
           review: {
@@ -35,7 +81,10 @@ describe("judging duty status", () => {
   });
 
   test("does not expose a hidden judging subscription as active work", () => {
-    expect(judgingStatus(undefined, true, false)).toEqual({ status: "", active: false });
+    expect(judgingStatus(undefined, true, false)).toEqual({
+      status: "",
+      active: false,
+    });
   });
 
   test("shows clock-out as a terminal off-duty state", () => {
@@ -43,7 +92,7 @@ describe("judging duty status", () => {
       judgingStatus(
         {
           deviceRegistered: true,
-          panelAssigned: true,
+          assignment: "panel",
           clockInStatus: "clocked_out",
           heartbeat: null,
           review: null,
@@ -74,12 +123,16 @@ describe("judging duty status", () => {
 
 describe("lightweight duty summaries", () => {
   test("marks bounded incident and support counts as lower bounds", () => {
-    expect(incidentStatus({ liveCount: 20, pendingManualModeCount: 1 }, true)).toEqual({
+    expect(
+      incidentStatus({ liveCount: 20, pendingManualModeCount: 1 }, true),
+    ).toEqual({
       status: "Awaiting approval",
       active: true,
       headline: { value: "20", unit: "live" },
     });
-    expect(helpStatus({ openCount: 20, countIsLowerBound: true }, true)).toEqual({
+    expect(
+      helpStatus({ openCount: 20, countIsLowerBound: true }, true),
+    ).toEqual({
       status: "20+ open",
       active: true,
       headline: { value: "20+", unit: "cases open" },

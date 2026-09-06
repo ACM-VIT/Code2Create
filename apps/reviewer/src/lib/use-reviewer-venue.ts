@@ -6,6 +6,7 @@ import { AppState } from "react-native";
 import {
   loadVenueTracking,
   readVenueTrackingIssue,
+  resumeBackgroundVenueTracking,
   stopNativeVenueTracking,
   subscribeToForegroundVenueChecks,
   venueLocationTask,
@@ -25,7 +26,8 @@ export function useReviewerVenue(
   const [backgroundEnabled, setBackgroundEnabled] = useState(false);
   const [foregroundGranted, setForegroundGranted] = useState(false);
   const [backgroundGranted, setBackgroundGranted] = useState(false);
-  const [localEnabled, setLocalEnabled] = useState(false);
+  const [localConfigured, setLocalConfigured] = useState(false);
+  const [servicesEnabled, setServicesEnabled] = useState(false);
   const [revision, setRevision] = useState(0);
   const generation = state?.presence?.trackingGeneration;
   const policyVersion = state?.policy?.version;
@@ -59,19 +61,29 @@ export function useReviewerVenue(
         if (record && !valid) {
           await stopNativeVenueTracking(record);
         }
-        const [foreground, background] = await Promise.all([
+        const [foreground, background, services] = await Promise.all([
           Location.getForegroundPermissionsAsync(),
           Location.getBackgroundPermissionsAsync(),
+          Location.hasServicesEnabledAsync(),
         ]);
+        if (!active || currentInspection !== inspection) return;
+        if (valid && record) await resumeBackgroundVenueTracking(record);
         const started =
           await Location.hasStartedLocationUpdatesAsync(venueLocationTask);
         const savedIssue = await readVenueTrackingIssue();
         if (active && currentInspection === inspection) {
           setForegroundGranted(foreground.granted);
           setBackgroundGranted(background.granted);
-          setLocalEnabled(Boolean(valid) && foreground.granted);
-          setBackgroundEnabled(Boolean(valid) && foreground.granted && background.granted && started);
-          if (savedIssue) setIssue(savedIssue);
+          setLocalConfigured(Boolean(valid));
+          setServicesEnabled(services);
+          setBackgroundEnabled(
+            Boolean(valid) &&
+              foreground.granted &&
+              background.granted &&
+              services &&
+              started,
+          );
+          setIssue(savedIssue);
         }
       } catch {
         if (active && currentInspection === inspection)
@@ -111,7 +123,8 @@ export function useReviewerVenue(
     backgroundEnabled,
     foregroundGranted,
     backgroundGranted,
-    localEnabled,
+    localConfigured,
+    localEnabled: localConfigured && foregroundGranted && servicesEnabled,
     installationId,
     ownerId,
     refresh: () => setRevision((value) => value + 1),

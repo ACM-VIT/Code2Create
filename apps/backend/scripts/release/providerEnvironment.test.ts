@@ -6,8 +6,6 @@ import { readLiveProviderConfiguration } from "./providerEnvironment.ts";
 function validEnvironment(): NodeJS.ProcessEnv {
   return {
     C2C_PROVIDER_ENVIRONMENT: "staging",
-    C2C_PROVIDER_FIGMA_ACCESS_TOKEN: "figma-secret",
-    C2C_PROVIDER_FIGMA_FILE_KEY: "FigmaFile123",
     C2C_PROVIDER_GITHUB_INSTALLATION_ID: "101",
     C2C_PROVIDER_GITHUB_OWNER: "acm-vit",
     C2C_PROVIDER_GITHUB_REPOSITORY: "code2create-provider-fixture",

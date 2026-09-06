@@ -222,7 +222,7 @@ export function EventSetupOverview({ tabs }: { tabs: ConfigurationTabsVisibility
             <SetupRow
               detail={
                 integrations
-                  ? `${integrations.publishedPolicy.policy.requiredGitHubTopic} · ${integrations.publishedPolicy.policy.maxActiveGitHubRepositoriesPerTeam} GitHub · ${integrations.publishedPolicy.policy.maxActiveFigmaFilesPerTeam} Figma per team`
+                  ? `${integrations.publishedPolicy.policy.requiredGitHubTopic} · ${integrations.publishedPolicy.policy.maxActiveGitHubRepositoriesPerTeam} GitHub repositories per team`
                   : "Loading the code and design policy…"
               }
               label="Code and design"

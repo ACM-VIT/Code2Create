@@ -120,13 +120,9 @@ function QuestionForm({
   return (
     <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
       <p className="m-0 text-ink-2">
-        Prepare ungraded verbal prompts for every reviewable team. Updated
-        evidence creates a fresh set; each review keeps the evidence captured
-        when it starts. All readable repository files and stored Figma nodes are
-        processed in batches. Large inputs are split, never silently truncated.
-        Captured Figma renders can also be inspected; runtime behavior still
-        needs a live demonstration. Ops can see collection and analysis
-        coverage; reviewers receive a short brief with useful follow-ups.
+        Optional, ungraded follow-ups based on the team's idea, progress and repository evidence.
+        The published rubric questions and 0–4 scoring anchors stay fixed. Figma links are for
+        reviewers to open themselves. Preparation covers every readable repository file in batches.
       </p>
       <fieldset
         className="grid gap-4 md:grid-cols-2"
@@ -141,16 +137,6 @@ function QuestionForm({
             }
           />
           Continuously prepare suggested questions
-        </label>
-        <label className="check-row md:col-span-2">
-          <input
-            type="checkbox"
-            checked={policy.visualAnalysis}
-            onChange={(e) =>
-              setPolicy({ ...policy, visualAnalysis: e.target.checked })
-            }
-          />
-          Inspect captured Figma screens
         </label>
         <label className="field md:col-span-2">
           Model

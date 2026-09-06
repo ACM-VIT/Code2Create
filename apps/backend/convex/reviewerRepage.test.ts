@@ -85,7 +85,6 @@ describe("reviewer repaging", () => {
           productDomains: ["operations"],
           languages: ["english"],
           criterionKeys: ["quality"],
-          trainingStatus: "complete",
           status: "active",
           version: 1,
           createdAt: now,

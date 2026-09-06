@@ -37,6 +37,6 @@
   {
     "templateKey": "external_event_pass",
     "subject": "Your {{event_name}} event pass",
-    "text": "Hi {{participant_name}},\n\nYour personal external-participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nGoogle Wallet: {{google_wallet_url}}\nApple Wallet: {{apple_wallet_url}}\n\nThis pass belongs to you and must not be shared. Event support is available through {{portal_url}}.\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
+    "text": "Hi {{participant_name}},\n\nYour personal external-participant pass for {{event_name}} is included in this email. Present its QR before your physical photo ID at first check-in.\n\nWhen: {{event_start}}\nWhere: {{venue_name}}\nPass: {{pass_reference}}\n\nThis pass belongs to you and must not be shared.\n\nEvent Discord: https://discord.gg/hPkhtMcHq8\n\nBest regards,\nACM-VIT Student Chapter"
   }
 ]

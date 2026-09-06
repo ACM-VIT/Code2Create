@@ -140,6 +140,13 @@ pnpm --filter @code2create/landing typecheck
 pnpm --filter @code2create/reviewer typecheck
 ```
 
+Participant interaction tests use local browser fixtures without a backend:
+
+```sh
+pnpm --filter @code2create/e2e install:browser
+pnpm --filter @code2create/e2e test:interactions
+```
+
 Run the complete product checks before release:
 
 ```sh

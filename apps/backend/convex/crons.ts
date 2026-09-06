@@ -48,20 +48,6 @@ crons.interval(
 );
 
 crons.interval(
-  "recover Figma webhook setup",
-  { seconds: 15 },
-  internal.figmaIntegrations.dispatchWebhookSetups,
-  {},
-);
-
-crons.interval(
-  "dispatch Figma metadata checks",
-  { seconds: 15 },
-  internal.figmaIntegrations.dispatchMetadataChecks,
-  {},
-);
-
-crons.interval(
   "repair permission grant lifecycle",
   { seconds: 15 },
   internal.permissionGrantLifecycle.sweep,

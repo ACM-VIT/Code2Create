@@ -9,11 +9,17 @@ import { AppState, Platform } from "react-native";
 import { z } from "zod";
 import { createReviewerAuthClient } from "./auth-client";
 import { reviewerConfiguration } from "./config";
+import { OperatorError } from "./errors";
 
 export const venueLocationTask = "code2create-reviewer-venue-location";
 const storageKey = "code2create.venue-tracking.v1";
+const backgroundKey = "code2create.venue-tracking.background";
 const pendingDisableKey = "code2create.venue-tracking.pending-disables";
 const issueKey = "code2create.venue-tracking.issue";
+// The native task reads and writes these records while the screen is locked.
+const storageOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+};
 const trackingSchema = z.object({
   eventSlug: z.string(),
   installationId: z.string(),
@@ -23,12 +29,14 @@ const trackingSchema = z.object({
   endsAt: z.number(),
   policyVersion: z.number(),
 });
-const pendingDisableSchema = trackingSchema.pick({
-  eventSlug: true,
-  installationId: true,
-  generation: true,
-  ownerId: true,
-}).extend({ clientOperationId: z.string() });
+const pendingDisableSchema = trackingSchema
+  .pick({
+    eventSlug: true,
+    installationId: true,
+    generation: true,
+    ownerId: true,
+  })
+  .extend({ clientOperationId: z.string() });
 const disableErrorSchema = z.object({ code: z.string() });
 type PendingDisable = z.infer<typeof pendingDisableSchema>;
 
@@ -68,12 +76,14 @@ function sameTracking(current: Tracking | null, expected: Tracking) {
 TaskManager.defineTask(venueLocationTask, async ({ data, error }) => {
   try {
     if (error)
-      throw new Error(
+      throw new OperatorError(
         "Background location is unavailable. Open the app to check permissions.",
       );
     const parsed = taskDataSchema.safeParse(data);
     if (!parsed.success)
-      throw new Error("This phone could not read its background location.");
+      throw new OperatorError(
+        "This phone could not read its background location.",
+      );
     const latest = parsed.data.locations.reduce<Sample | null>(
       (found, sample) =>
         !found || sample.timestamp > found.timestamp ? sample : found,
@@ -84,13 +94,14 @@ TaskManager.defineTask(venueLocationTask, async ({ data, error }) => {
     await SecureStore.setItemAsync(
       issueKey,
       "Venue checks could not sync. Open the app and refresh your location.",
+      storageOptions,
     );
   }
 });
 
 export async function venueHttpClient() {
   if (!reviewerConfiguration)
-    throw new Error("The reviewer app is not configured.");
+    throw new OperatorError("The reviewer app is not configured.");
   const auth = createReviewerAuthClient(
     reviewerConfiguration.convexSiteUrl,
     reviewerConfiguration.scheme,
@@ -102,7 +113,7 @@ export async function venueHttpClient() {
       fetchOptions: { signal: controller.signal },
     });
     if (!response.data?.token)
-      throw new Error("Sign in again to sync venue checks.");
+      throw new OperatorError("Sign in again to sync venue checks.");
     const client = new ConvexHttpClient(reviewerConfiguration.convexUrl, {
       fetch: async (input, init) => {
         const request = new AbortController();
@@ -154,15 +165,23 @@ async function flushPendingDisables(ownerId: string) {
       );
       if (
         !parsed.success ||
-        !["VENUE_DEVICE_CHANGED", "VENUE_TRACKING_CHANGED"].includes(parsed.data.code)
+        !["VENUE_DEVICE_CHANGED", "VENUE_TRACKING_CHANGED"].includes(
+          parsed.data.code,
+        )
       ) {
         throw error;
       }
       // The requested generation is gone; an old opt-out must not stop its replacement.
     }
-    pending = pending.filter((entry) => entry.clientOperationId !== request.clientOperationId);
+    pending = pending.filter(
+      (entry) => entry.clientOperationId !== request.clientOperationId,
+    );
     if (pending.length) {
-      await SecureStore.setItemAsync(pendingDisableKey, JSON.stringify(pending));
+      await SecureStore.setItemAsync(
+        pendingDisableKey,
+        JSON.stringify(pending),
+        storageOptions,
+      );
     } else {
       await SecureStore.deleteItemAsync(pendingDisableKey);
     }
@@ -180,6 +199,8 @@ export function readVenueTrackingIssue() {
 async function clearNativeTracking() {
   // Remove the identity first, including when the OS refuses to stop its task.
   await SecureStore.deleteItemAsync(storageKey);
+  await SecureStore.deleteItemAsync(backgroundKey);
+  await SecureStore.deleteItemAsync(issueKey);
   if (await Location.hasStartedLocationUpdatesAsync(venueLocationTask)) {
     await Location.stopLocationUpdatesAsync(venueLocationTask);
   }
@@ -198,14 +219,16 @@ export async function enableVenueTracking(
   await changeTracking(async () => {
     await flushPendingDisables(input.ownerId);
     if (Platform.OS !== "ios" && Platform.OS !== "android")
-      throw new Error("Venue checks need the installed mobile app.");
+      throw new OperatorError("Venue checks need the installed mobile app.");
     if (!(await Location.hasServicesEnabledAsync()))
-      throw new Error("Turn on location services, then try again.");
+      throw new OperatorError("Turn on location services, then try again.");
     const foreground = await Location.requestForegroundPermissionsAsync();
     if (!foreground.granted)
-      throw new Error(
+      throw new OperatorError(
         "Location is not allowed. You can still inform the desk when leaving.",
       );
+    // A new session starts in foreground mode, even if an earlier account used background checks.
+    await clearNativeTracking();
     const client = await venueHttpClient();
     const { generation, startedAt } = await client.mutation(
       api.reviewerVenue.setMonitoring,
@@ -220,6 +243,7 @@ export async function enableVenueTracking(
     await SecureStore.setItemAsync(
       storageKey,
       JSON.stringify({ ...input, generation, startedAt }),
+      storageOptions,
     );
   });
   await refreshVenueLocation();
@@ -227,28 +251,59 @@ export async function enableVenueTracking(
 
 export function enableBackgroundVenueTracking() {
   return changeTracking(async () => {
+    const tracking = await loadVenueTracking();
+    if (!tracking) throw new OperatorError("Enable venue checks first.");
     // The UI explains the separate "Allow all the time" permission before calling this.
     const permission = await Location.requestBackgroundPermissionsAsync();
     if (!permission.granted)
-      throw new Error(
-        "Allow location all the time in Settings to check the venue with the app closed.",
+      throw new OperatorError(
+        "Allow location all the time in Settings to check the venue while the screen is locked.",
       );
-    if (!(await loadVenueTracking()))
-      throw new Error("Enable venue checks first.");
-    await Location.startLocationUpdatesAsync(venueLocationTask, {
-      accuracy: Location.Accuracy.High,
-      timeInterval: 60_000,
-      distanceInterval: 0,
-      deferredUpdatesInterval: 60_000,
-      pausesUpdatesAutomatically: false,
-      showsBackgroundLocationIndicator: true,
-      foregroundService: {
-        notificationTitle: "Code2Create venue checks",
-        notificationBody:
-          "Checking reviewer presence during the event. Manage this in the app.",
-        killServiceOnDestroy: true,
-      },
-    });
+    await SecureStore.setItemAsync(
+      backgroundKey,
+      JSON.stringify(tracking),
+      storageOptions,
+    );
+    await startBackgroundVenueTracking();
+  });
+}
+
+// Reopening the app can recover an OS-stopped task, but only for this session's explicit choice.
+export function resumeBackgroundVenueTracking(expected: Tracking) {
+  return changeTracking(async () => {
+    if (AppState.currentState !== "active" || Date.now() >= expected.endsAt)
+      return false;
+    if (!sameTracking(await loadVenueTracking(), expected)) return false;
+    const saved = await SecureStore.getItemAsync(backgroundKey);
+    if (!saved) return false;
+    const decoded: unknown = JSON.parse(saved);
+    if (!sameTracking(trackingSchema.parse(decoded), expected)) return false;
+    const [foreground, background, services] = await Promise.all([
+      Location.getForegroundPermissionsAsync(),
+      Location.getBackgroundPermissionsAsync(),
+      Location.hasServicesEnabledAsync(),
+    ]);
+    if (!foreground.granted || !background.granted || !services) return false;
+    await startBackgroundVenueTracking();
+    return true;
+  });
+}
+
+async function startBackgroundVenueTracking() {
+  if (await Location.hasStartedLocationUpdatesAsync(venueLocationTask)) return;
+  await Location.startLocationUpdatesAsync(venueLocationTask, {
+    accuracy: Location.Accuracy.High,
+    timeInterval: 60_000,
+    distanceInterval: 0,
+    deferredUpdatesInterval: 60_000,
+    pausesUpdatesAutomatically: false,
+    showsBackgroundLocationIndicator: true,
+    foregroundService: {
+      notificationTitle: "Code2Create venue checks",
+      notificationBody:
+        "Checking reviewer presence during the event. Manage this in the app.",
+      killServiceOnDestroy: true,
+    },
   });
 }
 
@@ -265,7 +320,11 @@ export function disableVenueTracking() {
           ownerId: tracking.ownerId,
           clientOperationId: randomUUID(),
         });
-        await SecureStore.setItemAsync(pendingDisableKey, JSON.stringify(pending));
+        await SecureStore.setItemAsync(
+          pendingDisableKey,
+          JSON.stringify(pending),
+          storageOptions,
+        );
       }
     } finally {
       await clearNativeTracking();
@@ -274,15 +333,21 @@ export function disableVenueTracking() {
   });
 }
 
-export async function refreshVenueLocation() {
+export async function refreshVenueLocation(expected?: Tracking) {
   const tracking = await loadVenueTracking();
-  if (!tracking) throw new Error("Enable venue checks on this phone first.");
+  if (expected && !sameTracking(tracking, expected)) return;
+  if (!tracking)
+    throw new OperatorError("Enable venue checks on this phone first.");
+  if (Date.now() >= tracking.endsAt) {
+    await stopNativeVenueTracking(tracking);
+    return;
+  }
   const sample = await new Promise<Location.LocationObject>(
     (resolve, reject) => {
       const timer = setTimeout(
         () =>
           reject(
-            new Error(
+            new OperatorError(
               "A precise location could not be found. Try again near a window or outdoors.",
             ),
           ),
@@ -298,7 +363,7 @@ export async function refreshVenueLocation() {
           reject(
             error instanceof Error
               ? error
-              : new Error("This phone could not read its location."),
+              : new OperatorError("This phone could not read its location."),
           );
         });
     },
@@ -333,7 +398,7 @@ async function sendVenueSample(sample: Sample, expected?: Tracking) {
   });
   if (!result.active) {
     await stopNativeVenueTracking(tracking);
-    throw new Error(
+    throw new OperatorError(
       "Venue checks changed. Open the app to reconnect this phone.",
     );
   }
@@ -351,7 +416,9 @@ export function subscribeToForegroundVenueChecks(
     sending = true;
     try {
       await retryPendingVenueDisables(ownerId);
-      if (await loadVenueTracking()) await refreshVenueLocation();
+      const tracking = await loadVenueTracking();
+      if (!stopped && tracking?.ownerId === ownerId)
+        await refreshVenueLocation(tracking);
       if (!stopped) onIssue(null);
     } catch {
       if (!stopped)

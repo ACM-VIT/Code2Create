@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12" width="36" height="36" shape-rendering="crispEdges">
+  <title>Sound off</title>
+  <!-- The `sound-on.svg` speaker, pixel for pixel, with the two wave bars
+       replaced by a 4x4 red cross so the muted state reads at a glance. -->
+  <g fill="#ffff00">
+  <rect x="1" y="5" width="2" height="2"/>
+  <rect x="3" y="4" width="1" height="4"/>
+  <rect x="4" y="3" width="1" height="6"/>
+  <rect x="5" y="2" width="1" height="8"/>
+  </g>
+  <g fill="#ff0000">
+  <rect x="7" y="4" width="1" height="1"/><rect x="10" y="4" width="1" height="1"/>
+  <rect x="8" y="5" width="2" height="2"/>
+  <rect x="7" y="7" width="1" height="1"/><rect x="10" y="7" width="1" height="1"/>
+  </g>
+</svg>

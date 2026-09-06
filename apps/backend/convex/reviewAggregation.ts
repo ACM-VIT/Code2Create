@@ -20,6 +20,7 @@ import {
   maximumReviewTeamsPerEvent,
 } from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
+import { isProgressionPublished, requireProgressionEditable } from "./lib/reviewProgression";
 
 const roundWeight = v.object({
   roundId: v.id("reviewRounds"),
@@ -169,6 +170,20 @@ export const publish = mutation({
         message: "Round weights changed. Refresh before publishing.",
       });
     }
+    if (current) {
+      const progressions = await ctx.db
+        .query("reviewProgressions")
+        .withIndex("by_event_round", (q) => q.eq("eventId", event._id))
+        .take(maximumReviewRoundsPerEvent + 1);
+      if (progressions.length > maximumReviewRoundsPerEvent)
+        throw new Error("Review round limit exceeded.");
+      for (const progression of progressions) {
+        if (progression.scoreReference?.policyVersion !== current.version) continue;
+        const round = await ctx.db.get(progression.roundId);
+        if (!round) throw new Error("Progression round unavailable.");
+        await requireProgressionEditable(ctx, round);
+      }
+    }
     const weights = [...args.rounds].sort((a, b) =>
       String(a.roundId).localeCompare(String(b.roundId)),
     );
@@ -235,6 +250,7 @@ export const results = query({
         roundId: v.id("reviewRounds"),
         name: v.string(),
         weight: v.number(),
+        closeSnapshotId: v.union(v.id("roundCloseSnapshots"), v.null()),
       }),
     ),
     teams: v.array(
@@ -242,6 +258,8 @@ export const results = query({
         teamId: v.id("teams"),
         name: v.string(),
         totalPoints: v.union(v.number(), v.null()),
+        weightedPoints: v.union(v.number(), v.null()),
+        competitionStatus: v.union(v.literal("eligible"), v.literal("eliminated"), v.literal("awaiting_decision")),
         rounds: v.array(
           v.object({
             roundId: v.id("reviewRounds"),
@@ -306,6 +324,7 @@ export const results = query({
       roundId: entry.roundId,
       name: entry.round.name,
       weight: entry.weight,
+      closeSnapshotId: entry.round.activeCloseSnapshotId ?? null,
     }));
     if (rounds.some((entry) => entry.round.status !== "closed")) {
       return {
@@ -338,12 +357,21 @@ export const results = query({
     );
     if (teamIds.size > maximumReviewTeamsPerEvent)
       throw new Error("Review team limit exceeded.");
+    const progressions = await Promise.all(rounds.map(async ({ round }) => {
+      const progression = await ctx.db.query("reviewProgressions").withIndex("by_event_round", q => q.eq("eventId", event._id).eq("roundId", round._id)).unique();
+      if (!progression || progression.mode !== "elimination") return null;
+      const entries = await ctx.db.query("reviewProgressionEntries").withIndex("by_progression_team", q => q.eq("progressionId", progression._id)).take(maximumReviewTeamsPerEvent + 1);
+      if (entries.length > maximumReviewTeamsPerEvent) throw new Error("Review team limit exceeded.");
+      return { current: await isProgressionPublished(ctx, round, progression), byTeam: new Map(entries.map(entry => [entry.teamId, entry.outcome])) };
+    }));
     const teamResults = await Promise.all(
       [...teamIds].map(async (teamId) => {
         const team = await ctx.db.get(teamId);
         if (!team || team.eventId !== event._id)
           throw new Error("Aggregation team is missing.");
         if (team.competitionCategory === "oc") return null;
+        const competitionStatus = progressions.some(p => p?.current && p.byTeam.get(teamId) === "eliminate") ? "eliminated" as const
+          : progressions.some(p => p && (!p.current || !p.byTeam.has(teamId))) ? "awaiting_decision" as const : "eligible" as const;
         let total = 0;
         let complete = true;
         const values = rounds.map((entry, index) => {
@@ -366,7 +394,9 @@ export const results = query({
         return {
           teamId,
           name: team.name,
-          totalPoints: complete ? total : null,
+          totalPoints: complete && competitionStatus === "eligible" ? total : null,
+          weightedPoints: complete ? total : null,
+          competitionStatus,
           rounds: values,
         };
       }),

@@ -1,7 +1,8 @@
+import { isRoundReviewer } from "./lib/reviewRoster";
 import { ConvexError, v } from "convex/values";
 
 import { internal } from "./_generated/api";
-import type { Doc, Id } from "./_generated/dataModel";
+import type { Id } from "./_generated/dataModel";
 import {
   internalMutation,
   mutation,
@@ -21,41 +22,13 @@ import {
   matchingPermissionGrantIds,
   requirePermission,
 } from "./lib/permissions";
-import { confirmedReviewWindows } from "./lib/reviewConfirmation";
+import { confirmedReviewWindows, scheduleShiftReminders } from "./lib/reviewConfirmation";
 import { maximumReviewRoundsPerEvent } from "./lib/reviewLimits";
 import { normalizedText } from "./lib/strings";
 
 import { currentShiftReminder, enqueueShiftReminderCall } from "./lib/reviewShiftReminders";
 
 const windowInput = v.object({ startsAt: v.number(), endsAt: v.number() });
-
-export async function scheduleShiftReminders(
-  ctx: MutationCtx,
-  confirmation: Doc<"reviewerRoundConfirmations">,
-  round: Doc<"reviewRounds">,
-  now: number,
-) {
-  if (
-    confirmation.status !== "confirmed" ||
-    round.staffing.assignmentReminderSeconds === 0
-  )
-    return;
-  for (const window of confirmation.windows) {
-    if (window.startsAt <= now) continue;
-    await ctx.scheduler.runAt(
-      Math.max(
-        now,
-        window.startsAt - round.staffing.assignmentReminderSeconds * 1000,
-      ),
-      internal.reviewConfirmations.prepareShiftReminder,
-      {
-        confirmationId: confirmation._id,
-        confirmationVersion: confirmation.version,
-        shiftStartsAt: window.startsAt,
-      },
-    );
-  }
-}
 
 export const prepareShiftReminder = internalMutation({
   args: {
@@ -146,6 +119,7 @@ const roundView = v.object({
   reviewDurationSeconds: v.number(),
   assignmentReminderSeconds: v.number(),
   opensAt: v.number(),
+  closesAt: v.number(),
   state: v.union(
     v.literal("scheduled"),
     v.literal("open"),
@@ -160,7 +134,7 @@ export async function createRoundConfirmationRequest(
     eventId: Id<"events">;
     roundId: Id<"reviewRounds">;
     opensAt: number;
-    endsAt: number;
+    closesAt: number;
     personIds: Id<"people">[];
     now: number;
   },
@@ -169,6 +143,7 @@ export async function createRoundConfirmationRequest(
     eventId: args.eventId,
     roundId: args.roundId,
     opensAt: args.opensAt,
+    closesAt: args.closesAt,
     state: "scheduled",
     version: 1,
     createdAt: args.now,
@@ -190,7 +165,7 @@ export async function createRoundConfirmationRequest(
     { requestId },
   );
   await ctx.scheduler.runAt(
-    args.endsAt,
+    args.closesAt,
     internal.reviewConfirmations.closeRequest,
     { requestId },
   );
@@ -211,7 +186,7 @@ export const openRequest = internalMutation({
     if (
       !round ||
       !["published", "open"].includes(round.status) ||
-      round.endsAt <= Date.now()
+      round.endsAt <= Date.now() || request.closesAt <= Date.now()
     ) {
       await ctx.db.patch(requestId, {
         state: "closed",
@@ -230,7 +205,7 @@ export const openRequest = internalMutation({
     if (confirmations.length > 500)
       throw new Error("Reviewer pool limit exceeded.");
     for (const confirmation of confirmations) {
-      if (confirmation.status !== "pending") continue;
+      if (confirmation.status !== "pending" || !(await isRoundReviewer(ctx, round._id, confirmation.personId))) continue;
       const notificationId = await ctx.db.insert(
         "reviewConfirmationNotifications",
         {
@@ -255,7 +230,7 @@ export const closeRequest = internalMutation({
   returns: v.null(),
   handler: async (ctx, { requestId }) => {
     const request = await ctx.db.get(requestId);
-    if (request && request.state !== "closed") {
+    if (request && request.state !== "closed" && Date.now() >= request.closesAt) {
       await ctx.db.patch(requestId, {
         state: "closed",
         version: request.version + 1,
@@ -295,7 +270,7 @@ export const mine = query({
           !round ||
           !request ||
           !["published", "open"].includes(round.status) ||
-          request.state === "closed"
+          !(await isRoundReviewer(ctx, round._id, confirmation.personId))
         )
           return null;
         return {
@@ -306,7 +281,8 @@ export const mine = query({
           reviewDurationSeconds: round.reviewDurationSeconds,
           assignmentReminderSeconds: round.staffing.assignmentReminderSeconds,
           opensAt: request.opensAt,
-          state: request.state,
+          closesAt: request.closesAt,
+          state: Date.now() >= request.closesAt ? "closed" as const : request.state,
           response: {
             status: confirmation.status,
             windows: confirmation.windows,
@@ -369,6 +345,7 @@ export const respond = mutation({
         )
         .unique(),
     ]);
+    if (!(await isRoundReviewer(ctx, args.roundId, person._id))) throw new ConvexError({ code: "REVIEWER_NOT_ROSTERED", message: "You are not on this round's reviewer roster." });
     const now = Date.now();
     if (
       !round ||
@@ -377,6 +354,7 @@ export const respond = mutation({
       !request ||
       request.state === "closed" ||
       request.opensAt > now ||
+      request.closesAt <= now ||
       round.endsAt <= now ||
       !confirmation
     ) {
@@ -482,6 +460,7 @@ export const reschedule = mutation({
     eventSlug: v.string(),
     roundId: v.id("reviewRounds"),
     opensAt: v.number(),
+  closesAt: v.number(),
     expectedVersion: v.number(),
     reason: v.string(),
     clientOperationId: v.string(),
@@ -495,6 +474,7 @@ export const reschedule = mutation({
     const requestFingerprint = operationFingerprint([
       args.roundId,
       args.opensAt,
+      args.closesAt,
       args.expectedVersion,
       reason,
     ]);
@@ -544,30 +524,38 @@ export const reschedule = mutation({
       });
     }
     if (
-      request.state !== "scheduled" ||
-      request.opensAt <= now ||
+      ((request.state !== "scheduled" || request.opensAt <= now) && args.opensAt !== request.opensAt) ||
       !["published", "open"].includes(round.status)
     ) {
       throw new ConvexError({
         code: "CONFIRMATION_ALREADY_OPEN",
-        message: "The opening time cannot change after reviewers can respond.",
+        message: "Keep the original opening time when extending or reopening confirmations.",
       });
     }
     if (
       !Number.isSafeInteger(args.opensAt) ||
-      args.opensAt <= now ||
-      args.opensAt > round.clockInOpensAt
+      args.opensAt > round.clockInOpensAt ||
+      !Number.isSafeInteger(args.closesAt) ||
+      args.closesAt <= Math.max(now, args.opensAt) ||
+      args.closesAt > round.endsAt
     ) {
       throw new ConvexError({
         code: "INVALID_CONFIRMATION_TIME",
         message:
-          "Choose a future confirmation time at or before clock-in opens.",
+          "Confirmation must open by clock-in and close later, within the round. The closing time must be in the future.",
       });
     }
     const version = request.version + 1;
-    await ctx.db.patch(request._id, { opensAt: args.opensAt, version });
+    await ctx.db.patch(request._id, {
+      opensAt: args.opensAt,
+      closesAt: args.closesAt,
+      // The first opening must pass through openRequest to enqueue notifications.
+      state: request.state === "scheduled" ? "scheduled" : "open",
+      version,
+    });
+    await ctx.scheduler.runAt(args.closesAt, internal.reviewConfirmations.closeRequest, { requestId: request._id });
     await ctx.scheduler.runAt(
-      args.opensAt,
+      Math.max(now, args.opensAt),
       internal.reviewConfirmations.openRequest,
       {
         requestId: request._id,
@@ -595,9 +583,10 @@ export const reschedule = mutation({
       targetId: request._id,
       previousSummary: JSON.stringify({
         opensAt: request.opensAt,
+        closesAt: request.closesAt,
         version: request.version,
       }),
-      nextSummary: JSON.stringify({ opensAt: args.opensAt, version }),
+      nextSummary: JSON.stringify({ opensAt: args.opensAt, closesAt: args.closesAt, version }),
       reason,
     });
     return { version };
@@ -608,6 +597,7 @@ export const overview = query({
   args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
   returns: v.object({
     opensAt: v.number(),
+  closesAt: v.number(),
     state: v.string(),
     version: v.number(),
     canConfigure: v.boolean(),
@@ -655,6 +645,7 @@ export const overview = query({
     });
     const people = await Promise.all(
       confirmations.map(async (response) => {
+        if (!(await isRoundReviewer(ctx, args.roundId, response.personId))) return null;
         const reviewer = await ctx.db.get(response.personId);
         if (!reviewer) throw new Error("Confirmed reviewer is missing.");
         return {
@@ -673,10 +664,11 @@ export const overview = query({
     );
     return {
       opensAt: request.opensAt,
-      state: request.state,
+      closesAt: request.closesAt,
+      state: Date.now() >= request.closesAt ? "closed" : request.state,
       version: request.version,
       canConfigure: configureGrants.length > 0,
-      people: people.sort((a, b) => a.displayName.localeCompare(b.displayName)),
+      people: people.filter(p => p !== null).sort((a, b) => a.displayName.localeCompare(b.displayName)),
     };
   },
 });

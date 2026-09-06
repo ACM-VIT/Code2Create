@@ -1,3 +1,5 @@
+import { requireReviewProgression, reviewProgressionBlocker } from "./lib/reviewProgression";
+import { hasReviewConflict } from "./lib/reviewConflict";
 import {
   paginationOptsValidator,
   paginationResultValidator,
@@ -253,6 +255,7 @@ async function activeReviewOperationGrants(
     );
 }
 
+
 function isReviewableTeam(team: Doc<"teams">) {
   return (
     team.competitionCategory !== "oc" &&
@@ -326,12 +329,9 @@ async function ensurePanelReady(
     });
   }
   for (const member of members) {
-    const conflict = await ctx.db
-      .query("reviewerConflicts")
-      .withIndex("by_reviewer_team_status", (index) =>
-        index.eq("reviewerPersonId", member.personId).eq("teamId", teamId).eq("status", "active"),
-      )
-      .first();
+    const profile = await ctx.db.query("reviewerProfiles").withIndex("by_event_person", q => q.eq("eventId", round.eventId).eq("personId", member.personId)).unique();
+    if (!profile || profile.status !== "active") throw new ConvexError({ code: "REVIEWER_NOT_READY", message: "Every panel member needs an active reviewer profile." });
+    const conflict = await hasReviewConflict(ctx, round.eventId, member.personId, teamId);
     if (conflict) {
       throw new ConvexError({
         code: "PANEL_CONFLICT",
@@ -918,7 +918,7 @@ export const roundTeams = query({
         if (!project || project.eventId !== event._id || project.teamId !== team._id) {
           throw new Error("A review queue team has no locked project.");
         }
-        if (!state && !isReviewableTeam(team)) return null;
+        if (!state && (!isReviewableTeam(team) || await reviewProgressionBlocker(ctx, round, team._id))) return null;
         if (sessions.length > maximumReviewSessionsPerTeamRound) {
           throw new Error("A team exceeds the review-attempt limit for this round.",
           );
@@ -1206,6 +1206,7 @@ export const queueTeam = mutation({
       requireRound(ctx, event._id, args.roundId),
       requireReviewTeam(ctx, event._id, args.teamId),
     ]);
+    await requireReviewProgression(ctx, round, team._id);
     const route =
       args.panelId === undefined
         ? await routeReviewTeam(ctx, round, team, subject)
@@ -1309,7 +1310,9 @@ export const queueTeam = mutation({
       nextSummary: JSON.stringify({ state: "queued", panelId: panel._id, version: nextVersion,
         routing: route
           ? {
-              rulesVersion: "domain-and-pace-v1",
+              rulesVersion: "planned-domain-and-pace-v2",
+              selection: route.selection,
+              planVersion: route.planVersion,
               matchedDomains: route.matchedDomains,
               estimatedWaitSeconds: route.estimatedWaitSeconds,
             }
@@ -1401,6 +1404,7 @@ export async function callQueuedTeam(
         message: "New review calls are paused for this round.",
       });
     }
+    await requireReviewProgression(ctx, round, team._id);
     const members = await ensurePanelReady(ctx, round, panel, team._id);
     const state = await ctx.db
       .query("teamRoundStates")
@@ -1776,6 +1780,7 @@ export const startReview = mutation({
         message: "New review starts are paused for this round.",
       });
     }
+    await requireReviewProgression(ctx, round, session.teamId);
     const now = Date.now();
     if (
       session.status !== "awaiting_presence" ||
@@ -1801,6 +1806,7 @@ export const startReview = mutation({
         message: "The fixed reviewer assignment is incomplete.",
       });
     }
+    await ensurePanelReady(ctx, round, panel, session.teamId);
     for (const assignment of assigned) {
       await requireConfirmedReviewer(
         ctx,

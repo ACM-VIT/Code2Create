@@ -22,10 +22,7 @@ export type GitHubStarGateState = NonNullable<
 export type GitHubStarConnectionResult = FunctionReturnType<
   typeof api.githubStarActions.completeConnection
 >;
-export type CurrentFigmaIntegration = NonNullable<
-  FunctionReturnType<typeof api.figmaIntegrations.current>
->;
-export type FigmaConnectionResult = FunctionReturnType<typeof api.figmaActions.completeConnection>;
+
 export type SubmissionPreview = NonNullable<
   FunctionReturnType<typeof api.intake.submissionPreview>
 >;

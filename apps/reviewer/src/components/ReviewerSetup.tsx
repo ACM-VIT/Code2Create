@@ -6,6 +6,8 @@ import { palette } from "@/theme";
 export function ReviewerSetup({
   busy,
   cameraReady,
+  requiresCamera,
+  requiresPaging,
   draftsReady,
   onOpenPaging,
   onRegister,
@@ -16,6 +18,8 @@ export function ReviewerSetup({
 }: {
   busy: boolean;
   cameraReady: boolean;
+  requiresCamera: boolean;
+  requiresPaging: boolean;
   draftsReady: boolean;
   onOpenPaging: () => void;
   onRegister: () => void | Promise<void>;
@@ -27,40 +31,44 @@ export function ReviewerSetup({
   const checks = [
     {
       title: "Camera",
-      consequence: "You cannot scan a team to start their review",
+      consequence: "Scan the team’s review code",
+      required: requiresCamera,
       met: cameraReady,
       actionLabel: "Allow",
       onPress: onRequestCamera,
     },
     {
-      title: "Getting paged",
-      consequence: "A panel short a reviewer will not reach you",
+      title: "Review alerts",
+      consequence: "Get panel requests on this phone",
+      required: requiresPaging,
       met: pagingReady,
       actionLabel: "Set up",
       onPress: onOpenPaging,
     },
     {
-      title: "Encrypted drafts",
-      consequence: "Scores cannot be held safely if the network drops",
+      title: "Offline scores",
+      consequence: "Save scores if the connection drops",
+      required: true,
       met: draftsReady,
     },
   ] as const;
 
-  const done = checks.filter((check) => check.met).length;
+  const requiredChecks = checks.filter((check) => check.required);
+  const done = requiredChecks.filter((check) => check.met).length;
 
   return (
     <View style={styles.body}>
       <View style={styles.head}>
         <Text style={styles.title}>Set up this phone</Text>
         <Text style={styles.subtitle}>
-          {done === checks.length
-            ? "Everything is ready. Register to join your panel."
-            : "A judging phone joins a panel when all three are ready."}
+          {done === requiredChecks.length
+            ? "Ready to join your panel."
+            : `${done} of ${requiredChecks.length} ready`}
         </Text>
       </View>
 
       <View style={styles.meter}>
-        {checks.map((check) => (
+        {requiredChecks.map((check) => (
           <View
             key={check.title}
             style={[styles.meterSegment, check.met ? styles.meterDone : null]}
@@ -75,7 +83,7 @@ export function ReviewerSetup({
             <CheckRow
               consequence={check.consequence}
               met={check.met}
-              title={check.title}
+              title={`${check.title}${check.required ? "" : " (optional)"}`}
               {...("onPress" in check
                 ? { actionLabel: check.actionLabel, onPress: check.onPress }
                 : {})}
@@ -84,8 +92,6 @@ export function ReviewerSetup({
         ))}
       </View>
 
-      {/* The spacer walks the one real action down to the thumb instead of
-          leaving it wherever the checklist happened to end. */}
       <View style={styles.push} />
       <Action
         accent={palette.judging}
@@ -101,7 +107,12 @@ const styles = StyleSheet.create({
   body: { flexGrow: 1, paddingTop: 10 },
   push: { flexGrow: 1 },
   head: { gap: 8, paddingHorizontal: 4 },
-  title: { color: palette.text, fontSize: 28, fontWeight: "600", letterSpacing: -0.6 },
+  title: {
+    color: palette.text,
+    fontSize: 28,
+    fontWeight: "600",
+    letterSpacing: -0.6,
+  },
   subtitle: { color: palette.muted, fontSize: 16, lineHeight: 22 },
   meter: { flexDirection: "row", gap: 6, marginTop: 20, paddingHorizontal: 4 },
   meterSegment: {
@@ -112,5 +123,9 @@ const styles = StyleSheet.create({
   },
   meterDone: { backgroundColor: palette.judging },
   rows: { marginTop: 18 },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: palette.strong, marginLeft: 56 },
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: palette.strong,
+    marginLeft: 56,
+  },
 });

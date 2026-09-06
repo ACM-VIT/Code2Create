@@ -7,7 +7,7 @@ import { useState, type SubmitEvent } from "react";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import {
-  indiaDateTimeToTimestamp,
+  rescheduleReviewConfirmationWindow,
   timestampToIndiaDateTime,
 } from "../lib/indiaDateTime";
 import { useMutationAttempt } from "../lib/operations";
@@ -38,7 +38,9 @@ export function ReviewConfirmations({
     roundId,
   });
   if (!data)
-    return <p className="m-0 text-ink-2">Loading availability confirmations…</p>;
+    return (
+      <p className="m-0 text-ink-2">Loading availability confirmations…</p>
+    );
   const confirmed = data.people.filter(
     (person) => person.response.status === "confirmed",
   ).length;
@@ -51,16 +53,19 @@ export function ReviewConfirmations({
         <span>
           <strong>Round availability</strong>
           <small>
-            <LiveNumber value={confirmed} /> confirmed · <LiveNumber value={pending} /> awaiting response ·{" "}
-            <LiveNumber value={data.people.length - confirmed - pending} /> unavailable
+            <LiveNumber value={confirmed} /> confirmed ·{" "}
+            <LiveNumber value={pending} /> awaiting response ·{" "}
+            <LiveNumber value={data.people.length - confirmed - pending} />{" "}
+            unavailable
           </small>
         </span>
       </summary>
       <p className="m-0 px-4 py-5 text-ink-2 sm:px-5">
-        App confirmation opens at {dateTime.format(data.opensAt)} IST. These
-        responses determine availability for this round.
+        App confirmation: {dateTime.format(data.opensAt)} to{" "}
+        {dateTime.format(data.closesAt)} IST. These responses determine
+        availability for this round.
       </p>
-      {data.canConfigure && data.state === "scheduled" ? (
+      {data.canConfigure ? (
         <ConfirmationSchedule
           key={data.version}
           roundId={roundId}
@@ -105,6 +110,9 @@ function ConfirmationSchedule({
   const [opening, setOpening] = useState(
     timestampToIndiaDateTime(current.opensAt),
   );
+  const [closing, setClosing] = useState(
+    timestampToIndiaDateTime(current.closesAt),
+  );
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -117,13 +125,18 @@ function ConfirmationSchedule({
     setError(null);
     try {
       await attempt.run("confirmation-schedule", () => {
-        const opensAt = indiaDateTimeToTimestamp(opening);
-        if (opensAt === null)
+        const { opensAt, closesAt } = rescheduleReviewConfirmationWindow(
+          current,
+          opening,
+          closing,
+        );
+        if (opensAt === null || closesAt === null)
           throw new Error("Choose a valid confirmation time in IST.");
         const args = {
           eventSlug,
           roundId,
           opensAt,
+          closesAt,
           reason,
           expectedVersion: current.version,
           clientOperationId: crypto.randomUUID(),
@@ -139,7 +152,9 @@ function ConfirmationSchedule({
 
   return (
     <details className="mx-4 mb-5 rounded-md border border-solid border-line sm:mx-5">
-      <summary className="cursor-pointer px-4 py-3 text-sm">Change confirmation time</summary>
+      <summary className="cursor-pointer px-4 py-3 text-sm">
+        Change confirmation time
+      </summary>
       <form className="grid gap-5 p-4 sm:p-5" onSubmit={submit}>
         <label className="field">
           Opening time (IST)
@@ -147,8 +162,19 @@ function ConfirmationSchedule({
             type="datetime-local"
             required
             disabled={busy || pending}
+            readOnly={current.state !== "scheduled"}
             value={opening}
             onChange={(event) => setOpening(event.target.value)}
+          />
+        </label>
+        <label className="field">
+          Closing time (IST)
+          <input
+            type="datetime-local"
+            required
+            disabled={busy || pending}
+            value={closing}
+            onChange={(event) => setClosing(event.target.value)}
           />
         </label>
         <label className="field">
@@ -163,7 +189,7 @@ function ConfirmationSchedule({
           />
         </label>
         <p className="m-0 text-ink-2">
-          You can change this until confirmation opens. Existing reviewer
+          Extend or reopen confirmations by moving the closing time. Existing
           responses are preserved.
         </p>
         {error ? (

@@ -1,11 +1,27 @@
 import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
 import { ConvexError } from "convex/values";
 import * as SecureStore from "expo-secure-store";
+import {
+  disableVenueTracking,
+  enableBackgroundVenueTracking,
+  enableVenueTracking,
+  loadVenueTracking,
+  readVenueTrackingIssue,
+  refreshVenueLocation,
+  retryPendingVenueDisables,
+  resumeBackgroundVenueTracking,
+  subscribeToForegroundVenueChecks,
+  venueLocationTask,
+} from "./venue-location";
+import { visibleVenueStatus } from "./venue-status";
+import { describeError } from "./errors";
 
 const native = vi.hoisted(() => {
   const storage = new Map<string, string>();
   return {
     storage,
+    accessible: new Map<string, number | undefined>(),
+    locked: false,
     handler: null as
       | ((payload: {
           data: unknown;
@@ -24,9 +40,25 @@ const native = vi.hoisted(() => {
   };
 });
 vi.mock("expo-secure-store", () => ({
-  getItemAsync: async (key: string) => native.storage.get(key) ?? null,
-  setItemAsync: async (key: string, value: string) => {
+  AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 2,
+  getItemAsync: async (key: string) => {
+    if (
+      native.locked &&
+      native.storage.has(key) &&
+      native.accessible.get(key) !== 2
+    )
+      throw new Error("Keychain is locked");
+    return native.storage.get(key) ?? null;
+  },
+  setItemAsync: async (
+    key: string,
+    value: string,
+    options?: { keychainAccessible: number },
+  ) => {
+    if (native.locked && options?.keychainAccessible !== 2)
+      throw new Error("Keychain is locked");
     native.storage.set(key, value);
+    native.accessible.set(key, options?.keychainAccessible);
   },
   deleteItemAsync: async (key: string) => {
     native.storage.delete(key);
@@ -41,6 +73,8 @@ vi.mock("expo-location", () => ({
   Accuracy: { High: 4 },
   requestForegroundPermissionsAsync: native.foreground,
   requestBackgroundPermissionsAsync: native.background,
+  getForegroundPermissionsAsync: native.foreground,
+  getBackgroundPermissionsAsync: native.background,
   getCurrentPositionAsync: native.position,
   hasStartedLocationUpdatesAsync: native.hasStarted,
   startLocationUpdatesAsync: native.start,
@@ -72,19 +106,6 @@ vi.mock("convex/browser", () => ({
   },
 }));
 
-import {
-  disableVenueTracking,
-  enableBackgroundVenueTracking,
-  enableVenueTracking,
-  loadVenueTracking,
-  readVenueTrackingIssue,
-  refreshVenueLocation,
-  retryPendingVenueDisables,
-  subscribeToForegroundVenueChecks,
-  venueLocationTask,
-} from "./venue-location";
-import { visibleVenueStatus } from "./venue-status";
-
 const sample = (timestamp: number, latitude = 12.97) => ({
   timestamp,
   coords: {
@@ -109,6 +130,8 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(1_800_000_000_000);
   native.storage.clear();
+  native.accessible.clear();
+  native.locked = false;
   vi.clearAllMocks();
   native.services.mockResolvedValue(true);
   native.foreground.mockResolvedValue({ granted: true });
@@ -194,6 +217,17 @@ describe("native venue tracking", () => {
     expect(native.start).toHaveBeenCalledOnce();
   });
 
+  test("shows the Settings recovery instruction when background permission is denied", async () => {
+    await enableVenueTracking(setup);
+    native.background.mockResolvedValue({ granted: false });
+    const error = await enableBackgroundVenueTracking().catch(
+      (caught: unknown) => caught,
+    );
+    expect(describeError(error, "Could not save")).toBe(
+      "Allow location all the time in Settings to check the venue while the screen is locked.",
+    );
+  });
+
   test("a headless callback uploads only the newest fix using the stored event and generation", async () => {
     await enableVenueTracking(setup);
     native.mutation.mockClear();
@@ -216,6 +250,104 @@ describe("native venue tracking", () => {
     );
   });
 
+  test("a locked-screen task can read its session, upload a fix, and save a sync failure", async () => {
+    await enableVenueTracking(setup);
+    native.locked = true;
+    native.mutation.mockClear();
+    await native.handler?.({
+      data: { locations: [sample(Date.now())] },
+      error: null,
+    });
+    expect(native.mutation).toHaveBeenCalledOnce();
+    expect(await readVenueTrackingIssue()).toBeNull();
+    native.mutation.mockRejectedValueOnce(new Error("Offline"));
+    await native.handler?.({
+      data: { locations: [sample(Date.now())] },
+      error: null,
+    });
+    expect(await readVenueTrackingIssue()).toContain("could not sync");
+  });
+
+  test("reopening restores an explicitly enabled background task without prompting again", async () => {
+    await enableVenueTracking(setup);
+    await enableBackgroundVenueTracking();
+    const tracking = await loadVenueTracking();
+    if (!tracking) throw new Error("Missing tracking fixture");
+    native.start.mockClear();
+    // The OS has stopped the task; the saved choice survives the process restart.
+    expect(await resumeBackgroundVenueTracking(tracking)).toBe(true);
+    expect(native.start).toHaveBeenCalledOnce();
+    native.hasStarted.mockResolvedValue(true);
+    expect(await resumeBackgroundVenueTracking(tracking)).toBe(true);
+    expect(native.start).toHaveBeenCalledOnce();
+  });
+
+  test("foreground-only sessions do not acquire background tracking from an earlier permission grant", async () => {
+    await enableVenueTracking(setup);
+    const tracking = await loadVenueTracking();
+    if (!tracking) throw new Error("Missing tracking fixture");
+    expect(await resumeBackgroundVenueTracking(tracking)).toBe(false);
+    expect(native.start).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    "foreground",
+    "background",
+    "services",
+    "expired",
+    "stopped",
+  ] as const)(
+    "does not resume background checks when %s is unavailable",
+    async (unavailable) => {
+      await enableVenueTracking(setup);
+      await enableBackgroundVenueTracking();
+      const tracking = await loadVenueTracking();
+      if (!tracking) throw new Error("Missing tracking fixture");
+      native.start.mockClear();
+      if (unavailable === "foreground")
+        native.foreground.mockResolvedValue({ granted: false });
+      if (unavailable === "background")
+        native.background.mockResolvedValue({ granted: false });
+      if (unavailable === "services") native.services.mockResolvedValue(false);
+      if (unavailable === "expired") vi.setSystemTime(setup.endsAt);
+      if (unavailable === "stopped") await disableVenueTracking();
+      expect(await resumeBackgroundVenueTracking(tracking)).toBe(false);
+      expect(native.start).not.toHaveBeenCalled();
+    },
+  );
+
+  test("a new account or generation cannot inherit the previous session's background choice", async () => {
+    await enableVenueTracking(setup);
+    await enableBackgroundVenueTracking();
+    const previous = await loadVenueTracking();
+    if (!previous) throw new Error("Missing tracking fixture");
+    native.hasStarted.mockResolvedValue(true);
+    native.mutation.mockResolvedValueOnce({
+      generation: 2,
+      startedAt: Date.now(),
+    });
+    await enableVenueTracking({ ...setup, ownerId: "second-reviewer" });
+    expect(native.stop).toHaveBeenCalledOnce();
+    native.start.mockClear();
+    expect(await resumeBackgroundVenueTracking(previous)).toBe(false);
+    const current = await loadVenueTracking();
+    if (!current) throw new Error("Missing tracking fixture");
+    expect(await resumeBackgroundVenueTracking(current)).toBe(false);
+    expect(native.start).not.toHaveBeenCalled();
+    native.position.mockClear();
+    await refreshVenueLocation(previous);
+    expect(native.position).not.toHaveBeenCalled();
+    native.mutation.mockClear();
+    const onIssue = vi.fn();
+    const stop = subscribeToForegroundVenueChecks(setup.ownerId, onIssue);
+    try {
+      await vi.waitFor(() => expect(onIssue).toHaveBeenCalledWith(null));
+      expect(native.mutation).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
   test("stops sending at the event end and after local tracking is stopped", async () => {
     await enableVenueTracking(setup);
     native.mutation.mockClear();
@@ -226,6 +358,17 @@ describe("native venue tracking", () => {
       error: null,
     });
     expect(native.mutation).not.toHaveBeenCalled();
+    expect(native.stop).toHaveBeenCalledOnce();
+    expect(await loadVenueTracking()).toBeNull();
+  });
+
+  test("stops expired foreground checks without waiting for another GPS fix", async () => {
+    await enableVenueTracking(setup);
+    native.position.mockClear();
+    native.hasStarted.mockResolvedValue(true);
+    vi.setSystemTime(setup.endsAt);
+    await refreshVenueLocation();
+    expect(native.position).not.toHaveBeenCalled();
     expect(native.stop).toHaveBeenCalledOnce();
     expect(await loadVenueTracking()).toBeNull();
   });
@@ -254,7 +397,10 @@ describe("native venue tracking", () => {
     const stop = subscribeToForegroundVenueChecks(setup.ownerId, onIssue);
     try {
       await vi.waitFor(() => expect(native.mutation).toHaveBeenCalledOnce());
-      expect(native.mutation).toHaveBeenLastCalledWith(expect.anything(), request);
+      expect(native.mutation).toHaveBeenLastCalledWith(
+        expect.anything(),
+        request,
+      );
       await vi.waitFor(() => expect(onIssue).toHaveBeenCalledWith(null));
       expect(await loadVenueTracking()).toBeNull();
       native.mutation.mockClear();
@@ -273,7 +419,10 @@ describe("native venue tracking", () => {
     native.mutation.mockClear();
     await retryPendingVenueDisables("second-reviewer");
     expect(native.mutation).not.toHaveBeenCalled();
-    native.mutation.mockResolvedValueOnce({ generation: 2, startedAt: Date.now() });
+    native.mutation.mockResolvedValueOnce({
+      generation: 2,
+      startedAt: Date.now(),
+    });
     await enableVenueTracking({ ...setup, ownerId: "second-reviewer" });
     native.mutation.mockRejectedValueOnce(new Error("Offline again"));
     await expect(disableVenueTracking()).rejects.toThrow("Offline again");
@@ -281,11 +430,17 @@ describe("native venue tracking", () => {
     native.mutation.mockClear();
     await retryPendingVenueDisables("second-reviewer");
     expect(native.mutation).toHaveBeenCalledOnce();
-    expect(native.mutation).toHaveBeenLastCalledWith(expect.anything(), secondRequest);
+    expect(native.mutation).toHaveBeenLastCalledWith(
+      expect.anything(),
+      secondRequest,
+    );
     native.mutation.mockClear();
     await retryPendingVenueDisables(setup.ownerId);
     expect(native.mutation).toHaveBeenCalledOnce();
-    expect(native.mutation).toHaveBeenLastCalledWith(expect.anything(), firstRequest);
+    expect(native.mutation).toHaveBeenLastCalledWith(
+      expect.anything(),
+      firstRequest,
+    );
   });
 
   test("discards only superseded opt-outs and leaves the newer tracking generation intact", async () => {
@@ -293,7 +448,12 @@ describe("native venue tracking", () => {
     native.mutation.mockRejectedValueOnce(new Error("Offline"));
     await expect(disableVenueTracking()).rejects.toThrow("Offline");
     native.mutation
-      .mockRejectedValueOnce(new ConvexError({ code: "VENUE_TRACKING_CHANGED", message: "Replaced" }))
+      .mockRejectedValueOnce(
+        new ConvexError({
+          code: "VENUE_TRACKING_CHANGED",
+          message: "Replaced",
+        }),
+      )
       .mockResolvedValueOnce({ generation: 3, startedAt: Date.now() });
     await enableVenueTracking(setup);
     expect((await loadVenueTracking())?.generation).toBe(3);
@@ -304,13 +464,19 @@ describe("native venue tracking", () => {
 
   test("stops local tracking even when the pending opt-out cannot be saved", async () => {
     await enableVenueTracking(setup);
-    const write = vi.spyOn(SecureStore, "setItemAsync")
+    const write = vi
+      .spyOn(SecureStore, "setItemAsync")
       .mockRejectedValueOnce(new Error("Storage unavailable"));
     try {
-      await expect(disableVenueTracking()).rejects.toThrow("Storage unavailable");
+      await expect(disableVenueTracking()).rejects.toThrow(
+        "Storage unavailable",
+      );
       expect(await loadVenueTracking()).toBeNull();
       native.mutation.mockClear();
-      await native.handler?.({ data: { locations: [sample(Date.now())] }, error: null });
+      await native.handler?.({
+        data: { locations: [sample(Date.now())] },
+        error: null,
+      });
       expect(native.mutation).not.toHaveBeenCalled();
     } finally {
       write.mockRestore();
@@ -325,9 +491,13 @@ describe("native venue tracking", () => {
     expect(await loadVenueTracking()).toBeNull();
     native.mutation.mockClear();
     await retryPendingVenueDisables(setup.ownerId);
-    expect(native.mutation).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      enabled: false, expectedGeneration: 1,
-    }));
+    expect(native.mutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        enabled: false,
+        expectedGeneration: 1,
+      }),
+    );
   });
 
   test("expired or replaced tracking stops the native task, while a duplicate fix is harmless", async () => {

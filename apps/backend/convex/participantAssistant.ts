@@ -1323,15 +1323,15 @@ async function checkpointContext(ctx: QueryCtx, event: Doc<"events">, teamId: Id
 }
 
 async function integrationContext(ctx: QueryCtx, teamId: Id<"teams">) {
-  const [repositories, figmaFiles] = await Promise.all([
+  const [repositories, figmaLink] = await Promise.all([
     ctx.db
       .query("githubRepositoryBindings")
       .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
       .take(20),
     ctx.db
-      .query("figmaFileBindings")
-      .withIndex("by_team_state", (index) => index.eq("teamId", teamId).eq("state", "active"))
-      .take(20),
+      .query("teamFigmaLinks")
+      .withIndex("by_team", index => index.eq("teamId", teamId))
+      .unique(),
   ]);
   return {
     githubRepositories: repositories.map((repository) => ({
@@ -1340,11 +1340,7 @@ async function integrationContext(ctx: QueryCtx, teamId: Id<"teams">) {
       topicStatus: repository.topicState,
       syncStatus: repository.syncState,
     })),
-    figmaFiles: figmaFiles.map((file) => ({
-      name: file.name,
-      role: file.role,
-      syncStatus: file.syncState,
-    })),
+    figmaFileLinkAdded: Boolean(figmaLink?.fileUrl),
   };
 }
 
