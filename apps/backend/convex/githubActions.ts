@@ -343,7 +343,6 @@ export const listAvailableRepositories = action({
       {
         eventSlug: args.eventSlug,
         connectionId: args.connectionId,
-        requireLiveEvent: false,
         serverNow: Date.now(),
       },
     );
@@ -414,7 +413,6 @@ export const addRepository = action({
       {
         eventSlug: args.eventSlug,
         connectionId: args.connectionId,
-        requireLiveEvent: true,
         serverNow: Date.now(),
       },
     );

@@ -525,9 +525,9 @@ function ConnectedIntegrations({
               {!integration.githubConfigured ? (
                 <ToolNotice>GitHub connections are unavailable right now.</ToolNotice>
               ) : null}
-              {teamAccepted && integration.eventStatus !== "live" && integration.policy && integration.githubConfigured ? (
+              {teamAccepted && integration.eventStatus !== "complete" && integration.policy && integration.githubConfigured ? (
                 <ToolNotice>
-                  You can connect GitHub and preview a repository now. Adding it to your team opens when organizers start the official build. Draft details are not saved until you add the repository.
+                  Choose your team's repositories and add them below. Each repository is saved with its current commit as the baseline for tracking changes.
                 </ToolNotice>
               ) : null}
 

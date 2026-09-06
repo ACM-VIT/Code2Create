@@ -31,13 +31,15 @@ test("a shared team connection does not grant personal repository browsing", () 
 });
 
 const openBuild = { eventStatus: "live", canManage: true, repositoryCount: 0, maximumRepositories: 10, now: 100 };
-test("repository details can be previewed before build start, but adding stays gated", () => {
+test("accepted teams can select and add repositories before build start", () => {
   assert.equal(githubRepositorySelectionConnection(connections, "personal", "repo")?.id, "personal");
-  assert.match(githubRepositoryAddBlocker({ ...openBuild, eventStatus: "registration_closed" }) ?? "", /official build/);
+  assert.equal(githubRepositoryAddBlocker({ ...openBuild, eventStatus: "registration_closed" }), null);
+  assert.equal(githubRepositoryAddBlocker({ ...openBuild, eventStatus: "registration_open" }), null);
   assert.equal(githubRepositoryAddBlocker(openBuild), null);
 });
 
 test("adding respects permissions, the repository cap and the exact freeze boundary", () => {
+  assert.match(githubRepositoryAddBlocker({ ...openBuild, eventStatus: "complete" }) ?? "", /event has ended/);
   assert.match(githubRepositoryAddBlocker({ ...openBuild, canManage: false }) ?? "", /management access/);
   assert.match(githubRepositoryAddBlocker({ ...openBuild, repositoryCount: 10 }) ?? "", /limit/);
   assert.equal(githubRepositoryAddBlocker({ ...openBuild, freezeAt: 101 }), null);

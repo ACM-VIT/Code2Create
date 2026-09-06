@@ -209,14 +209,13 @@ function requireGitHubWindow(
   event: Doc<"events">,
   team: Doc<"teams">,
   policy: Doc<"integrationPolicyVersions">,
-  requireLiveEvent: boolean,
   serverNow: number,
 ) {
   requireAdmittedTeam(team);
-  if (requireLiveEvent && event.status !== "live") {
+  if (event.status === "complete") {
     throw new ConvexError({
-      code: "BUILD_NOT_STARTED",
-      message: "Repositories can be added after the official build start.",
+      code: "GITHUB_EVENT_COMPLETE",
+      message: "Repository changes are closed because the event has ended.",
     });
   }
   if (githubIntegrationFrozenAt(policy, serverNow)) {
@@ -554,7 +553,7 @@ export const createSetupIntent = internalMutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireGitHubWindow(event, team, policy, false, Date.now());
+    requireGitHubWindow(event, team, policy, Date.now());
     await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -705,7 +704,7 @@ export const finishSetupIntent = internalMutation({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireGitHubWindow(event, team, policy, false, Date.now());
+    requireGitHubWindow(event, team, policy, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -885,7 +884,6 @@ export const connectionContext = internalQuery({
   args: {
     eventSlug: v.string(),
     connectionId: v.id("githubInstallationConnections"),
-    requireLiveEvent: v.boolean(),
     serverNow: v.number(),
   },
   returns: v.object({
@@ -900,7 +898,7 @@ export const connectionContext = internalQuery({
   handler: async (ctx, args) => {
     const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
-    requireGitHubWindow(event, team, policy, args.requireLiveEvent, args.serverNow);
+    requireGitHubWindow(event, team, policy, args.serverNow);
     await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -983,7 +981,7 @@ export const commitRepository = internalMutation({
         message: "The integration policy changed. Review it and try again.",
       });
     }
-    requireGitHubWindow(event, team, policy, true, Date.now());
+    requireGitHubWindow(event, team, policy, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1369,7 +1367,7 @@ export const reorderRepositories = mutation({
       };
     }
     const policy = await requirePublishedPolicy(ctx, event);
-    requireGitHubWindow(event, team, policy, false, Date.now());
+    requireGitHubWindow(event, team, policy, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,
@@ -1440,7 +1438,7 @@ export const archiveRepository = mutation({
     });
     if (priorOperation) return { bindingId: args.bindingId };
     const policy = await requirePublishedPolicy(ctx, event);
-    requireGitHubWindow(event, team, policy, false, Date.now());
+    requireGitHubWindow(event, team, policy, Date.now());
     const grantIds = await requirePermission(ctx, {
       eventId: event._id,
       eventAccessSubjectId: subject._id,

@@ -230,7 +230,7 @@ Versioned event configuration supplies `maxActiveGitHubRepositoriesPerTeam` afte
 9. It records the repository baseline SHA, topic state, repository creation/fork metadata, and first immutable snapshot.
 10. The lead repeats the flow for every submitted repository and can start another App installation flow when the next repository belongs to a different account or organization.
 
-The dashboard opens the same integrations-page picker instead of caching a second repository list. Selecting a repository focuses its details immediately; loading another page does not erase a draft. Before the official build is live, details can be previewed but are not persisted and **Add repository** explains the build gate. The repository cap and freeze gate are also explained beside the draft. Cached picker data is discarded when the person, team, connection version, or authorization availability changes.
+The dashboard opens the same integrations-page picker instead of caching a second repository list. Selecting a repository focuses its details immediately; loading another page does not erase a draft. Accepted teams can add repositories before the event transitions to live; the current commit is captured as the baseline when the repository is added. The repository cap, permissions, event completion, and configured freeze still restrict changes and are explained beside the draft. Cached picker data is discarded when the person, team, connection version, or authorization availability changes.
 
 One `teamIntegration` owns the ordered repository set. A GitHub installation can serve several repositories and several Code2Create teams, while one team can reference several installations. The application never asks for a personal access token.
 
