@@ -36,6 +36,8 @@ Staff actions use separate grants:
 
 The role string is never checked for a music action; only a materialized permission grant can allow one. Playback permission does not grant moderation or report access.
 
+An active `synesthesia.queue.read` grant for a window (or the event) also permits approving and rejecting requests in that window, without hosting playback. It does not permit hiding requests, reading internal notes or reports, scheduling, changing requester access, or controlling playback. The audit entry records the actual grant used. Explicit request-moderation grants continue to work independently.
+
 ## 4. Catalog
 
 An authorized operator creates an event catalog entry with:
@@ -88,15 +90,15 @@ The participant can report one visible request with a short reason. The report g
 
 An authorized moderator can:
 
-- approve;
-- reject with participant-facing text;
+- approve in one click, without hosting playback or entering a reason;
+- reject in one click, using a default participant-facing message when none is supplied;
 - hide with participant-facing text;
 - queue;
 - pin;
 - defer within the current window; or
 - return a request to its legal prior state.
 
-Every write uses the current request version, a stable operation ID, and an audit reason. Internal notes and report details require narrower read authority.
+Every write uses the current request version, a stable operation ID, and an audit reason. Approval and rejection use automatic audit text when the operator supplies none; hiding, access changes, and report resolution still require their existing reasons. Internal notes and report details require narrower read authority. The authorized Ops queue shows the requester's display name, without adding contact details to the participant queue. Hosting playback is never a prerequisite for moderation.
 
 Two concurrent requests for the same catalog track and window create one request. Two votes by the same participant create one active vote.
 

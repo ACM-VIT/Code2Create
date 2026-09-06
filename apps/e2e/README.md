@@ -1,5 +1,11 @@
 # Browser verification
 
+## Local Ops interaction checks
+
+Run `pnpm --filter @code2create/e2e test:ops-interactions` to verify music-queue
+decisions, duplicate-click protection, and lost-response retries. The real Ops
+card uses a dev-only in-memory transport; no live accounts or requests are changed.
+
 ## Staging release verification
 
 This package checks the deployed participant and operations surfaces. It never creates accounts or bypasses Google sign-in.

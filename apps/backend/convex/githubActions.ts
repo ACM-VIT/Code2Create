@@ -13,12 +13,12 @@ import {
   githubApp,
   githubConfiguration,
   githubIntegrationCallbackUri,
-  installationOctokit,
   isGitHubRateLimit,
   repositoryOctokit,
   safeGitHubId,
 } from "./lib/githubClient";
 import { githubInstallationContract } from "./lib/githubInstallationContract";
+import { decryptProviderSecret, encryptProviderSecret } from "./lib/providerSecrets";
 import { repositoryKind } from "./values";
 
 type SetupClaim =
@@ -26,6 +26,7 @@ type SetupClaim =
   | { kind: "completed"; connectionId: Id<"githubInstallationConnections"> };
 
 type ConnectionContext = {
+  accessTokenCiphertext: string;
   eventId: Id<"events">;
   teamId: Id<"teams">;
   installationId: string;
@@ -203,6 +204,7 @@ export const completeConnection = action({
       }
       const token = await app.oauth.createToken({ code: args.code });
       const userOctokit = new GitHubOctokit({ auth: token.authentication.token });
+      const githubUser = await userOctokit.rest.users.getAuthenticated();
       const selectedInstallationId = claim.requestedInstallationId ?? args.installationId;
       if (!selectedInstallationId) {
         const installations: { installationId: string; accountLogin: string }[] = [];
@@ -212,6 +214,7 @@ export const completeConnection = action({
           for (const installation of response.data.installations) {
             if (String(installation.app_id) !== configuration.appId || installation.suspended_at || !installation.account) continue;
             const account = installation.account;
+            if (installation.target_type === "User" && account.id !== githubUser.data.id) continue;
             installations.push({ installationId: String(installation.id), accountLogin: "login" in account ? account.login : account.slug });
           }
           if (page * 100 >= response.data.total_count) break;
@@ -264,6 +267,9 @@ export const completeConnection = action({
         });
       }
       const accountLogin = "login" in account ? account.login : account.slug;
+      if (verifiedInstallation.data.target_type === "User" && account.id !== githubUser.data.id) {
+        throw new ConvexError({ code: "GITHUB_ACCOUNT_MISMATCH", message: "Connect your own personal GitHub account, not another person's installation. You can also connect an organization you have access to." });
+      }
       const result: {
         connectionId: Id<"githubInstallationConnections">;
         accountLogin: string;
@@ -276,6 +282,13 @@ export const completeConnection = action({
         accountLogin,
         targetType: targetType(verifiedInstallation.data.target_type),
         repositorySelection: installationSelection(verifiedInstallation.data.repository_selection),
+        accessTokenCiphertext: encryptProviderSecret(token.authentication.token),
+        authorizationExpiresAt: Math.min(
+          Date.now() + 8 * 60 * 60 * 1000,
+          "expiresAt" in token.authentication && typeof token.authentication.expiresAt === "string"
+            ? Date.parse(token.authentication.expiresAt)
+            : Number.POSITIVE_INFINITY,
+        ),
       });
       return { kind: "connected", connectionId: result.connectionId };
     } catch (error) {
@@ -334,8 +347,9 @@ export const listAvailableRepositories = action({
         serverNow: Date.now(),
       },
     );
-    const octokit = await installationOctokit(connection.installationId);
-    const response = await octokit.rest.apps.listReposAccessibleToInstallation({
+    const octokit = new GitHubOctokit({ auth: decryptProviderSecret(connection.accessTokenCiphertext) });
+    const response = await octokit.rest.apps.listInstallationReposForAuthenticatedUser({
+      installation_id: safeGitHubId(connection.installationId, "Installation ID"),
       per_page: repositoryPageSize,
       page: args.page,
     });
@@ -404,7 +418,11 @@ export const addRepository = action({
         serverNow: Date.now(),
       },
     );
-    const octokit = await repositoryOctokit(connection.installationId, args.repositoryId);
+    const octokit = new GitHubOctokit({ auth: decryptProviderSecret(connection.accessTokenCiphertext) });
+    // A user may have access through several installations. The chosen installation
+    // must also cover this exact repository before it can become a team binding.
+    const selectedInstallation = await repositoryOctokit(connection.installationId, args.repositoryId);
+    await selectedInstallation.rest.repos.get({ owner: args.owner, repo: args.name });
     const [repository, topics, languages, branch] = await Promise.all([
       octokit.rest.repos.get({ owner: args.owner, repo: args.name }),
       octokit.rest.repos.getAllTopics({ owner: args.owner, repo: args.name }),

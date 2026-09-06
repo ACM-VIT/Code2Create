@@ -1,19 +1,5 @@
-import { LiveNumber } from "../LiveNumber";
-import {
-  FloatingFocusManager,
-  FloatingPortal,
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  useClick,
-  useDismiss,
-  useFloating,
-  useInteractions,
-  useRole,
-} from "@floating-ui/react";
 import { useState, type ReactNode } from "react";
-import type { AvailableGitHubRepository } from "../../types";
+import { LiveNumber } from "../LiveNumber";
 
 import { Reveal, Tile, TileEyebrow } from "./Tile";
 import { tileBody } from "./tileClasses";
@@ -26,7 +12,6 @@ export type IntegrationRepository = {
   fullName: string;
   url: string;
   connectionId?: string;
-  raw?: AvailableGitHubRepository;
 };
 
 export type IntegrationsTileModel = {
@@ -36,7 +21,6 @@ export type IntegrationsTileModel = {
     connected: boolean;
     detail: ReactNode;
     repositories: readonly IntegrationRepository[];
-    listRepositories?: () => Promise<readonly IntegrationRepository[]>;
   };
   figma: { connected: boolean; detail: ReactNode };
   open: (target: IntegrationTarget, repository?: IntegrationRepository) => void;
@@ -171,182 +155,42 @@ function GitHubRepositoryManager({
   );
 }
 
-type IntegrationsView = "providers" | "github";
-
-/** The original provider circles, with repository management one tap away. */
+/** Repository selection lives on the integrations page, not in a second cached picker. */
 export function IntegrationsTile({ slot, model }: {
   slot: Slot;
   model: IntegrationsTileModel;
 }) {
-  const [view, setView] = useState<IntegrationsView>("providers");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const [availableRepositories, setAvailableRepositories] =
-    useState<readonly IntegrationRepository[] | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-
-  const loadAvailableRepositories = async () => {
-    if (
-      !model.github.connected ||
-      !model.github.listRepositories ||
-      availableRepositories !== null ||
-      loading
-    ) {
-      return;
-    }
-    setLoading(true);
-    setLoadFailed(false);
-    try {
-      setAvailableRepositories(await model.github.listRepositories());
-    } catch {
-      setLoadFailed(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const {
-    refs: { setReference, setFloating },
-    floatingStyles,
-    context,
-  } = useFloating({
-    open: pickerOpen,
-    onOpenChange(nextOpen) {
-      setPickerOpen(nextOpen);
-      if (nextOpen) void loadAvailableRepositories();
-    },
-    whileElementsMounted: autoUpdate,
-    placement: "bottom-end",
-    middleware: [offset(6), flip({ padding: 12 }), shift({ padding: 12 })],
-  });
-  const click = useClick(context);
-  const dismiss = useDismiss(context);
-  const role = useRole(context, { role: "dialog" });
-  const { getReferenceProps, getFloatingProps } = useInteractions([click, dismiss, role]);
-
-  const connectedIds = new Set(model.github.repositories.map((repository) => repository.id));
-  const query = search.trim().toLocaleLowerCase("en");
-  const filteredRepositories = (availableRepositories ?? []).filter(
-    (repository) =>
-      !connectedIds.has(repository.id) &&
-      (!query || repository.fullName.toLocaleLowerCase("en").includes(query)),
-  );
-
-  const openGitHubPicker = () => {
-    setView("github");
-    setPickerOpen(true);
-    void loadAvailableRepositories();
-  };
-  const addControl = (
-    <button
-      type="button"
-      ref={setReference}
-      className="flex-none rounded-full border border-rose/55 bg-wash/35 px-2.5 py-1 text-[10.5px] text-rose-light transition-colors hover:border-rose-light hover:bg-fg/8"
-      {...getReferenceProps()}
-    >
-      Add
-    </button>
-  );
-
+  const [view, setView] = useState<"providers" | "github">("providers");
   return (
-    <>
-      <Tile slot={slot} open={view === "github"}>
-        <div className={tileBody}>
-          {view === "providers" || !model.available ? <TileEyebrow>Integrations</TileEyebrow> : null}
-          {!model.available ? (
-            <p className="m-0 text-[13px] leading-snug text-fg/65">
-              Opens once your team is confirmed.
-            </p>
-          ) : view === "github" ? (
-            <GitHubRepositoryManager
-              model={model.github}
-              addControl={addControl}
-              onBack={() => {
-                setPickerOpen(false);
-                setView("providers");
-              }}
-              onManage={(repo) => model.open("github", repo)}
+    <Tile slot={slot} open={view === "github"}>
+      <div className={tileBody}>
+        {view === "providers" || !model.available ? <TileEyebrow>Integrations</TileEyebrow> : null}
+        {!model.available ? (
+          <p className="m-0 text-[13px] leading-snug text-fg/65">Opens once your team is confirmed.</p>
+        ) : view === "github" ? (
+          <GitHubRepositoryManager
+            model={model.github}
+            addControl={<ActionButton onClick={() => model.open("github")}>Choose repositories</ActionButton>}
+            onBack={() => setView("providers")}
+            onManage={(repo) => model.open("github", repo)}
+          />
+        ) : (
+          <Reveal key="providers" className="grid w-full max-w-[224px] grid-cols-2 items-start gap-4">
+            <IntegrationOrb
+              target="github"
+              connected={model.github.connected}
+              detail={model.github.detail}
+              onOpen={() => model.github.repositories.length === 0 ? model.open("github") : setView("github")}
             />
-          ) : (
-            <Reveal key="providers" className="grid w-full max-w-[224px] grid-cols-2 items-start gap-4">
-              <IntegrationOrb
-                target="github"
-                connected={model.github.connected}
-                detail={model.github.detail}
-                onOpen={() => {
-                  if (!model.github.connected) model.open("github");
-                  else if (model.github.repositories.length === 0) openGitHubPicker();
-                  else setView("github");
-                }}
-              />
-              <IntegrationOrb
-                target="figma"
-                connected={model.figma.connected}
-                detail={model.figma.detail}
-                onOpen={() => model.open("figma")}
-              />
-            </Reveal>
-          )}
-        </div>
-      </Tile>
-
-      {pickerOpen ? (
-        <FloatingPortal>
-          <FloatingFocusManager context={context} modal={false} initialFocus={0}>
-            <div
-              ref={setFloating}
-              style={floatingStyles}
-              className="z-[70] flex w-[min(340px,calc(100vw-24px))] flex-col gap-2 rounded-petal-xs glass-menu bg-wash/95 p-2.5 font-ui text-fg shadow-[0_24px_48px_-18px_var(--shade-2)]"
-              {...getFloatingProps()}
-            >
-              <input
-                type="search"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search repositories"
-                aria-label="Search GitHub repositories"
-                className="h-8 w-full rounded-lg border border-rose/35 bg-wash/40 px-2.5 text-[11.5px] text-fg outline-none placeholder:text-fg/35 focus:border-rose-light"
-              />
-              <div className="max-h-56 overflow-y-auto rounded-lg border border-rose/20 bg-fg/5 px-2.5 [scrollbar-width:thin]">
-                {loading ? (
-                  <p className="my-2 text-[10.5px] text-fg/45">Loading repositories…</p>
-                ) : loadFailed ? (
-                  <p className="my-2 text-[10.5px] text-fg/45">Repositories are unavailable right now.</p>
-                ) : filteredRepositories.length === 0 ? (
-                  <p className="my-2 text-[10.5px] text-fg/45">No repositories found.</p>
-                ) : (
-                  filteredRepositories.slice(0, 10).map((repository) => (
-                    <div
-                      key={repository.id}
-                      className="flex items-center gap-2 border-b border-rose/15 py-2 last:border-b-0"
-                    >
-                      <a
-                        href={repository.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="min-w-0 flex-1 truncate text-[11.5px] text-fg/70 underline-offset-4 hover:text-rose-light hover:underline"
-                      >
-                        {repository.fullName}
-                      </a>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPickerOpen(false);
-                          model.open("github", repository);
-                        }}
-                        className="flex-none cursor-pointer rounded-full border border-rose/45 bg-wash/35 px-2.5 py-1 text-[10.5px] text-rose-light transition-colors hover:border-rose-light hover:bg-fg/8 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-light"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </FloatingFocusManager>
-        </FloatingPortal>
-      ) : null}
-    </>
+            <IntegrationOrb
+              target="figma"
+              connected={model.figma.connected}
+              detail={model.figma.detail}
+              onOpen={() => model.open("figma")}
+            />
+          </Reveal>
+        )}
+      </div>
+    </Tile>
   );
 }

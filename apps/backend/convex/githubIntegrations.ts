@@ -56,6 +56,7 @@ const currentView = v.union(
     eventStatus,
     teamId: v.id("teams"),
     teamStatus,
+    viewerPersonId: v.id("people"),
     canManage: v.boolean(),
     githubConfigured: v.boolean(),
     policy: v.union(
@@ -77,6 +78,7 @@ const currentView = v.union(
         state: githubInstallationState,
         version: v.number(),
         lastVerifiedAt: v.number(),
+        canBrowse: v.boolean(),
       }),
     ),
     repositories: v.array(
@@ -151,6 +153,22 @@ const currentView = v.union(
     ),
   }),
 );
+
+async function requireRepositoryAuthorization(ctx: ReadCtx, args: {
+  connectionId: Id<"githubInstallationConnections">;
+  personId: Id<"people">;
+  eventId: Id<"events">;
+  teamId: Id<"teams">;
+  now: number;
+}) {
+  const authorization = await ctx.db.query("githubRepositoryAuthorizations")
+    .withIndex("by_connection_person", (index) => index.eq("connectionId", args.connectionId).eq("personId", args.personId))
+    .unique();
+  if (!authorization || authorization.eventId !== args.eventId || authorization.teamId !== args.teamId || authorization.expiresAt <= args.now) {
+    throw new ConvexError({ code: "GITHUB_AUTHORIZATION_REQUIRED", message: "Connect your own GitHub account again to choose repositories. Your GitHub authorization is missing or expired." });
+  }
+  return authorization;
+}
 
 async function currentTeamContext(ctx: ReadCtx, eventSlug: string) {
   const event = await requireEventBySlug(ctx, eventSlug);
@@ -390,7 +408,13 @@ export const current = query({
       visibleBindings.some(
         (binding) => !githubTopicVerificationIsCurrent(binding, currentRequiredTopic),
       );
+    const personalAuthorizations = await Promise.all(connections.map((connection) =>
+      ctx.db.query("githubRepositoryAuthorizations")
+        .withIndex("by_connection_person", (index) => index.eq("connectionId", connection._id).eq("personId", person._id))
+        .unique(),
+    ));
     return {
+      viewerPersonId: person._id,
       eventStatus: event.status,
       teamId: team._id,
       teamStatus: team.status,
@@ -408,7 +432,7 @@ export const current = query({
                 : {}),
             }
           : null,
-      connections: connections.map((connection) => ({
+      connections: connections.map((connection, index) => ({
         id: connection._id,
         accountLogin: connection.accountLogin,
         targetType: connection.targetType,
@@ -416,6 +440,7 @@ export const current = query({
         state: connection.state,
         version: connection.version,
         lastVerifiedAt: connection.lastVerifiedAt,
+        canBrowse: personalAuthorizations[index] !== null,
       })),
       repositories: visibleBindings.map((binding, index) => {
         const metric = resolvedMetrics[index];
@@ -662,6 +687,8 @@ export const finishSetupIntent = internalMutation({
     accountLogin: v.string(),
     targetType: connectionTargetType,
     repositorySelection,
+    accessTokenCiphertext: v.string(),
+    authorizationExpiresAt: v.number(),
   },
   returns: v.object({
     connectionId: v.id("githubInstallationConnections"),
@@ -698,6 +725,9 @@ export const finishSetupIntent = internalMutation({
         index.eq("teamId", team._id).eq("installationId", args.installationId),
       )
       .unique();
+    if (!Number.isSafeInteger(args.authorizationExpiresAt) || args.authorizationExpiresAt <= now || args.authorizationExpiresAt > now + 8 * 60 * 60 * 1000) {
+      throw new ConvexError({ code: "GITHUB_AUTHORIZATION_INVALID", message: "GitHub authorization has expired. Connect your GitHub account again." });
+    }
     let connectionId: Id<"githubInstallationConnections">;
     if (existing) {
       connectionId = existing._id;
@@ -726,6 +756,18 @@ export const finishSetupIntent = internalMutation({
         version: 1,
       });
     }
+    const authorization = await ctx.db.query("githubRepositoryAuthorizations")
+      .withIndex("by_connection_person", (index) => index.eq("connectionId", connectionId).eq("personId", person._id))
+      .unique();
+    const authorizationFields = {
+      eventId: event._id, teamId: team._id, connectionId, personId: person._id,
+      accessTokenCiphertext: args.accessTokenCiphertext, expiresAt: args.authorizationExpiresAt,
+    };
+    const authorizationId = authorization?._id ?? await ctx.db.insert("githubRepositoryAuthorizations", authorizationFields);
+    if (authorization) await ctx.db.patch(authorization._id, authorizationFields);
+    await ctx.scheduler.runAt(args.authorizationExpiresAt, internal.githubIntegrations.expireRepositoryAuthorization, {
+      authorizationId, expiresAt: args.authorizationExpiresAt,
+    });
     await ctx.db.patch(intent._id, {
       status: "completed",
       installationConnectionId: connectionId,
@@ -755,6 +797,18 @@ export const finishSetupIntent = internalMutation({
       reason: "Connected a GitHub App installation to the team",
     });
     return { connectionId, accountLogin: args.accountLogin };
+  },
+});
+
+export const expireRepositoryAuthorization = internalMutation({
+  args: { authorizationId: v.id("githubRepositoryAuthorizations"), expiresAt: v.number() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const authorization = await ctx.db.get(args.authorizationId);
+    if (authorization && authorization.expiresAt === args.expiresAt && authorization.expiresAt <= Date.now()) {
+      await ctx.db.delete(authorization._id);
+    }
+    return null;
   },
 });
 
@@ -833,9 +887,10 @@ export const connectionContext = internalQuery({
     integrationPolicyId: v.id("integrationPolicyVersions"),
     requiredGitHubTopic: v.string(),
     maxActiveRepositories: v.number(),
+    accessTokenCiphertext: v.string(),
   }),
   handler: async (ctx, args) => {
-    const { event, subject, team } = await currentTeamContext(ctx, args.eventSlug);
+    const { event, person, subject, team } = await currentTeamContext(ctx, args.eventSlug);
     const policy = await requirePublishedPolicy(ctx, event);
     requireGitHubWindow(event, team, policy, args.requireLiveEvent, args.serverNow);
     await requirePermission(ctx, {
@@ -846,13 +901,17 @@ export const connectionContext = internalQuery({
       scopeId: team._id,
     });
     const connection = await ctx.db.get(args.connectionId);
-    if (!connection || connection.teamId !== team._id || connection.state !== "active") {
+    if (!connection || connection.eventId !== event._id || connection.teamId !== team._id || connection.state !== "active") {
       throw new ConvexError({
         code: "GITHUB_CONNECTION_UNAVAILABLE",
         message: "Reconnect this GitHub account before continuing.",
       });
     }
+    const authorization = await requireRepositoryAuthorization(ctx, {
+      connectionId: connection._id, personId: person._id, eventId: event._id, teamId: team._id, now: args.serverNow,
+    });
     return {
+      accessTokenCiphertext: authorization.accessTokenCiphertext,
       eventId: event._id,
       teamId: team._id,
       installationId: connection.installationId,
@@ -935,6 +994,9 @@ export const commitRepository = internalMutation({
       .query("githubRepositoryBindings")
       .withIndex("by_team_state", (index) => index.eq("teamId", team._id))
       .collect();
+    await requireRepositoryAuthorization(ctx, {
+      connectionId: connection._id, personId: person._id, eventId: event._id, teamId: team._id, now: Date.now(),
+    });
     const activeBindings = currentBindings.filter((binding) => binding.state !== "archived");
     if (activeBindings.length >= policy.maxActiveGitHubRepositoriesPerTeam) {
       throw new ConvexError({

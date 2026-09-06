@@ -1,6 +1,6 @@
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { useNavigate } from "react-router-dom";
 
 import type { BenefitsTileModel } from "../components/dashboard/BenefitsTile";
@@ -23,7 +23,7 @@ import {
 import { eventSlug } from "../lib/config";
 import { LiveNumber } from "../components/LiveNumber";
 import { useMusicModel } from "../lib/useMusicModel";
-import type { AvailableGitHubRepository, PublicState } from "../types";
+import type { PublicState } from "../types";
 import { DashboardScreen } from "./DashboardScreen";
 
 type ParticipantCapabilities = FunctionReturnType<typeof api.access.participantCapabilities>;
@@ -66,8 +66,6 @@ export function DashboardLive({
   onSignOut: () => void;
 }) {
   const navigate = useNavigate();
-  const listAvailableRepositories = useAction(api.githubActions.listAvailableRepositories,
-  );
   const musicModel = useMusicModel();
   const integrationsAllowed = capabilities?.integrations ?? false;
   const github = useQuery(api.githubIntegrations.current, integrationsAllowed ? { eventSlug } : "skip",
@@ -108,9 +106,6 @@ export function DashboardLive({
       url: repository.url,
       connectionId: repository.installationConnectionId,
     }));
-  const connectedRepositoryIds = new Set(
-    (github?.repositories ?? []).map((repository) => repository.repositoryId),
-  );
   const activeGithubConnection = github?.connections.find(
     (connection) => connection.state === "active",
   );
@@ -125,33 +120,6 @@ export function DashboardLive({
             ? "1 repository"
             : <><LiveNumber value={connectedRepositories.length} /> repositories</>,
       repositories: connectedRepositories,
-      ...(activeGithubConnection
-        ? {
-            listRepositories: async () => {
-              const allRepositories: AvailableGitHubRepository[] = [];
-              let page: number | undefined = 1;
-              while (page !== undefined) {
-                const result = await listAvailableRepositories({
-                  eventSlug,
-                  connectionId: activeGithubConnection.id,
-                  page,
-                });
-                allRepositories.push(...result.repositories);
-                page = result.nextPage;
-              }
-              return allRepositories
-                .filter((repository) => !connectedRepositoryIds.has(repository.repositoryId),
-                )
-                .map((repository) => ({
-                  id: repository.repositoryId,
-                  fullName: repository.fullName,
-                  url: repository.url,
-                  connectionId: activeGithubConnection.id,
-                  raw: repository,
-                }));
-            },
-          }
-        : {}),
     },
     figma: {
       connected: Boolean(figma?.fileUrl),
@@ -179,7 +147,6 @@ export function DashboardLive({
               connectionId,
               repositoryId: isConnected ? undefined : repository.id,
               archiveId: isConnected ? repository.id : undefined,
-              repository: repository.raw,
             },
             viewTransition: true,
           },

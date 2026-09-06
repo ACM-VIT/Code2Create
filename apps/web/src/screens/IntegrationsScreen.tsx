@@ -35,7 +35,7 @@ import {
 } from "../components/portal/TeamCluster";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
-import { githubRepositorySelectionConnection } from "../lib/githubRepositorySelection";
+import { githubRepositoryAddBlocker, githubRepositorySelectionConnection } from "../lib/githubRepositorySelection";
 import { useOperationRunner } from "../lib/operations";
 import type {
   AvailableGitHubRepository,
@@ -85,46 +85,7 @@ function parseNavigationState(state: unknown) {
     "repositoryId" in state && typeof state.repositoryId === "string" ? state.repositoryId : undefined;
   const archiveId =
     "archiveId" in state && typeof state.archiveId === "string" ? state.archiveId : undefined;
-  const candidate = "repository" in state ? state.repository : undefined;
-  const repository: AvailableGitHubRepository | undefined =
-    typeof candidate === "object" &&
-    candidate !== null &&
-    "repositoryId" in candidate &&
-    typeof candidate.repositoryId === "string" &&
-    "fullName" in candidate &&
-    typeof candidate.fullName === "string" &&
-    "url" in candidate &&
-    typeof candidate.url === "string" &&
-    "defaultBranch" in candidate &&
-    typeof candidate.defaultBranch === "string"
-      ? {
-          repositoryId: candidate.repositoryId,
-          repositoryNodeId:
-            "repositoryNodeId" in candidate && typeof candidate.repositoryNodeId === "string"
-              ? candidate.repositoryNodeId
-              : "",
-          owner:
-            "owner" in candidate && typeof candidate.owner === "string"
-              ? candidate.owner
-              : candidate.fullName.split("/")[0] ?? "",
-          name:
-            "name" in candidate && typeof candidate.name === "string"
-              ? candidate.name
-              : candidate.fullName.split("/")[1] ?? "",
-          fullName: candidate.fullName,
-          url: candidate.url,
-          isPrivate:
-            "isPrivate" in candidate && typeof candidate.isPrivate === "boolean"
-              ? candidate.isPrivate
-              : false,
-          isFork:
-            "isFork" in candidate && typeof candidate.isFork === "boolean"
-              ? candidate.isFork
-              : false,
-          defaultBranch: candidate.defaultBranch,
-        }
-      : undefined;
-  return { connectionId, repositoryId, archiveId, repository };
+  return { connectionId, repositoryId, archiveId };
 }
 
 export function IntegrationsScreen({
@@ -150,6 +111,7 @@ export function IntegrationsScreen({
   }
   return (
     <ConnectedIntegrations
+      key={`${integration.viewerPersonId}:${integration.teamId}:${integration.connections.map(connection => `${connection.id}:${connection.version}:${connection.state}:${connection.canBrowse}`).join(",")}`}
       integration={integration}
       team={team}
       members={members}
@@ -189,9 +151,9 @@ function ConnectedIntegrations({
   const [error, setError] = useState<string | null>(null);
   const location = useLocation();
   const [searchParams] = useSearchParams();
-  const preselectionHandled = useRef(false);
   const repositoryRequest = useRef(0);
   const repositoryPickerHeading = useRef<HTMLSpanElement>(null);
+  const repositoryDraftHeading = useRef<HTMLSpanElement>(null);
   const commandInFlight = useRef(false);
   const operations = useOperationRunner<GitHubOperationResult>();
   const connectedRepositoryIds = useMemo(
@@ -202,6 +164,10 @@ function ConnectedIntegrations({
   useEffect(() => {
     if (availableRepositories) repositoryPickerHeading.current?.focus();
   }, [availableRepositories?.connectionId]);
+
+  useEffect(() => {
+    if (draft) repositoryDraftHeading.current?.focus();
+  }, [draft?.repository.repositoryId]);
 
   const connect = async () => {
     if (commandInFlight.current) return;
@@ -224,6 +190,10 @@ function ConnectedIntegrations({
   ) => {
     const requestNumber = repositoryRequest.current + 1;
     repositoryRequest.current = requestNumber;
+    if (page === 1) {
+      setAvailableRepositories(null);
+      setDraft(null);
+    }
     setBusy(connectionId);
     setError(null);
     try {
@@ -249,7 +219,6 @@ function ConnectedIntegrations({
           ...(result.nextPage !== undefined ? { nextPage: result.nextPage } : {}),
         };
       });
-      setDraft(null);
     } catch (caught) {
       if (repositoryRequest.current !== requestNumber) return;
       setError(readableError(caught));
@@ -264,6 +233,9 @@ function ConnectedIntegrations({
   ) => {
     const targetConnectionId = connectionId ?? activeConnectionId;
     if (!targetConnectionId) return;
+    repositoryRequest.current += 1;
+    setBusy(null);
+    setError(null);
     setActiveConnectionId(targetConnectionId);
     setDraft({
       connectionId: targetConnectionId,
@@ -276,74 +248,58 @@ function ConnectedIntegrations({
     });
   };
 
+  const navState = parseNavigationState(location.state);
+  const requestedRepositoryId = navState?.repositoryId ?? searchParams.get("repositoryId");
+  const requestedArchiveId = navState?.archiveId ?? searchParams.get("archiveId");
+  const archiveTargetId = integration.repositories.find(
+    repo => repo.id === requestedArchiveId || repo.repositoryId === requestedArchiveId,
+  )?.id;
+  const requestedConnection = githubRepositorySelectionConnection(
+    integration.connections, navState?.connectionId ?? searchParams.get("connectionId"), requestedRepositoryId,
+  );
+  const requestedConnectionId = requestedConnection?.id;
+
   useEffect(() => {
-    if (preselectionHandled.current) return;
-    const rawState: unknown = location.state;
-    const navState = parseNavigationState(rawState);
-
-    const archiveId = navState?.archiveId ?? searchParams.get("archiveId");
-    if (archiveId) {
-      const match = integration.repositories.find(
-        (repo) => repo.id === archiveId || repo.repositoryId === archiveId,
-      );
-      if (match) {
-        preselectionHandled.current = true;
-        setArchiveId(match.id);
-        return;
-      }
-    }
-
-    const repositoryId = navState?.repositoryId ?? searchParams.get("repositoryId");
-    const connectionId =
-      navState?.connectionId ?? searchParams.get("connectionId");
-
-    const targetConnection = githubRepositorySelectionConnection(
-      integration.connections,
-      connectionId,
-      repositoryId,
-    );
-
-    if (!targetConnection || !integration.canManage) return;
-    preselectionHandled.current = true;
-    const targetConnectionId = targetConnection.id;
-    setActiveConnectionId(targetConnectionId);
-
-    if (!repositoryId) {
-      void loadRepositories(targetConnectionId);
+    if (!integration.canManage) return;
+    if (archiveTargetId) {
+      setArchiveId(archiveTargetId);
       return;
     }
-
-    if (navState?.repository && navState.repository.defaultBranch) {
-      chooseRepository(navState.repository, targetConnectionId);
-      return;
+    if (!requestedConnectionId) return;
+    if (!requestedRepositoryId) {
+      void loadRepositories(requestedConnectionId);
+      return () => { repositoryRequest.current += 1; };
     }
-
+    const requestNumber = ++repositoryRequest.current;
+    setActiveConnectionId(requestedConnectionId);
+    setBusy(requestedConnectionId);
+    setDraft(null);
+    setError(null);
     void (async () => {
       try {
         let page: number | undefined = 1;
         while (page !== undefined) {
-          const result = await listRepositories({
-            eventSlug,
-            connectionId: targetConnectionId,
-            page,
-          });
-          const found = result.repositories.find(
-            (repo) => repo.repositoryId === repositoryId,
-          );
+          const result = await listRepositories({ eventSlug, connectionId: requestedConnectionId, page });
+          if (requestNumber !== repositoryRequest.current) return;
+          const found = result.repositories.find(repo => repo.repositoryId === requestedRepositoryId);
           if (found) {
-            chooseRepository(found, targetConnectionId);
-            break;
+            chooseRepository(found, requestedConnectionId);
+            return;
           }
           page = result.nextPage;
         }
+        setError("This repository is not available to your GitHub account. Choose another repository or reconnect GitHub.");
       } catch (caught) {
-        setError(readableError(caught));
+        if (requestNumber === repositoryRequest.current) setError(readableError(caught));
+      } finally {
+        if (requestNumber === repositoryRequest.current) setBusy(null);
       }
     })();
-  }, [integration, location.state, searchParams]);
+    return () => { repositoryRequest.current += 1; };
+  }, [location.key, requestedConnectionId, requestedRepositoryId, archiveTargetId, integration.canManage]);
 
   const saveRepository = async () => {
-    if (!draft || commandInFlight.current) return;
+    if (!draft || !canAdd || commandInFlight.current) return;
     commandInFlight.current = true;
     setBusy("add-repository");
     setError(null);
@@ -500,7 +456,15 @@ function ConnectedIntegrations({
   const teamAccepted = ["admitted", "confirmed", "checked_in", "active", "completed"].includes(
     integration.teamStatus,
   );
-  const canAdd = integration.eventStatus === "live";
+  const addBlocker = githubRepositoryAddBlocker({
+    eventStatus: integration.eventStatus,
+    canManage: integration.canManage,
+    repositoryCount: integration.repositories.length,
+    maximumRepositories: integration.policy?.maxActiveRepositories ?? 0,
+    freezeAt: integration.policy?.githubFreezeAt,
+    now: Date.now(),
+  });
+  const canAdd = addBlocker === null;
   const activeConnections = integration.connections.filter(
     (connection) => connection.state === "active",
   );
@@ -561,9 +525,9 @@ function ConnectedIntegrations({
               {!integration.githubConfigured ? (
                 <ToolNotice>GitHub connections are unavailable right now.</ToolNotice>
               ) : null}
-              {teamAccepted && !canAdd && integration.policy && integration.githubConfigured ? (
+              {teamAccepted && integration.eventStatus !== "live" && integration.policy && integration.githubConfigured ? (
                 <ToolNotice>
-                  You can connect GitHub now. Repository baselines open at the official build start.
+                  You can connect GitHub and preview a repository now. Adding it to your team opens when organizers start the official build. Draft details are not saved until you add the repository.
                 </ToolNotice>
               ) : null}
 
@@ -583,10 +547,10 @@ function ConnectedIntegrations({
                       {integration.canManage ? (
                         <RowAction
                           disabled={busy === connection.id}
-                          onClick={() => loadRepositories(connection.id)}
+                          onClick={() => connection.canBrowse ? loadRepositories(connection.id) : connect()}
                           className="text-rose-light!"
                         >
-                          {busy === connection.id ? "Loading…" : "Choose repositories"}
+                          {busy === connection.id ? "Loading…" : connection.canBrowse ? "Choose repositories" : "Authorize your GitHub"}
                         </RowAction>
                       ) : null}
                     </li>
@@ -594,13 +558,12 @@ function ConnectedIntegrations({
                 </ul>
               ) : null}
 
-              {availableRepositories ? (
+              {availableRepositories && !draft ? (
                 <div className="flex flex-col gap-2">
                   <SectionLabel
                     aside={
                       <>
-                        <LiveNumber value={availableRepositories.repositories.length} /> /{" "}
-                        <LiveNumber value={availableRepositories.totalCount} />
+                        {availableRepositories.repositories.length} / {availableRepositories.totalCount}
                       </>
                     }
                   >
@@ -614,7 +577,7 @@ function ConnectedIntegrations({
                       including organization approval for private repositories, then try again.
                     </ToolNotice>
                   ) : (
-                    <ul className="m-0 flex list-none flex-col divide-y divide-petal-line p-0">
+                    <ul className="m-0 flex max-h-96 list-none flex-col divide-y divide-petal-line overflow-y-auto p-0">
                       {availableRepositories.repositories.map((repository) => {
                         const connected = connectedRepositoryIds.has(repository.repositoryId);
                         return (
@@ -622,7 +585,7 @@ function ConnectedIntegrations({
                             key={repository.repositoryId}
                             title={repository.fullName}
                             detail={connected ? "added" : repository.isPrivate ? "private" : "public"}
-                            disabled={connected || !canAdd}
+                            disabled={connected || !integration.canManage}
                             onSelect={() => chooseRepository(repository)}
                           />
                         );
@@ -648,7 +611,8 @@ function ConnectedIntegrations({
 
               {draft ? (
                 <div className="flex flex-col gap-4">
-                  <SectionLabel>add {draft.repository.fullName}</SectionLabel>
+                  <SectionLabel><span ref={repositoryDraftHeading} tabIndex={-1} className="outline-none">add {draft.repository.fullName}</span></SectionLabel>
+                  {addBlocker ? <ToolNotice>{addBlocker}</ToolNotice> : null}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <PortalField label="What kind of repository is this?">
                       {(id) => (
@@ -715,18 +679,22 @@ function ConnectedIntegrations({
                       )}
                     </PortalField>
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-wrap justify-end gap-2">
                     <PortalButton
                       size="xs"
                       disabled={busy === "add-repository"}
-                      onClick={() => setDraft(null)}
+                      onClick={() => {
+                        setDraft(null);
+                        if (!availableRepositories) void loadRepositories(draft.connectionId);
+                      }}
                     >
-                      Cancel
+                      Choose another repository
                     </PortalButton>
                     <PortalButton
                       size="xs"
                       variant="solid"
                       disabled={
+                        !canAdd ||
                         busy === "add-repository" ||
                         !draft.purpose.trim() ||
                         !draft.trackedBranch.trim() ||

@@ -359,7 +359,7 @@ export function Synesthesia() {
         </div>
 
         <p className="section-note">
-          Approve a request to queue it, then mark it playing and played.
+          Anyone with access to this queue can accept or reject requests. No hosting needed.
         </p>
 
         {queueWindows.length === 0 ? (

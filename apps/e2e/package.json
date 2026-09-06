@@ -10,6 +10,7 @@
     "lint": "oxlint",
     "test": "node --experimental-strip-types --test src/environment.test.ts src/storage-state.test.ts",
     "test:interactions": "playwright test --config playwright.interactions.config.ts",
+    "test:ops-interactions": "playwright test --config playwright.ops-interactions.config.ts",
     "test:release": "playwright test",
     "typecheck": "tsc --noEmit"
   },
