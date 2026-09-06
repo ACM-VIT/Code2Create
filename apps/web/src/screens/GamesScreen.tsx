@@ -21,6 +21,7 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { createRoundRecorder } from '../lib/gameRounds'
+import { shortPlayerName } from '../lib/playerName'
 
 const glass = 'rounded-petal glass'
 const leaderboardDepth = 5
@@ -343,18 +344,6 @@ function StandingsColumnLive({ boards }: { boards: readonly BoardRef[] }) {
 }
 
 /**
- * Sign-in providers hand some names over in capitals ("ATHARVA LALWANI");
- * the board shows them as names, leaving mixed-case ones exactly as given.
- */
-function personLabel(name: string) {
-  if (name !== name.toUpperCase()) return name
-  return name
-    .toLowerCase()
-    .replace(/(^|[\s-])(\p{L})/gu, (match) => match.toUpperCase())
-    .replace(/\b(\d{2}[a-z]{3}\d{4})\b/gi, (roll) => roll.toUpperCase())
-}
-
-/**
  * One board's front five, given the data: a flower and a rank for each. The
  * grid always holds five places, empty ones drawn faint, so the panel keeps
  * its height whichever board is showing.
@@ -386,7 +375,7 @@ export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
               </span>
               <span className="w-full min-w-0">
                 <span className="block truncate text-[13.5px]" title={entry.displayName}>
-                  {personLabel(entry.displayName)}
+                  {shortPlayerName(entry.displayName)}
                   {entry.isYou ? <span className="text-fg/40"> · you</span> : null}
                 </span>
                 <span className="block font-ui text-[12.5px] tabular-nums text-fg/55">{points.format(entry.bestScore)}</span>

@@ -2083,8 +2083,10 @@ const sampleBoards: Record<string, BoardView> = {
       { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 18_240, playedAt: 0, isYou: false },
       { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 15_110, playedAt: 0, isYou: true },
       { personId: asPersonId("p3"), displayName: "Sneha Kulkarni", bestScore: 12_980, playedAt: 0, isYou: false },
-      { personId: asPersonId("p4"), displayName: "Vikram Rao", bestScore: 9_450, playedAt: 0, isYou: false },
-      { personId: asPersonId("p5"), displayName: "Priya Nair", bestScore: 6_310, playedAt: 0, isYou: false },
+      // A name past the column's width, and one a provider shouted, so the board's
+      // own shortening and casing are both visible in the gallery.
+      { personId: asPersonId("p4"), displayName: "Venkata Naga Sai Krishna Prasad", bestScore: 9_450, playedAt: 0, isYou: false },
+      { personId: asPersonId("p5"), displayName: "PRIYA NAIR", bestScore: 6_310, playedAt: 0, isYou: false },
     ],
     yourBestScore: 15_110,
   },
