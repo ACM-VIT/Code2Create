@@ -49,6 +49,25 @@ test("benefits appear when issued and disappear when the last benefit is removed
   })).benefits, undefined);
 });
 
+test("issued benefits replace Help even with an open support conversation", () => {
+  const withSupport = { ...quiet, help: { ...quiet.help, support: { open: 1 } } };
+  for (const currentReview of [null, review]) {
+    const candidates = tileRelevance({
+      ...withSupport, review: currentReview, benefits: { available: true, benefits: [perk] },
+    });
+    assert.equal(candidates.some(candidate => candidate.key === "help"), false);
+    assert.equal(candidates.find(candidate => candidate.key === "benefits")?.required, true);
+    const seating = composeDashboard(candidates);
+    assert.notEqual(seating.benefits, undefined);
+    assert.notEqual(seating.queues, undefined);
+    assert.equal(seating.help, undefined);
+  }
+  assert.notEqual(composeDashboard(tileRelevance(withSupport)).help, undefined);
+  assert.notEqual(composeDashboard(tileRelevance({
+    ...withSupport, benefits: { available: false, benefits: [perk] },
+  })).help, undefined);
+});
+
 test("request queues remain visible with no open services or while unavailable", () => {
   for (const available of [false, true]) {
     const seating = composeDashboard(tileRelevance({
