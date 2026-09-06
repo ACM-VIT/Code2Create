@@ -1,0 +1,13 @@
+{
+  admin off
+}
+
+realtime.c2c.sh {
+  tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin-key.pem
+  reverse_proxy backend:3210
+}
+
+api.c2c.sh {
+  tls /etc/caddy/cloudflare-origin.pem /etc/caddy/cloudflare-origin-key.pem
+  reverse_proxy backend:3211
+}
