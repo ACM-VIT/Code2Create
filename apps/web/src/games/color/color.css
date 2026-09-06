@@ -1,0 +1,52 @@
+/*
+ * The colour game's two pieces of chrome that Tailwind cannot express: a range
+ * input's thumb, and the bar that runs while the colour is held.
+ *
+ * Scoped under `.color-slider` and `.color-memorise-bar` so neither escapes the
+ * board.
+ */
+
+.color-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--color-wash);
+  border-radius: 9999px;
+  background: var(--color-rose-light);
+  box-shadow: 0 2px 10px var(--shade-1);
+  cursor: pointer;
+}
+
+.color-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-wash);
+  border-radius: 9999px;
+  background: var(--color-rose-light);
+  box-shadow: 0 2px 10px var(--shade-1);
+  cursor: pointer;
+}
+
+/* The colour is held for a fixed time; the bar is that time, running out. */
+.color-memorise-bar {
+  animation-name: color-memorise;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  transform-origin: left center;
+}
+
+@keyframes color-memorise {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .color-memorise-bar {
+    animation: none;
+    transform: scaleX(1);
+  }
+}

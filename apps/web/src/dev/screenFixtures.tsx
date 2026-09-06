@@ -99,6 +99,7 @@ import { SubmitCelebration } from "../components/portal/SubmitCelebration";
 import { ImportedTeamChoiceView } from "../components/portal/ImportedTeamChoiceView";
 import PacmanBoard from "../games/pacman/Map.tsx";
 import MemoryBoard from "../games/memory/Board.tsx";
+import ColorBoard from "../games/color/Board.tsx";
 import StackBoard from "../games/stack/Board.tsx";
 
 const team: ClusterTeam = {
@@ -1988,6 +1989,14 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ["arcade-screen", () => <ArcadeFixture />],
   // One screen with the mode switch on it, the way the arcade shows it.
   ["arcade-memory", () => <MemoryFixture />],
+  [
+    "arcade-color",
+    () => (
+      <div className="flex min-h-dvh flex-1 bg-black p-4"><div className="m-auto flex w-full justify-center">
+        <ColorBoard onRoundStart={noop} onRoundEnd={noop} />
+      </div></div>
+    ),
+  ],
 ] as const);
 
 /** The memory board with its own mode switch, as the arcade wires it. */
@@ -2056,6 +2065,17 @@ const sampleBoards: Record<string, BoardView> = {
       { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 11, playedAt: 0, isYou: true },
     ],
     yourBestScore: 11,
+  },
+  // An accuracy board: scores are hundredths of a percent, so 9_412 is 94.1%.
+  // Kept in the gallery so the board's own units stay visible.
+  color: {
+    entries: [
+      { personId: asPersonId("p1"), displayName: "Ananya Iyer", bestScore: 9_412, playedAt: 0, isYou: false },
+      { personId: asPersonId("p7"), displayName: "Meera Pillai", bestScore: 9_106, playedAt: 0, isYou: false },
+      { personId: asPersonId("p2"), displayName: "Rahul Menon", bestScore: 8_873, playedAt: 0, isYou: true },
+      { personId: asPersonId("p6"), displayName: "Kabir Shah", bestScore: 8_240, playedAt: 0, isYou: false },
+    ],
+    yourBestScore: 8_873,
   },
 };
 

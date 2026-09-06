@@ -46,6 +46,7 @@ export const GALLERY_SCREENS = [
   { id: "arcade", label: "Arcade · Pac-Man" },
   { id: "arcade-stack", label: "Arcade · Logo Stack" },
   { id: "arcade-memory", label: "Arcade · Memory" },
+  { id: "arcade-color", label: "Arcade · Colour Match" },
   { id: "gate", label: "Cooking" },
   { id: "loading", label: "Loading" },
   { id: "notice", label: "Access notice" },

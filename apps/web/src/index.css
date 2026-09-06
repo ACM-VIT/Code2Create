@@ -1327,6 +1327,32 @@ p {
 .arcade-cabinet:hover .arcade-card-right { transform: translateX(-50%) translateX(60px) rotate(16deg); }
 .arcade-cabinet:hover .arcade-card-mid { transform: translateX(-50%) translateY(-12px); }
 
+/* Colour Match: the colour asked for, with two guesses either side of it. */
+.arcade-swatch {
+  position: absolute; bottom: 50%; left: 50%; width: 52px; height: 52px;
+  border: 1.5px solid var(--color-petal-edge-soft); border-radius: 12px;
+  box-shadow: 0 12px 24px -14px var(--shade-2);
+  transition: transform 500ms cubic-bezier(.22, 1, .36, 1), background-color 500ms ease;
+}
+.arcade-swatch-target {
+  background-color: #e0559a; z-index: 1;
+  transform: translate(-50%, 50%) scale(1.08);
+}
+.arcade-swatch-left {
+  background-color: #b4557f;
+  transform: translate(-50%, 50%) translateX(-62px) rotate(-8deg);
+}
+.arcade-swatch-right {
+  background-color: #e07f8e;
+  transform: translate(-50%, 50%) translateX(62px) rotate(8deg);
+}
+.arcade-cabinet:hover .arcade-swatch-left {
+  background-color: #d3559b; transform: translate(-50%, 50%) translateX(-56px) rotate(-4deg);
+}
+.arcade-cabinet:hover .arcade-swatch-right {
+  background-color: #e35c96; transform: translate(-50%, 50%) translateX(56px) rotate(4deg);
+}
+
 @keyframes arcade-hover { 50% { translate: 0 -5px; } }
 @media (prefers-reduced-motion: reduce) {
   .arcade-power, .arcade-butterfly, .arcade-drifter { animation: none; }

@@ -1,12 +1,26 @@
-export const gameKeys = ["pacman", "stack", "memory", "memory-grid"] as const;
+export const gameKeys = ["pacman", "stack", "memory", "memory-grid", "color"] as const;
 export type GameKey = (typeof gameKeys)[number];
+
+/**
+ * What a score counts.
+ *
+ * Most boards rank points, which read as a tally. One ranks how closely a colour
+ * was matched, which reads as a percentage — and showing "9,412" where a player
+ * expects "94.1%" would make the board say the wrong thing about itself.
+ */
+export type GameScoreKind = "points" | "accuracy";
 
 export type GameDefinition = {
   readonly key: GameKey;
   readonly title: string;
   readonly maximumScore: number;
   readonly maximumScorePerSecond: number;
+  /** Points unless a game says otherwise. */
+  readonly scoreKind?: GameScoreKind;
 };
+
+/** Accuracy is stored in hundredths of a percent, so 10,000 is a perfect 100%. */
+export const accuracyScoreScale = 100;
 
 export const gameCatalog = [
   {
@@ -61,6 +75,23 @@ export const gameCatalog = [
     // to answer it — call it two seconds at the very best. 2/s is several times
     // that and still refuses a round that claims levels it had no time to play.
     maximumScorePerSecond: 2,
+  },
+  {
+    key: "color",
+    title: "Colour Match",
+    scoreKind: "accuracy",
+    // A round scores how closely the colour was matched, and the game scores the
+    // mean of its five rounds. Kept in hundredths of a percent so two near
+    // perfect games still separate: 10,000 is 100.00%.
+    maximumScore: 10_000,
+    // Unlike the others this score does not grow with time: a perfect game is
+    // perfect at whatever speed it was played, so the bound has to clear a
+    // flawless run rather than a long one. The run opens on the first colour
+    // submitted, and the four rounds after it hold a countdown and the colour
+    // itself for nearly twenty seconds that cannot be hurried. 800/s allows a
+    // perfect game from twelve seconds in — comfortably under that floor, and
+    // still far under a claim of one made instantly.
+    maximumScorePerSecond: 800,
   },
 ] as const satisfies readonly GameDefinition[];
 

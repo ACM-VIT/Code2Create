@@ -21,6 +21,7 @@ import { eventSlug } from '../lib/config'
 import { readableError } from '../lib/errors'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { createRoundRecorder } from '../lib/gameRounds'
+import { formatGameScore } from '../lib/gameScore'
 import { shortPlayerName } from '../lib/playerName'
 
 const glass = 'rounded-petal glass'
@@ -45,8 +46,6 @@ export function standingOf(board: BoardView | undefined): Standing {
   const index = board.entries.findIndex((entry) => entry.isYou)
   return { position: index >= 0 ? index + 1 : null, points: board.yourBestScore }
 }
-
-const points = new Intl.NumberFormat('en-IN')
 
 /* ------------------------------------------------------------------ layout */
 
@@ -135,6 +134,17 @@ const scenes: Partial<Record<GameKey, ReactNode>> = {
       <img src={`${art}/memory/Jellyfish.png`} alt="" className="arcade-drifter" />
     </div>
   ),
+  // No sprites for this one: the game is colour, so the still is colour. Two
+  // guesses either side of the colour asked for, closing on it as the card is
+  // hovered.
+  color: (
+    <div className="arcade-stage">
+      <span className="arcade-swatch arcade-swatch-left" aria-hidden />
+      <span className="arcade-swatch arcade-swatch-target" aria-hidden />
+      <span className="arcade-swatch arcade-swatch-right" aria-hidden />
+      <img src={`${art}/stack/petal.svg`} alt="" className="arcade-drifter" />
+    </div>
+  ),
 }
 
 /* ------------------------------------------------------------------- tiles */
@@ -153,6 +163,9 @@ export function GameTile({
   standing: Standing
   onPlay: () => void
 }) {
+  // A game played more than one way stands on its first board, and is written
+  // in that board's terms.
+  const standingKey = game.modes?.[0]?.key ?? game.key
   const played = standing.points > 0
   return (
     <article
@@ -175,7 +188,7 @@ export function GameTile({
             {played && standing.position !== null ? (
               <>
                 You stand #{standing.position}
-                <span className="text-fg/35"> · best {points.format(standing.points)}</span>
+                <span className="text-fg/35"> · best {formatGameScore(standingKey, standing.points)}</span>
               </>
             ) : (
               'Not played yet'
@@ -317,12 +330,14 @@ export function StandingsColumn({
         <p className="m-0 text-[12.5px] text-fg/55">
           Your best{' '}
           <span className="font-ui tabular-nums text-fg/85">
-            {board !== undefined && board.yourBestScore > 0 ? points.format(board.yourBestScore) : '—'}
+            {board !== undefined && board.yourBestScore > 0
+              ? formatGameScore(active, board.yourBestScore)
+              : '—'}
           </span>
         </p>
       </div>
       <div className="min-w-0 flex-1">
-        <LeaderboardPanel board={board} />
+        <LeaderboardPanel gameKey={active} board={board} />
       </div>
     </div>
   )
@@ -348,7 +363,13 @@ function StandingsColumnLive({ boards }: { boards: readonly BoardRef[] }) {
  * grid always holds five places, empty ones drawn faint, so the panel keeps
  * its height whichever board is showing.
  */
-export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
+export function LeaderboardPanel({
+  gameKey,
+  board,
+}: {
+  gameKey: GameKey
+  board: BoardView | undefined
+}) {
   const entries = board?.entries.slice(0, leaderboardDepth) ?? []
   const slots = Array.from({ length: leaderboardDepth }, (_, index) => entries[index] ?? null)
   const note =
@@ -378,7 +399,9 @@ export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
                   {shortPlayerName(entry.displayName)}
                   {entry.isYou ? <span className="text-fg/40"> · you</span> : null}
                 </span>
-                <span className="block font-ui text-[12.5px] tabular-nums text-fg/55">{points.format(entry.bestScore)}</span>
+                <span className="block font-ui text-[12.5px] tabular-nums text-fg/55">
+                  {formatGameScore(gameKey, entry.bestScore)}
+                </span>
               </span>
             </li>
           ) : (

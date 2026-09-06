@@ -65,6 +65,9 @@ const boards: Record<GameKey, LazyExoticComponent<ComponentType<GameBoardProps>>
   'memory-grid': lazy(() =>
     import('./memory/Board.tsx').then((module) => ({ default: module.default })),
   ),
+  color: lazy(() =>
+    import('./color/Board.tsx').then((module) => ({ default: module.default })),
+  ),
 }
 
 const blurbs: Record<GameKey, string> = {
@@ -72,6 +75,7 @@ const blurbs: Record<GameKey, string> = {
   stack: 'Drop each piece onto the tower and keep it standing. Three lives, one running total.',
   memory: 'Two ways to remember: find the pairs, or hold the pattern as it grows.',
   'memory-grid': 'Hold the pattern as it grows.',
+  color: 'A colour, shown and taken away. Mix it back from memory, five times.',
 }
 
 const modes: Partial<Record<GameKey, readonly GameMode[]>> = {
