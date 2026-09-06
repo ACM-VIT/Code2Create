@@ -31,6 +31,54 @@
   box-shadow: 0 24px 50px -18px var(--shade-2);
 }
 
+.portal-c2c-logo {
+  position: relative;
+  isolation: isolate;
+}
+
+.portal-c2c-logo--result::before {
+  position: absolute;
+  inset: -0.9rem;
+  z-index: -1;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgb(255 220 235 / 58%), rgb(226 115 165 / 22%) 48%, transparent 72%);
+  content: "";
+  animation: c2c-result-logo-aura 2.1s ease-in-out infinite;
+}
+
+.portal-c2c-logo--result img {
+  animation: c2c-result-logo-glow 2.1s ease-in-out infinite;
+}
+
+@keyframes c2c-result-logo-aura {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.88);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes c2c-result-logo-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 0.7rem rgb(255 188 217 / 60%));
+  }
+  50% {
+    filter: drop-shadow(0 0 1.65rem rgb(255 225 238 / 100%)) brightness(1.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-c2c-logo--result::before,
+  .portal-c2c-logo--result img {
+    animation: none;
+  }
+}
+
 /* ------------------------------------------------------------------ *
  * Night-hanami portal palette — from Claude Design "Portal Mockups"
  * (t11 f0a-f7). Palette is shared with apps/landing's base.css so the
@@ -158,7 +206,7 @@
       opacity: 0;
     }
   }
-  @keyframes c2crise {
+@keyframes c2crise {
     0% {
       transform: translate(0, 40px) rotate(-4deg);
       opacity: 0;

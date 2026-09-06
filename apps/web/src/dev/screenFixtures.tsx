@@ -97,6 +97,7 @@ import {
 } from "../components/portal/TeamCluster";
 import { SubmitCelebration } from "../components/portal/SubmitCelebration";
 import { ImportedTeamChoiceView } from "../components/portal/ImportedTeamChoiceView";
+import { AdmissionResultReveal } from "../components/portal/AdmissionResultReveal";
 import PacmanBoard from "../games/pacman/Map.tsx";
 import MemoryBoard from "../games/memory/Board.tsx";
 import StackBoard from "../games/stack/Board.tsx";
@@ -1702,6 +1703,32 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
           </div>
         </div>
       </PortalScene>
+    ),
+  ],
+  [
+    "f8r",
+    () => (
+      <AdmissionResultReveal
+        key="selected-result"
+        outcome="selected"
+        eventName="Code2Create 7.0"
+        teamName="Paper Cranes"
+        header={cluster}
+        onContinue={noop}
+      />
+    ),
+  ],
+  [
+    "f8n",
+    () => (
+      <AdmissionResultReveal
+        key="not-selected-result"
+        outcome="not_selected"
+        eventName="Code2Create 7.0"
+        teamName="Paper Cranes"
+        header={cluster}
+        onContinue={noop}
+      />
     ),
   ],
   [

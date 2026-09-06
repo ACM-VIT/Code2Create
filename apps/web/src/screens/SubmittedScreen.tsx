@@ -18,6 +18,11 @@ import { PetalCard } from "../components/portal/PetalCard";
 import { TeamCluster } from "../components/portal/TeamCluster";
 import { PortalButton, PortalTextButton } from "../components/portal/PortalButton";
 import { PortalError, PortalTextarea } from "../components/portal/PortalField";
+import { AdmissionResultReveal } from "../components/portal/AdmissionResultReveal";
+import {
+  admissionResultOutcome,
+  admissionResultRevealKey,
+} from "../lib/admissionResultReveal";
 import { normalizedIdeaLength, useNoveltyPreview } from "../hooks/useNoveltyPreview";
 import { DashboardLive } from "./DashboardLive";
 import { NoveltyPill, ReviewEditRow } from "../components/ProposalReview";
@@ -207,6 +212,15 @@ function SubmittedWorkspace({
   const [busy, setBusy] = useState<"confirm" | "decline" | null>(null);
   const [confirmDecline, setConfirmDecline] = useState(false);
   const [viewingProposal, setViewingProposal] = useState(view === "proposal");
+  const resultOutcome = admissionResultOutcome(application.state);
+  const resultRevealKey = resultOutcome
+    ? admissionResultRevealKey(application.id, resultOutcome)
+    : null;
+  const [dismissedResultKey, setDismissedResultKey] = useState<string | null>(() =>
+    resultRevealKey && window.sessionStorage.getItem(resultRevealKey) === "seen"
+      ? resultRevealKey
+      : null,
+  );
   // Set by the submit button; consumed here so the bloom plays exactly once.
   const [celebrating, setCelebrating] = useState(consumeSubmissionCelebration);
   const [error, setError] = useState<string | null>(null);
@@ -265,6 +279,36 @@ function SubmittedWorkspace({
         : "submission is read-only";
   const teamEditable = phaseTime < team.membershipEditableUntil;
   const canManageTeam = team.currentRole === "lead" && teamEditable;
+  const resultWasSeen =
+    resultRevealKey !== null && window.sessionStorage.getItem(resultRevealKey) === "seen";
+  const showingResultReveal =
+    resultOutcome !== null &&
+    resultRevealKey !== null &&
+    dismissedResultKey !== resultRevealKey &&
+    !resultWasSeen;
+
+  if (showingResultReveal) {
+    return (
+      <AdmissionResultReveal
+        outcome={resultOutcome}
+        eventName={event.name}
+        teamName={team.name}
+        onSignOut={onSignOut}
+        header={
+          <TeamCluster
+            team={team}
+            members={members}
+            editable={teamEditable}
+            canManage={canManageTeam}
+          />
+        }
+        onContinue={() => {
+          window.sessionStorage.setItem(resultRevealKey, "seen");
+          setDismissedResultKey(resultRevealKey);
+        }}
+      />
+    );
+  }
 
   const respond = async (response: "confirm" | "decline") => {
     const offer = application.currentOffer;
@@ -318,6 +362,7 @@ function SubmittedWorkspace({
       <PortalScene
         onSignOut={onSignOut}
         tree="left"
+        logoGlow={resultOutcome !== null}
         header={
           <TeamCluster
             team={team}
@@ -466,6 +511,7 @@ function SubmittedWorkspace({
       <PortalScene
         onSignOut={onSignOut}
         tree="left"
+        logoGlow
         header={
           <TeamCluster
             team={team}
@@ -662,6 +708,7 @@ function SubmittedWorkspace({
     <PortalScene
       onSignOut={onSignOut}
       tree="left"
+      logoGlow
       header={
         <TeamCluster
           team={team}

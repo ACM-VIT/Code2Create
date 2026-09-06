@@ -94,6 +94,7 @@ export function PortalScene({
   tree = "left",
   branch = false,
   logo = "corner",
+  logoGlow = false,
   backdrop,
   fill = false,
 }: {
@@ -113,6 +114,8 @@ export function PortalScene({
   branch?: boolean;
   /** f0a centres its own large mark in the copy instead of the corner one. */
   logo?: "corner" | "none";
+  /** Marks a newly published result with the same luminous reward glow as the reveal. */
+  logoGlow?: boolean;
   /** A full-bleed live layer under the artwork — the home screen's GPU sky. */
   backdrop?: ReactNode;
 }) {
@@ -179,7 +182,12 @@ export function PortalScene({
         {/* Wordmark and the per-screen header slot ride above the artwork. */}
         <header className="pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-start justify-between px-6 pt-7 lg:px-11 lg:pt-9">
           {logo === "corner" ? (
-            <Link to="/" viewTransition aria-label="Home" className="pointer-events-auto">
+            <Link
+              to="/"
+              viewTransition
+              aria-label="Home"
+              className={`portal-c2c-logo pointer-events-auto ${logoGlow ? "portal-c2c-logo--result" : ""}`}
+            >
               <img
                 src="/assets/logo.svg"
                 alt="Code2Create"

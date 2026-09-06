@@ -35,6 +35,8 @@ export const GALLERY_SCREENS = [
   { id: "f6b", label: "Submit bloom" },
   { id: "f7", label: "Submitted" },
   { id: "f7b", label: "Submission view" },
+  { id: "f8r", label: "Result reveal · selected" },
+  { id: "f8n", label: "Result reveal · not selected" },
   { id: "f8", label: "Accepted" },
   { id: "f10", label: "Team lobby" },
   { id: "f10c", label: "Team lobby · rename" },
