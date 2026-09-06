@@ -1105,6 +1105,16 @@ p {
   .chill-pool { animation: none; }
 }
 
+/* The venue screen's headline: the outline word sized to its letter count so
+   any phase name fits its column, and kept in flow rather than centred on
+   the page. */
+.display-headline .outline-heading {
+  position: static;
+  width: max-content;
+  translate: none;
+  font-size: clamp(3vw, calc(36vw / var(--letters, 8)), 9vw);
+}
+
 /* Outline heading: a page title in stroked letters. Each letter fills rose
    while the pointer is on it and fades back over a second, as the 2021
    marquee did. The stroke mixes from the rose token so daybreak repaints it. */

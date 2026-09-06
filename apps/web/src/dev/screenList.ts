@@ -24,6 +24,7 @@ export const GALLERY_SCREENS = [
   { id: "integrations", label: "Connected tools · linked" },
   { id: "integrationsEmpty", label: "Connected tools · nothing yet" },
   { id: "chill", label: "Chill mode" },
+  { id: "display", label: "Venue display" },
   { id: "f1", label: "Home · in progress" },
   { id: "f1b", label: "Home · new team" },
   { id: "f2", label: "Idea" },

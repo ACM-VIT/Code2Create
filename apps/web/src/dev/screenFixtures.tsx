@@ -40,6 +40,7 @@ import { MusicRoom } from "../screens/SynesthesiaScreen";
 import { ShowcaseScreen } from "../screens/ShowcaseScreen";
 import { showcaseSamples } from "./showcaseSamples";
 import { ChillMode } from "../components/chill/ChillMode";
+import { DisplayView } from "../screens/DisplayScreen";
 import { IntegrationsScene } from "../screens/IntegrationsScreen";
 import { FigmaMark, GitHubMark } from "../components/dashboard/IntegrationsTile";
 import {
@@ -912,6 +913,36 @@ function IntegrationsFixture({ connected }: { connected: boolean }) {
   );
 }
 
+function DisplayFixture() {
+  const [now, setNow] = useState(() => eventClock(10, 2));
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow((value) => value + 1_000), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const started = eventClock(10, 2) - 148_000;
+  return (
+    <DisplayView
+      event={{ timezone: eventTimezone, phases: dashboardEvent.phases }}
+      display={{
+        serverNow: now,
+        music: {
+          windowName: "Night build",
+          playbackPaused: false,
+          nowPlaying: {
+            title: "Lofi Hip Hop Radio - Study Chill Beats",
+            artist: "Lofi music sk",
+            videoId: "jfKfPfyJRdk",
+            durationSeconds: 351,
+            playbackStartedAt: started,
+          },
+          upNext: ["Midnight City", "Smells Like Teen Spirit", "Nightcall"],
+        },
+      }}
+      now={now}
+    />
+  );
+}
+
 function MusicRoomFixture({ quiet = false }: { quiet?: boolean }) {
   const [model, setModel] = useState(() => (quiet ? quietMusic : dashboardMusic));
   const room = {
@@ -1222,6 +1253,7 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ["integrations", () => <IntegrationsFixture key="linked" connected />],
   ["integrationsEmpty", () => <IntegrationsFixture key="empty" connected={false} />],
   ["chill", () => <><DashboardFixture variant="build" /><ChillMode active /></>],
+  ["display", () => <DisplayFixture />],
   [
     "f2",
     () => (

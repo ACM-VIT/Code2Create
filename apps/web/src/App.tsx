@@ -5,7 +5,7 @@ import { ConnectionNotice } from "./components/portal/ConnectionNotice";
 import type { Code2CreateAuthClient } from "@code2create/web-auth";
 import { AuthLoading, Authenticated, Unauthenticated, useQuery } from "convex/react";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import { eventSlug } from "./lib/config";
 import { EntryScreen } from "./screens/EntryScreen";
 import { DelayedBonsai } from "./components/portal/DelayedBonsai";
@@ -14,6 +14,10 @@ import "./App.css";
 
 const ParticipantApp = lazy(() =>
   import("./ParticipantApp").then((module) => ({ default: module.ParticipantApp })),
+);
+// The venue screen: no sign-in, so it lives beside the auth split rather than inside it.
+const DisplayScreen = lazy(() =>
+  import("./screens/DisplayScreen").then((module) => ({ default: module.DisplayScreen })),
 );
 
 // Dev-only screen switcher. `import.meta.env.DEV` is statically false in a
@@ -25,6 +29,7 @@ const ScreenGallery = import.meta.env.DEV
 export default function App({ authClient }: { authClient: Code2CreateAuthClient }) {
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const publicState = useQuery(api.system.getPublicState, { eventSlug });
+  const location = useLocation();
   const startupReady = publicState !== undefined && !sessionPending;
 
   // Mounted outside the loading guard so the gallery is reachable even when the
@@ -44,6 +49,10 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
       <StartupCover ready={startupReady} />
       {publicState === undefined ? (
         <LoadingScreen />
+      ) : location.pathname === "/display" ? (
+        <Suspense fallback={<LoadingScreen />}>
+          <DisplayScreen publicState={publicState} />
+        </Suspense>
       ) : (
         <>
           <AuthLoading>
