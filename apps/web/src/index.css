@@ -1327,6 +1327,23 @@ p {
 .arcade-cabinet:hover .arcade-card-right { transform: translateX(-50%) translateX(60px) rotate(16deg); }
 .arcade-cabinet:hover .arcade-card-mid { transform: translateX(-50%) translateY(-12px); }
 
+/* The row of cabinets, and the way it walks.
+
+   The track is as wide as the window it sits in and its columns overflow, so a
+   percentage means the same thing to the columns and to the translate: one step
+   is a column plus a gap, which is (100% + gap) / cabinets at any width. */
+.arcade-track {
+  --cabinet-gap: 1rem;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - (var(--cabinets) - 1) * var(--cabinet-gap)) / var(--cabinets));
+  gap: var(--cabinet-gap);
+  transform: translateX(calc(-1 * var(--step) * (100% + var(--cabinet-gap)) / var(--cabinets)));
+}
+.arcade-track-gliding { transition: transform var(--glide, 750ms) cubic-bezier(.22, 1, .36, 1); }
+@media (min-width: 1024px) { .arcade-track { --cabinet-gap: 1.25rem; } }
+@media (prefers-reduced-motion: reduce) { .arcade-track-gliding { transition: none; } }
+
 /* Colour Match: the colour asked for, with two guesses either side of it. */
 .arcade-swatch {
   position: absolute; bottom: 50%; left: 50%; width: 52px; height: 52px;

@@ -8,6 +8,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from 'react'
 
@@ -88,30 +89,106 @@ export function ArcadeView({
   )
 }
 
+/** How long a row stands still before it walks itself along. */
+const glideAfterMs = 5_000
+/** How long one step takes. The track is told, so the two cannot drift apart. */
+const glideMs = 750
+
+type TrackStyle = CSSProperties & Record<`--${string}`, number | string>
+
 /**
  * The cabinets, three at a time, with a way along the row.
  *
  * The row is three wide however many games there are, so a fourth game widens
- * nothing and pushes nothing off: it waits one step along. The arrows wrap, so
- * the row has no end to be stopped at — an arcade is walked past, not paged
- * through.
+ * nothing and pushes nothing off: it waits one step along. It walks itself
+ * along every few seconds, and the arrows walk it either way; both wrap, so the
+ * row has no end to be stopped at — an arcade is walked past, not paged through.
+ *
+ * The wrap is why the track carries a copy of its first cabinets at the end:
+ * the step off the end has to glide onto something, and the jump back to the
+ * start happens once the glide has landed, with the transition off, where it
+ * cannot be seen.
  *
  * A phone has one column, so it shows one cabinet: three stacked would leave
  * the arrows adrift beside a screen-and-a-half of scrolling, which is no way
  * to reach the next game.
  */
 function CabinetRow({ tiles }: { tiles: readonly ReactNode[] }) {
-  const [first, setFirst] = useState(0)
   const inARow = useMediaQuery('(min-width: 640px)') ? 3 : 1
   const walkable = tiles.length > inARow
-  const step = (by: number) => setFirst((current) => (current + by + tiles.length) % tiles.length)
-  const shown = walkable
-    ? Array.from({ length: inARow }, (_, offset) => tiles[(first + offset) % tiles.length])
-    : tiles
+  const [{ index, gliding }, setRow] = useState({ index: 0, gliding: true })
+  // The row waits while it is being read: a cabinet that slides away from under
+  // the pointer reaching for it is worse than one that never moved.
+  const [held, setHeld] = useState(false)
+
+  const last = tiles.length
+  const step = (by: number) => {
+    if (by > 0) setRow({ index: index + 1, gliding: true })
+    // Backwards off the front: stand at the far end with the transition off,
+    // then glide the one step from there.
+    else if (index === 0) setRow({ index: last, gliding: false })
+    else setRow({ index: index - 1, gliding: true })
+  }
+
+  useEffect(() => {
+    if (!walkable || held) return
+    const timer = window.setInterval(() => setRow((row) => ({ index: row.index + 1, gliding: true })), glideAfterMs)
+    return () => window.clearInterval(timer)
+  }, [walkable, held, index])
+
+  // The step off the end has landed on the copy: stand on the original instead,
+  // with the transition off, where the jump cannot be seen.
+  //
+  // On a timer rather than on the transition ending, because a tab in the
+  // background runs no transitions and so reports none ending — and a row that
+  // never took that step back would walk itself off into open space.
+  useEffect(() => {
+    if (!gliding || index !== last) return
+    const timer = window.setTimeout(() => setRow({ index: 0, gliding: false }), glideMs)
+    return () => window.clearTimeout(timer)
+  }, [gliding, index, last])
+
+  // Whatever was done with the transition off is done: pick the glide back up,
+  // and take the step the backwards wrap was waiting to make.
+  useEffect(() => {
+    if (gliding) return
+    const timer = window.setTimeout(
+      () => setRow(index === last ? { index: last - 1, gliding: true } : { index, gliding: true }),
+      0,
+    )
+    return () => window.clearTimeout(timer)
+  }, [gliding, index, last])
+
+  const track = walkable ? [...tiles, ...tiles.slice(0, inARow)] : tiles
+  const walked: TrackStyle = { '--cabinets': inARow, '--step': index, '--glide': `${glideMs}ms` }
   return (
-    <section aria-label="Games" className="mt-5 flex flex-none items-stretch gap-2 lg:gap-3">
+    <section
+      aria-label="Games"
+      className="mt-5 flex flex-none items-stretch gap-2 lg:gap-3"
+      onPointerEnter={() => setHeld(true)}
+      onPointerLeave={() => setHeld(false)}
+      onFocusCapture={() => setHeld(true)}
+      onBlurCapture={() => setHeld(false)}
+    >
       {walkable ? <CabinetArrow direction="back" onClick={() => step(-1)} /> : null}
-      <div className="grid min-w-0 flex-1 grid-cols-1 gap-4 sm:grid-cols-3 lg:gap-5">{shown}</div>
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div
+          className={`arcade-track ${gliding ? 'arcade-track-gliding' : ''}`}
+          style={walked}
+        >
+          {track.map((tile, position) => (
+            <div
+              key={position}
+              className="min-w-0"
+              // The tail is the front of the row over again, and is only there
+              // to be glided onto.
+              aria-hidden={position >= tiles.length ? true : undefined}
+            >
+              {tile}
+            </div>
+          ))}
+        </div>
+      </div>
       {walkable ? <CabinetArrow direction="on" onClick={() => step(1)} /> : null}
     </section>
   )
@@ -124,9 +201,9 @@ function CabinetArrow({ direction, onClick }: { direction: 'back' | 'on'; onClic
       type="button"
       onClick={onClick}
       aria-label={direction === 'back' ? 'Earlier games' : 'Later games'}
-      className="arcade-arrow my-auto grid size-9 flex-none place-items-center rounded-full border border-petal-line bg-wash/60 text-fg/60 transition-[background-color,color,border-color] duration-300 hover:border-rose-light hover:bg-rose-light/20 hover:text-fg focus-visible:border-rose-light focus-visible:outline-none"
+      className="arcade-arrow my-auto grid size-12 flex-none place-items-center rounded-full border border-petal-line bg-wash/60 text-fg/70 transition-[background-color,color,border-color] duration-300 hover:border-rose-light hover:bg-rose-light/20 hover:text-fg focus-visible:border-rose-light focus-visible:outline-none lg:size-14"
     >
-      <svg viewBox="0 0 24 24" aria-hidden className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg viewBox="0 0 24 24" aria-hidden className="size-5 lg:size-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         {direction === 'back' ? <path d="M15 5l-7 7 7 7" /> : <path d="M9 5l7 7-7 7" />}
       </svg>
     </button>
