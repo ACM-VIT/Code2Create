@@ -1,39 +1,36 @@
-import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 export type Room = "home" | "music" | "games" | "showcase";
+
+/**
+ * The room icons.
+ *
+ * One grid, one stroke weight, one pair of caps: they sit side by side as discs,
+ * so any of them drawn heavier or busier than the rest shows immediately. Fills
+ * are a wash of the current colour rather than a second tone, so each reads on
+ * the rose disc it wears when its room is the one you are in.
+ */
+const iconStroke = {
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+} as const;
+
+const wash = "color-mix(in srgb, currentColor 16%, transparent)";
 
 const rooms: readonly { key: Room; label: string; to: string; icon: React.ReactNode }[] = [
   {
     key: "home",
     label: "Home",
     to: "/",
-    // A small cottage with a blossom for a window: the home tile's mascot.
+    // A house with its door open.
     icon: (
-      <svg viewBox="0 0 24 24" className="size-[18px]" aria-hidden>
-        <path
-          d="M4 11.2 12 4.5l8 6.7"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M6.2 10.4V19a1 1 0 0 0 1 1h9.6a1 1 0 0 0 1-1v-8.6"
-          fill="color-mix(in srgb, currentColor 18%, transparent)"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
-        />
-        <g fill="currentColor">
-          <circle cx="12" cy="13.2" r="1.15" />
-          <circle cx="10.55" cy="14.55" r="1.15" />
-          <circle cx="13.45" cy="14.55" r="1.15" />
-          <circle cx="11.1" cy="16.2" r="1.15" />
-          <circle cx="12.9" cy="16.2" r="1.15" />
-        </g>
-        <circle cx="12" cy="14.8" r=".75" fill="var(--color-wash)" />
+      <svg viewBox="0 0 24 24" className="size-[20px] lg:size-[24px]" aria-hidden>
+        <path d="M3.4 10.9 12 4.2l8.6 6.7" {...iconStroke} />
+        <path d="M5.9 9.9V19a1 1 0 0 0 1 1h10.2a1 1 0 0 0 1-1V9.9" {...iconStroke} fill={wash} />
+        <path d="M9.9 20v-4.3a2.1 2.1 0 0 1 4.2 0V20" {...iconStroke} />
       </svg>
     ),
   },
@@ -41,18 +38,13 @@ const rooms: readonly { key: Room; label: string; to: string; icon: React.ReactN
     key: "music",
     label: "Music",
     to: "/music",
+    // Two beamed notes.
     icon: (
-      <svg viewBox="0 0 24 24" className="size-[18px]" aria-hidden>
-        <path
-          d="M9.5 17.5V6.8l9-2v10.4"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle cx="7" cy="17.5" r="2.5" fill="currentColor" />
-        <circle cx="16" cy="15.2" r="2.5" fill="currentColor" />
+      <svg viewBox="0 0 24 24" className="size-[20px] lg:size-[24px]" aria-hidden>
+        <path d="M9.6 17.4V6.6l9-2v10.6" {...iconStroke} />
+        <path d="M9.6 9.6l9-2" {...iconStroke} />
+        <ellipse cx="7.3" cy="17.6" rx="2.4" ry="2.1" fill="currentColor" />
+        <ellipse cx="16.3" cy="15.4" rx="2.4" ry="2.1" fill="currentColor" />
       </svg>
     ),
   },
@@ -60,18 +52,15 @@ const rooms: readonly { key: Room; label: string; to: string; icon: React.ReactN
     key: "games",
     label: "Games",
     to: "/games",
+    // An origami crane: the arcade belongs to the blossom, not to a console.
     icon: (
-      <svg viewBox="0 0 24 24" className="size-[18px]" aria-hidden>
+      <svg viewBox="0 0 24 24" className="size-[20px] lg:size-[24px]" aria-hidden>
         <path
-          d="M7.2 7h9.6a4.2 4.2 0 0 1 4.15 3.55l.75 4.9a2.6 2.6 0 0 1-4.6 2.05L15.5 15.5h-7l-1.6 2A2.6 2.6 0 0 1 2.3 15.45l.75-4.9A4.2 4.2 0 0 1 7.2 7Z"
-          fill="color-mix(in srgb, currentColor 18%, transparent)"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinejoin="round"
+          d="M3.1 9.5 12.6 4.1l3 6.5 5.3-2.3-4.3 6 -1.5 5.1-3.4-4-5.1 1.4 1.6-4.2z"
+          {...iconStroke}
+          fill={wash}
         />
-        <path d="M8 10v3.4M6.3 11.7h3.4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-        <circle cx="15.4" cy="10.6" r=".95" fill="currentColor" />
-        <circle cx="17.4" cy="12.6" r=".95" fill="currentColor" />
+        <path d="M12.6 4.1 8.2 12.6m3.5 3.8 4-1.7-.7-3.9" {...iconStroke} strokeWidth={1.4} />
       </svg>
     ),
   },
@@ -79,65 +68,51 @@ const rooms: readonly { key: Room; label: string; to: string; icon: React.ReactN
     key: "showcase",
     label: "Showcase",
     to: "/showcase",
+    // A sparkle, with a smaller one trailing it.
     icon: (
-      <svg viewBox="0 0 24 24" className="size-[18px]" aria-hidden>
+      <svg viewBox="0 0 24 24" className="size-[20px] lg:size-[24px]" aria-hidden>
         <path
-          d="M12 3.5c.7 4.3 2.8 6.4 7.1 7.1-4.3.7-6.4 2.8-7.1 7.1-.7-4.3-2.8-6.4-7.1-7.1 4.3-.7 6.4-2.8 7.1-7.1Z"
-          fill="color-mix(in srgb, currentColor 22%, transparent)"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinejoin="round"
+          d="M10.4 3.6c.8 4.3 2.6 6.1 6.9 6.9-4.3.8-6.1 2.6-6.9 6.9-.8-4.3-2.6-6.1-6.9-6.9 4.3-.8 6.1-2.6 6.9-6.9Z"
+          {...iconStroke}
+          fill={wash}
         />
-        <path d="M18.5 15.5c.3 1.7 1.1 2.5 2.8 2.8-1.7.3-2.5 1.1-2.8 2.8-.3-1.7-1.1-2.5-2.8-2.8 1.7-.3 2.5-1.1 2.8-2.8Z" fill="currentColor" />
+        <path
+          d="M17.6 15.1c.3 1.9 1.1 2.7 3 3-1.9.3-2.7 1.1-3 3-.3-1.9-1.1-2.7-3-3 1.9-.3 2.7-1.1 3-3Z"
+          fill="currentColor"
+        />
       </svg>
     ),
   },
 ];
 
 /**
- * The rooms of the accepted portal, as one glass pill. A rose lozenge sits
- * under the current room and glides to the next one on hover before the
- * route changes, so the move is answered before the scene swaps.
+ * The rooms of the accepted portal, each its own disc.
+ *
+ * A room is a circle, a little larger than the daybreak toggle so the set reads
+ * as the way through the portal rather than as another switch. Reaching for one
+ * opens it into a lozenge and the name arrives beside the icon; letting go
+ * closes it again. The room you are in stays filled, so where you are is legible
+ * without hovering anything.
+ *
+ * Icons are white throughout, on the glass and on the rose alike, so the disc's
+ * fill is what says which room you are in and the drawing never has to carry it.
+ *
+ * The opening is a grid track going from `0fr` to `1fr` rather than a width
+ * growing towards some guessed maximum. A guessed maximum has to be wider than
+ * the longest name, so a short one finishes early and the rest of the animation
+ * is invisible growth — which reads as a stutter, and reads differently on
+ * "Home" than on "Showcase". A track interpolates to the name's own width, so
+ * every disc opens at the same pace and stops exactly when it is full.
+ *
+ * The label is laid out at all times and revealed by width alone, so nothing
+ * reflows as it opens and a screen reader reads the name whether or not the
+ * pointer has been near it.
  */
 export function RoomNav({ current, className = "" }: { current: Room; className?: string }) {
-  const track = useRef<HTMLElement>(null);
-  const [hovered, setHovered] = useState<Room | null>(null);
-  const [lozenge, setLozenge] = useState<{ left: number; width: number } | null>(null);
-  const target = hovered ?? current;
-
-  useLayoutEffect(() => {
-    const nav = track.current;
-    if (!nav) return;
-    const place = () => {
-      const item = nav.querySelector<HTMLElement>(`[data-room="${target}"]`);
-      if (!item) return;
-      setLozenge({ left: item.offsetLeft, width: item.offsetWidth });
-    };
-    place();
-    const observer = new ResizeObserver(place);
-    observer.observe(nav);
-    return () => observer.disconnect();
-  }, [target]);
-
   return (
-    <nav
-      ref={track}
-      aria-label="Rooms"
-      onPointerLeave={() => setHovered(null)}
-      className={`glass-menu relative isolate flex w-fit max-w-full items-center gap-0.5 rounded-full p-1 ${className}`}
-    >
-      <span
-        aria-hidden
-        className="absolute top-1 bottom-1 -z-10 rounded-full bg-rose shadow-[0_8px_22px_-10px_var(--glow-rose)] motion-safe:transition-[left,width,opacity] motion-safe:duration-[380ms] motion-safe:ease-[cubic-bezier(.22,1,.36,1)]"
-        style={
-          lozenge
-            ? { left: lozenge.left, width: lozenge.width, opacity: 1 }
-            : { left: 4, width: 0, opacity: 0 }
-        }
-      />
+    <nav aria-label="Rooms" className={`flex w-fit max-w-full items-center gap-2 ${className}`}>
       {rooms.map((room) => {
         const active = room.key === current;
-        const lit = room.key === target;
         return (
           <Link
             key={room.key}
@@ -145,17 +120,19 @@ export function RoomNav({ current, className = "" }: { current: Room; className?
             viewTransition
             data-room={room.key}
             aria-current={active ? "page" : undefined}
-            onPointerEnter={(event) => {
-              if (event.pointerType === "mouse") setHovered(room.key);
-            }}
-            onFocus={() => setHovered(room.key)}
-            onBlur={() => setHovered(null)}
-            className={`relative flex items-center gap-2 rounded-full px-3.5 py-2 font-ui text-[13px] font-semibold tracking-[.01em] no-underline transition-colors duration-250 hover:no-underline focus-visible:outline-none sm:px-4 ${
-              lit ? "text-wash" : "text-rose-light hover:text-fg"
+            title={room.label}
+            className={`group flex h-11 flex-none items-center rounded-full border-2 px-[10px] font-ui text-[13px] font-semibold tracking-[.01em] text-white no-underline motion-safe:transition-[color,background-color,border-color,box-shadow] motion-safe:duration-[420ms] motion-safe:ease-[cubic-bezier(.22,1,.36,1)] hover:no-underline focus-visible:outline-none lg:h-14 lg:px-[14px] lg:text-[14px] ${
+              active
+                ? "border-rose bg-rose shadow-[0_10px_26px_-10px_var(--glow-rose)] hover:border-rose-light hover:bg-rose-light"
+                : "glass-menu border-rose/70 hover:border-rose-light hover:bg-rose/55 hover:shadow-[0_10px_26px_-10px_var(--glow-rose)]"
             }`}
           >
-            {room.icon}
-            <span className={active || lit ? "" : "sr-only sm:not-sr-only"}>{room.label}</span>
+            <span className="flex flex-none items-center justify-center">{room.icon}</span>
+            <span className="grid grid-cols-[0fr] motion-safe:transition-[grid-template-columns] motion-safe:duration-[420ms] motion-safe:ease-[cubic-bezier(.22,1,.36,1)] group-hover:grid-cols-[1fr] group-focus-visible:grid-cols-[1fr]">
+              <span className="overflow-hidden whitespace-nowrap">
+                <span className="block pr-1 pl-2">{room.label}</span>
+              </span>
+            </span>
           </Link>
         );
       })}

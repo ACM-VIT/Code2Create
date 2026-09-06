@@ -1,3 +1,4 @@
+import { outingReceiptMessage } from "../lib/outing-receipt";
 import {
   barcodeSymbologies,
   findBarcodeSymbology,
@@ -808,6 +809,10 @@ function ScannerSurface({
 
   const sendPresenceScan = async (credential: ScanCredential, rovingTransition: ScanTransition | undefined) => {
     try {
+      const transition = assignment.station.mode === "roving" ? rovingTransition : assignment.station.mode;
+      if (definitelyOffline && (transition === undefined || transition === "venue_exit" || transition === "zone_exit")) {
+        throw new OperatorError("Connect to the internet to check outing permission before departure.");
+      }
       const reserved = await reserveDeviceSequence({
         eventSlug,
         record: deviceRecord,
@@ -1625,7 +1630,7 @@ function ScannerSurface({
         ...(receipt.participant?.vitRegistrationNumber
           ? { registration: receipt.participant.vitRegistrationNumber }
           : {}),
-        detail: reasonName(receipt.reasonCode),
+        detail: receipt.outing ? outingReceiptMessage(receipt.outing, receipt.serverTime) : reasonName(receipt.reasonCode),
       }
     : scanError
       ? { colour: palette.urgent, ink: palette.text, tone: "no" as const, detail: scanError }
@@ -1687,7 +1692,7 @@ function ScannerSurface({
           }
           controls={
             <ScannerTaskContext
-              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID. Leaving or returning is recorded automatically." : "Scan a linked ID or event pass."}
+              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID to check outing permission and record departure or return." : "Scan a linked ID or event pass."}
               onChange={chooseAnotherTask}
               title="Record presence"
             >
@@ -1701,7 +1706,7 @@ function ScannerSurface({
           {...(presenceVerdict ? { verdict: presenceVerdict } : {})}
           result={
             <>
-              {washroomQueue ? <Meta>{washroomQueue.waitingCount} waiting{washroomQueue.next[0] ? ` · Next: ${washroomQueue.next[0].displayName}` : ""}</Meta> : null}
+              {washroomQueue ? <Meta>{washroomQueue.capacity === null ? "Set outing capacity in ops" : `${washroomQueue.occupiedCount}/${washroomQueue.capacity} slots occupied · ${washroomQueue.waitingCount} waiting`}{washroomQueue.next[0] ? ` · Next: ${washroomQueue.next[0].displayName}` : ""}</Meta> : null}
               {receipt || scanError ? (
                 <>
                   {receipt?.participant?.teamName ? (
@@ -2866,6 +2871,7 @@ function receiptDetail(entry: DeviceReceipt) {
   return [
     entry.participantName && entry.outcome !== "accepted" ? outcomeName(entry.outcome) : null,
     transitionName(entry.transition),
+    entry.outing ? outingReceiptMessage(entry.outing, entry.receivedAt) : null,
     entry.isOfflineReplay ? "replayed" : null,
     new Date(entry.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
   ]

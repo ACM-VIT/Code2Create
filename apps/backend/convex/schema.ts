@@ -4,6 +4,7 @@ import {
   venueResponseEffect,
 } from "./lib/venueCallValidators";
 import { defineSchema, defineTable } from "convex/server";
+import { outingPhase, outingScanDecision } from "./lib/outingValues";
 import {
   reviewerVenueStatus,
   venuePolicyFields,
@@ -1323,15 +1324,24 @@ export default defineSchema({
     ])
     .index("by_threadId_and_updatedAt", ["threadId", "updatedAt"]),
 
+  outingPolicies: defineTable({
+    eventId: v.id("events"),
+    capacity: v.number(),
+    occupiedCount: v.number(),
+    version: v.number(),
+    updatedAt: v.number(),
+  }).index("by_event", ["eventId"]),
+
   participantServiceQueueEntries: defineTable({
     eventId: v.id("events"),
     membershipId: v.id("eventMemberships"),
     personId: v.id("people"),
     kind: v.literal("outing_permission"),
     joinedAt: v.number(),
+    phase: outingPhase,
   })
     .index("by_membership_kind", ["membershipId", "kind"])
-    .index("by_event_kind_joined", ["eventId", "kind", "joinedAt"]),
+    .index("by_event_phase_joinedAt", ["eventId", "phase.status", "joinedAt"]),
 
   supportCases: defineTable({
     eventId: v.id("events"),
@@ -2739,6 +2749,7 @@ export default defineSchema({
 
   attendancePresenceEvents: defineTable({
     eventId: v.id("events"),
+    outing: v.optional(outingScanDecision),
     sourceKind: attendancePresenceSourceKind,
     stationId: v.optional(v.id("attendanceStations")),
     stationConfigurationVersion: v.optional(v.number()),

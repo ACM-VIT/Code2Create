@@ -234,6 +234,8 @@ The dashboard opens the same integrations-page picker instead of caching a secon
 
 One `teamIntegration` owns the ordered repository set. A GitHub installation can serve several repositories and several Code2Create teams, while one team can reference several installations. The application never asks for a personal access token.
 
+The participant account list excludes empty historical connections without that viewer's personal authorization. Accounts attached to non-archived team repositories remain visible even when personal browsing consent expires; this does not grant access to list additional repositories. Hidden historical connection records and audit history are retained.
+
 ### Authentication and API version
 
 The backend signs a short-lived GitHub App JWT and mints an installation access token restricted to the repository needed by that job and to read permissions. Installation tokens expire after one hour. Mint one for a provider job, keep it only in action memory, and discard it after the call.

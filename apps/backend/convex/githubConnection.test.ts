@@ -6,6 +6,7 @@ import { beforeEach, afterEach, describe, expect, test, vi } from "vitest";
 import { api, components, internal } from "./_generated/api";
 import { integrationPolicyChecksum } from "./lib/integrationPolicy";
 import { insertPermissionGrant } from "./lib/permissions";
+import { refreshGithubTeamMetrics } from "./lib/githubTeamMetrics";
 import schema from "./schema";
 
 const provider = vi.hoisted(() => ({
@@ -237,6 +238,66 @@ describe("GitHub installation connection", () => {
     await f.backend.mutation(internal.githubIntegrations.expireRepositoryAuthorization, { authorizationId: authorization._id, expiresAt: 1 });
     expect(await f.backend.run(ctx => ctx.db.get(authorization._id))).not.toBeNull();
   });
+
+  test("the participant account list hides empty legacy connections without deleting their history", async () => {
+    const f = await fixture();
+    await f.complete(await f.start({ installationId: "456" }));
+    expect((await f.view())?.connections).toMatchObject([{ accountLogin: "project-owner", canBrowse: true }]);
+    await f.backend.run(async ctx => {
+      const authorization = await ctx.db.query("githubRepositoryAuthorizations").unique();
+      if (!authorization) throw new Error("Missing authorization");
+      await ctx.db.delete(authorization._id);
+    });
+    expect((await f.view())?.connections).toEqual([]);
+    expect(await f.connections()).toHaveLength(1);
+    expect((await f.view())?.repositories).toEqual([]);
+  });
+
+  test("another person's consent does not make an empty account appear in the viewer's list", async () => {
+    const f = await fixture();
+    await f.complete(await f.start({ installationId: "456" }));
+    await f.backend.run(async ctx => {
+      const authorization = await ctx.db.query("githubRepositoryAuthorizations").unique();
+      const person = authorization ? await ctx.db.get(authorization.personId) : null;
+      if (!authorization || !person) throw new Error("Missing authorization");
+      const { _id, _creationTime, ...fields } = person;
+      const otherId = await ctx.db.insert("people", { ...fields, authUserId: "teammate", verifiedEmail: "teammate@example.test" });
+      await ctx.db.patch(authorization._id, { personId: otherId });
+    });
+    expect((await f.view())?.connections).toEqual([]);
+  });
+
+  test("an existing submitted repository retains its account when personal consent expires", async () => {
+    const f = await fixture();
+    const result = await f.complete(await f.start({ installationId: "456" }));
+    if (result.kind !== "connected") throw new Error("Expected connection");
+    await f.backend.run(async ctx => {
+      const connection = await ctx.db.get(result.connectionId);
+      const authorization = await ctx.db.query("githubRepositoryAuthorizations").unique();
+      if (!connection || !authorization) throw new Error("Missing connection");
+      const now = Date.now();
+      const bindingId = await ctx.db.insert("githubRepositoryBindings", {
+        eventId: connection.eventId, teamId: connection.teamId, installationConnectionId: connection._id,
+        repositoryId: "123", repositoryNodeId: "R_123", owner: "project-owner", name: "submitted",
+        fullName: "project-owner/submitted", url: "https://github.com/project-owner/submitted",
+        isPrivate: true, isFork: false, defaultBranch: "main", kind: "full_product", purpose: "Team project",
+        trackedBranch: "main", displayOrder: 0, requiredTopic: "code2create-7-0", topicState: "present",
+        state: "active", baselineSha: "a".repeat(40), currentHeadSha: "a".repeat(40), syncRevision: 1,
+        syncedRevision: 1, syncState: "ready", version: 1, providerCreatedAt: now, connectedAt: now, updatedAt: now,
+      });
+      await ctx.db.insert("githubRepositoryMetrics", {
+        eventId: connection.eventId, teamId: connection.teamId, repositoryBindingId: bindingId,
+        baselineSha: "a".repeat(40), currentHeadSha: "a".repeat(40), pushCount: 0, commitCount: 0,
+        additions: 0, deletions: 0, changedFiles: 0, observedCommitShas: [], commitIdentityComplete: true,
+        languageBytes: [], completeness: "complete", compareTruncated: false, version: 1, capturedAt: now,
+      });
+      await ctx.db.delete(authorization._id);
+      await refreshGithubTeamMetrics(ctx, { eventId: connection.eventId, teamId: connection.teamId, now });
+    });
+    const view = await f.view();
+    expect(view?.connections).toMatchObject([{ id: result.connectionId, canBrowse: false }]);
+    expect(view?.repositories).toMatchObject([{ fullName: "project-owner/submitted" }]);
+  });
 });
 
 async function fixture(grant = true) {
@@ -261,12 +322,17 @@ async function fixture(grant = true) {
     const policy = { policyVersion: "fixture", requiredGitHubTopic: "code2create-7-0", maxActiveGitHubRepositoriesPerTeam: 10 };
     const policyId = await ctx.db.insert("integrationPolicyVersions", { ...policy, eventId, version: 1, status: "published", checksum: integrationPolicyChecksum(policy), createdByPersonId: personId, createdAt: now, publishedAt: now });
     await ctx.db.patch(eventId, { publishedIntegrationPolicyId: policyId });
-    if (grant) await insertPermissionGrant(ctx, { eventId, personId, eventAccessSubjectId: subjectId, permissionKey: "integration.github.manage", scopeType: "team", scopeId: teamId, sourceType: "event_subject", sourceId: subjectId, reason: "Test team lead", validFrom: now - 1 });
+    if (grant) {
+      for (const permissionKey of ["integration.github.manage", "integration.read"] as const) {
+        await insertPermissionGrant(ctx, { eventId, personId, eventAccessSubjectId: subjectId, permissionKey, scopeType: "team", scopeId: teamId, sourceType: "event_subject", sourceId: subjectId, reason: "Test team lead", validFrom: now - 1 });
+      }
+    }
   });
   const lead = backend.withIdentity({ subject: userId, sessionId });
   return {
     backend,
     lead,
+    view: () => lead.query(api.githubIntegrations.current, { eventSlug }),
     async start(options: { installationId?: string; install?: boolean } = {}) {
       const result = await lead.action(api.githubActions.beginConnection, { eventSlug, ...options });
       const state = new URL(result.installUrl).searchParams.get("state");

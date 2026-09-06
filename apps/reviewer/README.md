@@ -24,6 +24,12 @@ Copy `.env.example` to `.env.local` before the first local build. Development us
 
 The development client uses Metro, so it does not prove an over-the-air install even when the local Updates Worker is running. Use the signed staging build and staging Updates Worker for the device update rehearsal.
 
+## Washroom outings
+
+Set the maximum simultaneous outings in Ops → Check-in plan → Washroom outings before opening the door. The native Presence scanner checks the same permission shown on the participant dashboard. A free slot grants a 15-minute outing immediately; excess requests wait. ID scans show permission, queue position, or expiry and record the departure/return together with attendance. An outing starts at the exit scan. The matching return scan releases capacity; overdue participants remain counted. Automatic presence requires a live connection, and an unsent offline departure never authorizes an outing.
+
+Rehearse with a small capacity: fill the slots, request one more outing, scan that waiting participant, return one permitted participant, and verify the next person is granted permission. Also check unused permission expiry, a late return, duplicate scans, and a lost scan response.
+
 ## Local signed builds
 
 No EAS account, project, build, or update service is used. Copy `.env.example` to both `.env.staging.local` and `.env.production.local`, then put only that environment's backend, identifiers, build number, APNs mode, Firebase file, signing values, and update URL in each file. Release commands never load the development `.env.local` or the other environment's file.

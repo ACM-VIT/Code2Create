@@ -413,6 +413,23 @@ export const current = query({
         .withIndex("by_connection_person", (index) => index.eq("connectionId", connection._id).eq("personId", person._id))
         .unique(),
     ));
+    const submittedConnectionIds = new Set(visibleBindings.map(binding => binding.installationConnectionId));
+    const visibleConnections = connections.flatMap((connection, index) => {
+      const canBrowse = connection.state === "active" && personalAuthorizations[index] !== null;
+      // Historical installation records are not personal consent. Keep an account
+      // visible without consent only when it explains an existing team repository.
+      if (!canBrowse && !submittedConnectionIds.has(connection._id)) return [];
+      return [{
+        id: connection._id,
+        accountLogin: connection.accountLogin,
+        targetType: connection.targetType,
+        repositorySelection: connection.repositorySelection,
+        state: connection.state,
+        version: connection.version,
+        lastVerifiedAt: connection.lastVerifiedAt,
+        canBrowse,
+      }];
+    });
     return {
       viewerPersonId: person._id,
       eventStatus: event.status,
@@ -432,16 +449,7 @@ export const current = query({
                 : {}),
             }
           : null,
-      connections: connections.map((connection, index) => ({
-        id: connection._id,
-        accountLogin: connection.accountLogin,
-        targetType: connection.targetType,
-        repositorySelection: connection.repositorySelection,
-        state: connection.state,
-        version: connection.version,
-        lastVerifiedAt: connection.lastVerifiedAt,
-        canBrowse: personalAuthorizations[index] !== null,
-      })),
+      connections: visibleConnections,
       repositories: visibleBindings.map((binding, index) => {
         const metric = resolvedMetrics[index];
         if (!metric) throw new Error("A validated GitHub repository metric is missing.");

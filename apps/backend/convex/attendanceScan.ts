@@ -17,7 +17,8 @@ import {
   scannerCaptureFutureToleranceMs,
 } from "./lib/attendanceOfflineReplay";
 import { latestVenueCheckIn } from "./lib/venueCheckInLifecycle";
-import { deleteParticipantServiceQueueEntry } from "./lib/participantServiceQueue";
+import { applyOutingScan } from "./lib/participantServiceQueue";
+import { outingScanDecision } from "./lib/outingValues";
 import { updateActiveRollCallsForVenueChange } from "./lib/attendanceRollCalls";
 import {
   applySessionTransitionProjection,
@@ -65,6 +66,7 @@ type CredentialResolution =
   | { resolved: false; reasonCode: string };
 
 const receipt = v.object({
+  outing: v.optional(outingScanDecision),
   presenceEventId: v.id("attendancePresenceEvents"),
   outcome: v.union(
     v.literal("accepted"),
@@ -90,6 +92,7 @@ const receipt = v.object({
 });
 
 type Receipt = {
+  outing?: Infer<typeof outingScanDecision>;
   presenceEventId: Id<"attendancePresenceEvents">;
   outcome: Outcome;
   reasonCode: string;
@@ -120,6 +123,11 @@ const scanReceiptOperationResult = z
     previousState: z.string().optional(),
     nextState: z.string().optional(),
     participantMembershipId: z.string().min(1).nullable(),
+    outing: z.union([
+      z.object({ status: z.literal("waiting"), position: z.number(), returnBy: z.null() }).strict(),
+      z.object({ status: z.enum(["required", "expired", "unconfigured", "online_required"]), position: z.null(), returnBy: z.null() }).strict(),
+      z.object({ status: z.enum(["out", "overdue", "returned"]), position: z.null(), returnBy: z.number() }).strict(),
+    ]).optional(),
   })
   .strict();
 
@@ -134,6 +142,7 @@ function scanReceiptResultJson(result: Receipt) {
       : {}),
     ...(result.nextState !== undefined ? { nextState: result.nextState } : {}),
     participantMembershipId: result.participant?.membershipId ?? null,
+    ...(result.outing ? { outing: result.outing } : {}),
   });
 }
 
@@ -164,6 +173,7 @@ async function storedScanReceipt(
     : null;
   return {
     presenceEventId,
+    ...(stored.outing ? { outing: stored.outing } : {}),
     outcome: stored.outcome,
     reasonCode: stored.reasonCode,
     serverTime: stored.serverTime,
@@ -387,6 +397,7 @@ async function receiptForEvent(
   }
   return {
     presenceEventId: event._id,
+    ...(event.outing ? { outing: event.outing } : {}),
     outcome: event.outcome,
     reasonCode: event.reasonCode,
     serverTime: event.receivedAt,
@@ -756,6 +767,27 @@ export const recordScan = internalMutation({
       }
     }
 
+    let outing: Infer<typeof outingScanDecision> | null = null;
+    let outingRejected = false;
+    if (membership && decision?.outcome === "accepted" && !offlineReplayConflict) {
+      const checked = await applyOutingScan(ctx, {
+        eventId: event._id, membershipId: membership._id, transition,
+        isOfflineReplay: args.isOfflineReplay, now,
+        ...(attendanceSession ? { sessionId: attendanceSession._id } : {}),
+      });
+      outing = checked.outing;
+      if (!checked.allowed) {
+        decision = {
+          outcome: args.isOfflineReplay ? "needs_review" : "rejected",
+          reasonCode: `outing_${checked.outing.status}`,
+          previousState: decision.previousState,
+          nextState: decision.previousState,
+        };
+        // An unverified departure must leave every attendance projection intact.
+        outingRejected = true;
+      }
+    }
+
     const outcome: Outcome =
       decision?.outcome ??
       (rejectionReason === "offline_scan_needs_reconciliation"
@@ -769,6 +801,7 @@ export const recordScan = internalMutation({
         : undefined;
     const presenceEventId = await ctx.db.insert("attendancePresenceEvents", {
       eventId: event._id,
+      ...(outing ? { outing } : {}),
       sourceKind: "scanner",
       stationId: station._id,
       stationConfigurationVersion: station.configurationVersion,
@@ -801,6 +834,7 @@ export const recordScan = internalMutation({
 
     if (
       !offlineReplayConflict &&
+      !outingRejected &&
       membership &&
       decision &&
       (decision.outcome === "accepted" || decision.outcome === "needs_review")
@@ -930,20 +964,6 @@ export const recordScan = internalMutation({
           now,
         });
       }
-    }
-    if (
-      membership &&
-      decision?.outcome === "accepted" &&
-      !usesSession &&
-      transition === "venue_exit"
-    ) {
-      const queueEntry = await ctx.db
-        .query("participantServiceQueueEntries")
-        .withIndex("by_membership_kind", (q) =>
-          q.eq("membershipId", membership._id).eq("kind", "outing_permission"),
-        )
-        .unique();
-      if (queueEntry) await deleteParticipantServiceQueueEntry(ctx, queueEntry);
     }
     await ctx.db.patch(device._id, {
       lastSeenAt: now,

@@ -66,3 +66,37 @@ test("a definite permission error stays on the card and releases the pending com
   await expect(page.getByRole("status")).toHaveText("rejected; version 2; 2 transport calls");
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("outing capacity saves the configured maximum and preserves occupied permissions when reduced", async ({ page }, testInfo) => {
+  await page.goto("/src/dev/outingCapacity.html");
+  await page.getByRole("spinbutton", { name: "Maximum simultaneous outings" }).fill("10");
+  await page.getByRole("button", { name: "Save outing capacity" }).click();
+  await expect(page.getByRole("status")).toHaveText("15 of 10 slots occupied · 2 waiting");
+  await expect(page.getByText(/Existing permissions remain valid/)).toBeVisible();
+  const encoded = await page.getByLabel("Capacity commands").textContent();
+  if (encoded === null) throw new Error("Missing capacity commands");
+  const calls: unknown = JSON.parse(encoded);
+  expect(calls).toHaveLength(1);
+  expect(calls).toMatchObject([{ capacity: 10, expectedVersion: 1 }]);
+  await page.getByRole("button", { name: "Can go", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Can go", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: testInfo.outputPath("outing-capacity.png") });
+});
+
+test("a lost outing capacity response retries the same command and cannot save a second edit", async ({ page }) => {
+  await page.goto("/src/dev/outingCapacity.html?lost");
+  const input = page.getByRole("spinbutton", { name: "Maximum simultaneous outings" });
+  await input.fill("20");
+  await page.getByRole("button", { name: "Save outing capacity" }).click();
+  await expect(page.getByRole("alert")).toContainText("response was lost");
+  await expect(input).toBeDisabled();
+  await page.getByRole("button", { name: "Retry capacity change" }).click();
+  await expect(input).toBeEnabled();
+  const encoded = await page.getByLabel("Capacity commands").textContent();
+  if (encoded === null) throw new Error("Missing capacity commands");
+  const calls: unknown = JSON.parse(encoded);
+  expect(calls).toHaveLength(2);
+  if (!Array.isArray(calls)) throw new Error("Expected command array");
+  const commands: readonly unknown[] = calls;
+  expect(commands[0]).toEqual(commands[1]);
+});
