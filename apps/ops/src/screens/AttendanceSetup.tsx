@@ -36,18 +36,6 @@ type DraftSession = {
   awayAlertMinutes: string;
 };
 
-type StationMode = StationInput["mode"];
-type CredentialKind = StationInput["allowedCredentialKinds"][number];
-
-type DraftStation = {
-  stableKey: string;
-  name: string;
-  zoneKey: string;
-  mode: StationMode | "";
-  sessionKey: string;
-  allowedCredentialKinds: CredentialKind[];
-};
-
 type DraftZone = {
   stableKey: string;
   name: string;
@@ -72,7 +60,6 @@ type AttendanceEditorState = {
   offlineQueueMaxScans: string;
   offlineQueueMaxAgeSeconds: string;
   sessions: DraftSession[];
-  stations: DraftStation[];
   publishArmed: boolean;
 };
 
@@ -89,21 +76,6 @@ const requirements: readonly { value: SessionInput["requirement"]; label: string
   { value: "required", label: "Required" },
   { value: "optional", label: "Optional" },
   { value: "information_only", label: "Information only" },
-];
-
-const stationModes: readonly { value: StationMode; label: string }[] = [
-  { value: "venue_entry", label: "Venue entry" },
-  { value: "venue_exit", label: "Venue exit" },
-  { value: "session_confirm", label: "Session attendance" },
-  { value: "zone_entry", label: "Session area entry" },
-  { value: "zone_exit", label: "Session area exit" },
-  { value: "roving", label: "Roving scanner" },
-];
-
-const credentialKinds: readonly { value: CredentialKind; label: string }[] = [
-  { value: "vit_id_barcode", label: "VIT ID barcode" },
-  { value: "badge_qr", label: "Event badge QR" },
-  { value: "external_pass", label: "External event pass" },
 ];
 
 const barcodeSymbologyLabels: Record<BarcodeSymbology, string> = {
@@ -134,7 +106,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
     offlineQueueMaxScans: "8",
     offlineQueueMaxAgeSeconds: "180",
     sessions: [newSession("main_hack_hall")],
-    stations: [newStation("main_hack_hall", "Main hall entrance")],
     publishArmed: false,
   }));
   const source = configuration?.editorSource;
@@ -156,7 +127,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
     offlineQueueMaxScans,
     offlineQueueMaxAgeSeconds,
     sessions,
-    stations,
     publishArmed,
   } = editorState.value;
   const replaceEditorField = <Key extends keyof AttendanceEditorState>(
@@ -182,9 +152,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
   };
   const setSessions = (next: (current: DraftSession[]) => DraftSession[]) => {
     editorState.update((current) => ({ ...current, sessions: next(current.sessions) }));
-  };
-  const setStations = (next: (current: DraftStation[]) => DraftStation[]) => {
-    editorState.update((current) => ({ ...current, stations: next(current.stations) }));
   };
   const [draftReason, setDraftReason] = useState("Prepared for event-day attendance rehearsal");
   const [publishReason, setPublishReason] = useState("Published after attendance rehearsal");
@@ -215,11 +182,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
     return <p className="muted">Loading attendance setup…</p>;
   }
   if (!timezone) return <p className="notice error">The event timezone is not configured.</p>;
-  const stationConfigurationRequired =
-    configuration.editorSource?.stations.some(
-      (station) => station.mode === undefined || station.allowedCredentialKinds === undefined,
-    ) ?? false;
-
   const updateSession = (id: string, patch: Partial<DraftSession>) => {
     setSessions((current) =>
       current.map((session) => (session.id === id ? { ...session, ...patch } : session)),
@@ -234,13 +196,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
     setSessions((current) =>
       current.map((session) =>
         session.zoneKey === stableKey ? { ...session, zoneKey: replacement.stableKey } : session,
-      ),
-    );
-    setStations((current) =>
-      current.map((station) =>
-        station.zoneKey === stableKey
-          ? { ...station, zoneKey: replacement.stableKey, sessionKey: "" }
-          : station,
       ),
     );
   };
@@ -300,44 +255,15 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
             ...(awayAlertAfterMinutes !== undefined ? { awayAlertAfterMinutes } : {}),
           };
         });
-        const sessionByKey = new Map(sessionInputs.map((session) => [session.stableKey, session]));
-        const stationInputs: StationInput[] = stations.map((station, index) => {
-          if (!zoneKeys.has(station.zoneKey)) {
-            throw new Error(
-              `${station.name || `Station ${index + 1}`} needs an available event area.`,
-            );
-          }
-          if (station.allowedCredentialKinds.length === 0) {
-            throw new Error(
-              `${station.name || `Station ${index + 1}`} needs at least one credential method.`,
-            );
-          }
-          const mode = station.mode;
-          if (!mode) {
-            throw new Error(
-              `${station.name || `Station ${index + 1}`} needs an explicit scanner action.`,
-            );
-          }
-          const needsSession =
-            mode === "session_confirm" || mode === "zone_entry" || mode === "zone_exit";
-          const session = station.sessionKey ? sessionByKey.get(station.sessionKey) : undefined;
-          if (needsSession && !session) {
-            throw new Error(`${station.name || `Station ${index + 1}`} needs a session.`);
-          }
-          if (session && session.zoneKey !== station.zoneKey) {
-            throw new Error(
-              `${station.name || `Station ${index + 1}`} must use a session in its event area.`,
-            );
-          }
-          return {
-            stableKey: station.stableKey,
-            name: station.name,
-            zoneKey: station.zoneKey,
-            mode,
-            ...(session ? { sessionKey: session.stableKey } : {}),
-            allowedCredentialKinds: station.allowedCredentialKinds,
-          };
-        });
+        const defaultZone = zoneInputs[0];
+        if (!defaultZone) throw new Error("Add an event area before saving attendance.");
+        const stationInputs: StationInput[] = [{
+          stableKey: "automatic_scanner",
+          name: "Attendance scanner",
+          zoneKey: defaultZone.stableKey,
+          mode: "roving",
+          allowedCredentialKinds: ["vit_id_barcode", "external_pass", "badge_qr"],
+        }];
         const pendingScanLimit = requiredPositiveInteger(
           offlineQueueMaxScans,
           "Offline queue size",
@@ -423,8 +349,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
         <div>
           <h1>Check-in plan</h1>
           <p className="muted">
-            Times are entered in {timezone}. Assign each scanner phone to the hacking sessions it
-            will cover.
+            Times are entered in {timezone}. Authorized phones use this plan automatically.
           </p>
         </div>
       </header>
@@ -433,13 +358,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
 
       {configuration.publishedPlan ? (
         <p className="notice">Current plan: {configuration.publishedPlan.name}</p>
-      ) : null}
-
-      {stationConfigurationRequired ? (
-        <p className="notice error" role="alert">
-          This plan is from before scanner actions existed. Choose an action and credential methods
-          for every station, save a replacement draft, and publish it before assigning phones.
-        </p>
       ) : null}
 
       {pendingOperation ? (
@@ -457,8 +375,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
             <p className="eyebrow">Current draft</p>
             <h2>{configuration.draftPlan.name}</h2>
             <p className="muted">
-              {configuration.draftPlan.sessionCount} sessions ·{" "}
-              {configuration.draftPlan.stationCount} phone stations
+              {configuration.draftPlan.sessionCount} sessions · Scanner ready
             </p>
           </div>
           {configuration.canPublish && !publishArmed ? (
@@ -473,8 +390,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
         <section className="publish-confirmation">
           <h2>Publish this plan?</h2>
           <p className="muted">
-            Publishing makes these sessions and scanner stations the live plan. If a plan is already
-            live, its phones are unassigned and must be set up again. A preparing or open session
+            Publishing makes these sessions the live attendance plan. A preparing or open session
             must finish first.
           </p>
           <label className="field">
@@ -513,7 +429,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
       {!operationPending && configuration.canConfigure ? (
         <ConfigurationEditorDisclosure
           defaultOpen={Boolean(configuration.draftPlan)}
-          description="Hacking sessions, scanner phones, accepted IDs, and what happens offline."
+          description="Hacking sessions, accepted IDs, and offline behavior."
           title={configuration.draftPlan ? "Continue check-in-plan draft" : "Edit check-in plan"}
         >
           <form className="setup-form" onSubmit={saveDraft}>
@@ -637,185 +553,6 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
                       </div>
                     </article>
                   ))}
-                </div>
-              </section>
-
-              <section className="setup-section">
-                <div className="section-heading">
-                  <div>
-                    <h2>Scanner stations</h2>
-                    <p className="muted">
-                      Give each phone one explicit transition and only the credential methods tested
-                      at that station. {stations.length} of {configuration.limits.maximumStations}{" "}
-                      stations.
-                    </p>
-                  </div>
-                  <button
-                    className="secondary"
-                    type="button"
-                    disabled={stations.length >= configuration.limits.maximumStations}
-                    onClick={() =>
-                      setStations((current) => [
-                        ...current,
-                        newStation(
-                          zones[0]?.stableKey ?? "main_hack_hall",
-                          `Scanner ${current.length + 1}`,
-                        ),
-                      ])
-                    }
-                  >
-                    Add station
-                  </button>
-                </div>
-                <div className="session-editor-list">
-                  {stations.map((station, index) => {
-                    const matchingSessions = sessions.filter(
-                      (session) => session.zoneKey === station.zoneKey,
-                    );
-                    const needsSession =
-                      station.mode === "session_confirm" ||
-                      station.mode === "zone_entry" ||
-                      station.mode === "zone_exit";
-                    const offersSession = needsSession || station.mode === "roving";
-                    return (
-                      <article className="session-editor" key={station.stableKey}>
-                        <div className="session-editor-heading">
-                          <span>Station {index + 1}</span>
-                          {stations.length > 1 ? (
-                            <button
-                              className="text-button"
-                              type="button"
-                              onClick={() =>
-                                setStations((current) =>
-                                  current.filter(
-                                    (candidate) => candidate.stableKey !== station.stableKey,
-                                  ),
-                                )
-                              }
-                            >
-                              Remove
-                            </button>
-                          ) : null}
-                        </div>
-                        <div className="form-grid session-fields">
-                          <Field label="Name">
-                            <input
-                              required
-                              maxLength={80}
-                              value={station.name}
-                              onChange={(event) =>
-                                updateStation(
-                                  station.stableKey,
-                                  { name: event.target.value },
-                                  setStations,
-                                )
-                              }
-                            />
-                          </Field>
-                          <Field label="Event area">
-                            <select
-                              value={station.zoneKey}
-                              onChange={(event) =>
-                                updateStation(
-                                  station.stableKey,
-                                  { zoneKey: event.target.value, sessionKey: "" },
-                                  setStations,
-                                )
-                              }
-                            >
-                              {zones.map((zone) => (
-                                <option key={zone.stableKey} value={zone.stableKey}>
-                                  {zone.name}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                          <Field label="Scanner action">
-                            <select
-                              required
-                              value={station.mode}
-                              onChange={(event) => {
-                                const mode = stationMode(event.target.value);
-                                const sessionScoped =
-                                  mode === "session_confirm" ||
-                                  mode === "zone_entry" ||
-                                  mode === "zone_exit" ||
-                                  mode === "roving";
-                                updateStation(
-                                  station.stableKey,
-                                  { mode, sessionKey: sessionScoped ? station.sessionKey : "" },
-                                  setStations,
-                                );
-                              }}
-                            >
-                              <option value="">Choose scanner action</option>
-                              {stationModes.map((mode) => (
-                                <option key={mode.value} value={mode.value}>
-                                  {mode.label}
-                                </option>
-                              ))}
-                            </select>
-                          </Field>
-                          {offersSession ? (
-                            <Field
-                              label="Session"
-                              {...(needsSession
-                                ? {}
-                                : { hint: "Optional when moving between sessions or areas" })}
-                            >
-                              <select
-                                required={needsSession}
-                                value={station.sessionKey}
-                                onChange={(event) =>
-                                  updateStation(
-                                    station.stableKey,
-                                    { sessionKey: event.target.value },
-                                    setStations,
-                                  )
-                                }
-                              >
-                                <option value="">Choose session</option>
-                                {matchingSessions.map((session) => (
-                                  <option key={session.stableKey} value={session.stableKey}>
-                                    {session.name || "Unnamed session"}
-                                  </option>
-                                ))}
-                              </select>
-                            </Field>
-                          ) : null}
-                        </div>
-                        <fieldset className="choice-set">
-                          <legend>Accepted IDs</legend>
-                          <div className="choice-list">
-                            {credentialKinds.map((credential) => (
-                              <label key={credential.value}>
-                                <input
-                                  type="checkbox"
-                                  checked={station.allowedCredentialKinds.includes(
-                                    credential.value,
-                                  )}
-                                  onChange={(event) =>
-                                    updateStation(
-                                      station.stableKey,
-                                      {
-                                        allowedCredentialKinds: event.target.checked
-                                          ? [...station.allowedCredentialKinds, credential.value]
-                                          : station.allowedCredentialKinds.filter(
-                                              (value) => value !== credential.value,
-                                            ),
-                                      },
-                                      setStations,
-                                    )
-                                  }
-                                />
-                                {credential.label}
-                              </label>
-                            ))}
-                          </div>
-                        </fieldset>
-                      </article>
-                    );
-                  })}
                 </div>
               </section>
 
@@ -997,7 +734,7 @@ export function AttendanceSetup({ tabs }: { tabs: ConfigurationTabsVisibility })
               <button
                 className="primary"
                 type="submit"
-                disabled={busy || sessions.length === 0 || stations.length === 0}
+                disabled={busy || sessions.length === 0 || zones.length === 0}
               >
                 {busy
                   ? "Saving…"
@@ -1051,17 +788,6 @@ function newZone(
   };
 }
 
-function newStation(zoneKey: string, name: string): DraftStation {
-  return {
-    stableKey: `station_${crypto.randomUUID().replaceAll("-", "_")}`,
-    name,
-    zoneKey,
-    mode: "",
-    sessionKey: "",
-    allowedCredentialKinds: [],
-  };
-}
-
 function attendanceEditorFromSource(
   source: AttendanceEditorSource,
   timezone: string,
@@ -1091,32 +817,8 @@ function attendanceEditorFromSource(
       awayAlertMinutes:
         session.awayAlertAfterMinutes === undefined ? "" : `${session.awayAlertAfterMinutes}`,
     })),
-    stations: source.stations.map((station) => ({
-      stableKey: station.stableKey,
-      name: station.name,
-      zoneKey: station.zoneKey,
-      mode: station.mode ?? "",
-      sessionKey: station.sessionKey ?? "",
-      allowedCredentialKinds: [...(station.allowedCredentialKinds ?? [])],
-    })),
     publishArmed: false,
   };
-}
-
-function updateStation(
-  stableKey: string,
-  patch: Partial<DraftStation>,
-  setStations: (update: (current: DraftStation[]) => DraftStation[]) => void,
-) {
-  setStations((current) =>
-    current.map((station) =>
-      station.stableKey === stableKey ? { ...station, ...patch } : station,
-    ),
-  );
-}
-
-function stationMode(value: string): StationMode | "" {
-  return stationModes.find((mode) => mode.value === value)?.value ?? "";
 }
 
 function newSession(zoneKey: string): DraftSession {

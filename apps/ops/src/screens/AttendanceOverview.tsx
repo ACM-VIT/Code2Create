@@ -13,7 +13,6 @@ import { useEstimatedServerNow } from "../lib/useEstimatedServerNow";
 
 type AttendanceOverviewData = FunctionReturnType<typeof api.attendanceOperations.overview>;
 type AttendanceSessionData = AttendanceOverviewData["sessions"][number];
-type AttendanceStationData = AttendanceOverviewData["stations"][number];
 type AttendancePlanData = NonNullable<AttendanceOverviewData["publishedPlan"]>;
 type AttendanceJobData = NonNullable<AttendanceSessionData["job"]>;
 type SessionAction = {
@@ -25,10 +24,6 @@ type PendingSessionIntent = {
   sessionId: AttendanceSessionData["id"];
   command: SessionCommand;
 };
-type StationAction = {
-  stationId: AttendanceStationData["id"];
-  command: "disable" | "enable";
-};
 
 export function AttendanceOverview() {
   const overview = useQuery(api.attendanceOperations.overview, { eventSlug });
@@ -38,8 +33,6 @@ export function AttendanceOverview() {
   const extend = useMutation(api.attendanceSessions.extend);
   const close = useMutation(api.attendanceSessions.close);
   const cancel = useMutation(api.attendanceSessions.cancel);
-  const disableStation = useMutation(api.attendanceSecurity.disableStation);
-  const enableStation = useMutation(api.attendanceSecurity.enableStation);
   const operations = useOperationRunner();
   const [busySessionId, setBusySessionId] = useState<string | null>(null);
   const [sessionAction, setSessionAction] = useState<SessionAction | null>(null);
@@ -48,29 +41,16 @@ export function AttendanceOverview() {
   );
   const [sessionReason, setSessionReason] = useState("");
   const [extensionMinutes, setExtensionMinutes] = useState("30");
-  const [stationAction, setStationAction] = useState<StationAction | null>(null);
-  const [pendingStationIntent, setPendingStationIntent] = useState<StationAction | null>(null);
-  const [stationReason, setStationReason] = useState("");
-  const [busyStationId, setBusyStationId] = useState<AttendanceStationData["id"] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (overview === undefined) return <p className="muted">Loading attendance…</p>;
 
-  const activeStationCount = overview.stations.filter(
-    (station) => station.status === "active",
-  ).length;
-  const waitingStationCount = overview.stations.length - activeStationCount;
   const pendingSessionSlot = pendingSessionIntent
     ? sessionOperationSlot(pendingSessionIntent)
     : null;
   const sessionCommandPending =
     pendingSessionSlot !== null && operations.hasPending(pendingSessionSlot);
-  const pendingStationSlot = pendingStationIntent
-    ? stationOperationSlot(pendingStationIntent)
-    : null;
-  const stationCommandPending =
-    pendingStationSlot !== null && operations.hasPending(pendingStationSlot);
-  const operationPending = sessionCommandPending || stationCommandPending;
+  const operationPending = sessionCommandPending;
   const sessionsNeedingPreparation = overview.sessions.filter(
     (session) => session.status === "scheduled" && session.expectationBuildState === "not_started",
   ).length;
@@ -178,63 +158,6 @@ export function AttendanceOverview() {
     setExtensionMinutes("30");
   };
 
-  const beginStationAction = (
-    station: AttendanceStationData,
-    command: StationAction["command"],
-  ) => {
-    setStationAction({ stationId: station.id, command });
-    setStationReason(
-      command === "enable" ? "Scanner station checked and ready for reassignment" : "",
-    );
-  };
-
-  const runStationAction = async (station: AttendanceStationData) => {
-    if (!stationAction || stationAction.stationId !== station.id) return;
-    await runStationCommand(station, stationAction);
-  };
-
-  const runStationCommand = async (
-    station: AttendanceStationData | undefined,
-    requestedIntent: StationAction,
-  ) => {
-    const intent = pendingStationIntent ?? requestedIntent;
-    const slot = stationOperationSlot(intent);
-    if (!station && !operations.hasPending(slot)) {
-      setPendingStationIntent(null);
-      setError("The original scanner station is no longer available to retry.");
-      return;
-    }
-    setPendingStationIntent(intent);
-    setBusyStationId(intent.stationId);
-    setError(null);
-    try {
-      await operations.run(slot, (clientOperationId) => async () => {
-        if (!station || station.id !== intent.stationId) {
-          throw new Error(
-            "This scanner station is no longer available. Reload the page before trying again.",
-          );
-        }
-        const input = {
-          eventSlug,
-          stationId: station.id,
-          expectedConfigurationVersion: station.configurationVersion,
-          reason: stationReason,
-          clientOperationId,
-        };
-        if (intent.command === "disable") await disableStation(input);
-        else await enableStation(input);
-      });
-      setPendingStationIntent(null);
-      setStationAction(null);
-      setStationReason("");
-    } catch (caught) {
-      if (!operations.hasPending(slot)) setPendingStationIntent(null);
-      setError(readableError(caught));
-    } finally {
-      setBusyStationId(null);
-    }
-  };
-
   return (
     <section className="attendance-shell">
       <header className="page-heading">
@@ -321,122 +244,6 @@ export function AttendanceOverview() {
             </small>
           ) : null}
         </section>
-      ) : null}
-
-      {overview.stations.length > 0 ? (
-        <details className="scanner-stations" open={activeStationCount > 0 || undefined}>
-          <summary>
-            <strong>Scanner phones</strong>
-            <span>
-              <LiveNumber value={activeStationCount} /> ready · <LiveNumber value={waitingStationCount} /> need a phone
-            </span>
-          </summary>
-          <p className="muted">
-            {waitingStationCount > 0
-              ? "On each event phone, open Scanner and choose one of the waiting stations."
-              : "See each assigned phone, its last check-in, and any unsent scans."}
-          </p>
-          <ul className="station-list">
-            {overview.stations.map((station) => {
-              const action = stationAction?.stationId === station.id ? stationAction : null;
-              const busy = busyStationId === station.id;
-              return (
-                <li key={station.id}>
-                  <div className="station-heading">
-                    <span>{station.name}</span>
-                    <small>{stationStatusName(station.status)}</small>
-                  </div>
-                  <small>{station.zoneName}</small>
-                  <small>{stationDeviceSummary(station)}</small>
-                  {station.canManage && !action && station.status === "active" ? (
-                    <button
-                      className="text-button"
-                      type="button"
-                      disabled={stationAction !== null || pendingStationIntent !== null}
-                      onClick={() => beginStationAction(station, "disable")}
-                    >
-                      Disable scanner
-                    </button>
-                  ) : null}
-                  {station.canManage && !action && station.status === "disabled" ? (
-                    <button
-                      className="text-button"
-                      type="button"
-                      disabled={stationAction !== null || pendingStationIntent !== null}
-                      onClick={() => beginStationAction(station, "enable")}
-                    >
-                      Make available
-                    </button>
-                  ) : null}
-                  {action ? (
-                    <div className="station-command">
-                      <label className="field">
-                        <span>Reason</span>
-                        <textarea
-                          disabled={stationCommandPending}
-                          value={stationReason}
-                          onChange={(event) => setStationReason(event.target.value)}
-                        />
-                      </label>
-                      <p className="muted">
-                        {action.command === "disable"
-                          ? "This immediately disconnects the assigned phone."
-                          : "A checked phone can be assigned after this station becomes available."}
-                      </p>
-                      <div className="button-row">
-                        <button
-                          className="primary"
-                          type="button"
-                          disabled={
-                            busy || (!stationCommandPending && stationReason.trim().length < 5)
-                          }
-                          onClick={() => void runStationAction(station)}
-                        >
-                          {busy
-                            ? "Saving…"
-                            : stationCommandPending
-                              ? `Retry ${action.command === "disable" ? "disable" : "make available"}`
-                              : action.command === "disable"
-                                ? "Confirm disable"
-                                : "Confirm available"}
-                        </button>
-                        <button
-                          className="secondary"
-                          type="button"
-                          disabled={busy || stationCommandPending}
-                          onClick={() => {
-                            setStationAction(null);
-                            setStationReason("");
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </details>
-      ) : null}
-
-      {pendingStationIntent &&
-      !overview.stations.some((station) => station.id === pendingStationIntent.stationId) ? (
-        <div className="notice" role="status">
-          <p>
-            We could not confirm whether the scanner change was saved. The station is no longer in
-            this list.
-          </p>
-          <button
-            className="secondary"
-            type="button"
-            disabled={busyStationId !== null}
-            onClick={() => void runStationCommand(undefined, pendingStationIntent)}
-          >
-            {busyStationId !== null ? "Checking…" : "Confirm scanner change"}
-          </button>
-        </div>
       ) : null}
 
       {overview.publishedPlan ? (
@@ -731,12 +538,6 @@ const jobKindLabels: Record<AttendanceJobData["kind"], string> = {
   cancel_results: "Cancelling session",
 };
 
-const stationStatusLabels: Record<AttendanceStationData["status"], string> = {
-  inactive: "Waiting for phone",
-  active: "Active",
-  disabled: "Disabled",
-};
-
 const symbologyLabels: Record<AttendancePlanData["barcodeSymbologies"][number], string> = {
   aztec: "Aztec",
   ean13: "EAN-13",
@@ -788,10 +589,6 @@ function sessionOperationSlot(intent: PendingSessionIntent) {
   return `attendance-session-${intent.command}:${intent.sessionId}`;
 }
 
-function stationOperationSlot(intent: StationAction) {
-  return `attendance-station-${intent.command}:${intent.stationId}`;
-}
-
 function sessionCommandName(command: SessionCommand) {
   if (command === "prepare") return "prepare session";
   if (command === "open") return "open check-in";
@@ -812,25 +609,4 @@ function jobMessage(job: AttendanceJobData) {
     return `${jobKindLabels[job.kind]} stopped. This session needs attention before it can continue.`;
   }
   return `${jobKindLabels[job.kind]} · ${job.scannedCount} checked`;
-}
-
-function stationStatusName(value: AttendanceStationData["status"]) {
-  return stationStatusLabels[value];
-}
-
-function stationDeviceSummary(station: AttendanceStationData) {
-  if (!station.device) {
-    return station.status === "disabled"
-      ? "No phone assigned"
-      : "Waiting for a phone to be assigned";
-  }
-  const platform = station.device.platform === "ios" ? "iPhone" : "Android";
-  const lastSeen = station.device.lastSeenAt
-    ? `last seen ${new Date(station.device.lastSeenAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
-    : "waiting for first heartbeat";
-  const pending =
-    station.device.pendingReplayCount > 0
-      ? ` · ${station.device.pendingReplayCount} pending${station.device.oldestPendingCapturedAt ? ` since ${new Date(station.device.oldestPendingCapturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}`
-      : "";
-  return `${station.device.name} · ${platform} · ${lastSeen}${pending}`;
 }

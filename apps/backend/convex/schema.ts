@@ -2402,6 +2402,8 @@ export default defineSchema({
 
   attendanceDeviceInstallations: defineTable({
     eventId: v.id("events"),
+    /** Scanner policy selected automatically from the published attendance plan. */
+    stationId: v.optional(v.id("attendanceStations")),
     installationId: v.string(),
     secretHash: v.string(),
     name: v.string(),

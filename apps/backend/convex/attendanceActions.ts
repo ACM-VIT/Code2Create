@@ -664,8 +664,6 @@ async function externalBadgeIdentity(eventKey: Uint8Array, bearer: string) {
 export const registerDevice = action({
   args: {
     eventSlug: v.string(),
-    stationId: v.id("attendanceStations"),
-    expectedConfigurationVersion: v.number(),
     installationId: v.string(),
     deviceSecret: v.string(),
     name: v.string(),
@@ -680,8 +678,6 @@ export const registerDevice = action({
   handler: async (ctx, args): Promise<RegisterDeviceResult> =>
     ctx.runMutation(internal.attendanceSecurity.registerDevice, {
       eventSlug: args.eventSlug,
-      stationId: args.stationId,
-      expectedConfigurationVersion: args.expectedConfigurationVersion,
       installationId: args.installationId,
       deviceSecretHash: await deviceSecretHash(args.deviceSecret),
       name: args.name,
