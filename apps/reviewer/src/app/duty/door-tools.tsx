@@ -7,10 +7,7 @@ import { palette } from "@/theme";
 // ScrollView has no measurable height inside this form sheet.
 export default function DoorToolsRoute() {
   const router = useRouter();
-  const { station, zone, session, pending, sent } = useLocalSearchParams<{
-    station?: string;
-    zone?: string;
-    session?: string;
+  const { pending, sent } = useLocalSearchParams<{
     pending?: string;
     sent?: string;
   }>();
@@ -19,11 +16,7 @@ export default function DoorToolsRoute() {
   return (
     <View style={styles.root}>
       <View style={styles.body}>
-        <Text style={styles.title}>This door</Text>
-        <Row
-          {...(zone === undefined ? {} : { detail: session ? `${zone} · ${session}` : zone })}
-          label={station ?? "Station"}
-        />
+        <Text style={styles.title}>Scanner activity</Text>
         <Row
           detail={
             pendingCount === 0 ? "All scans have synced" : `${pendingCount} still on this phone`

@@ -185,7 +185,7 @@ export const permissionCatalog = {
   "attendance.session.manage": { scopes: ["attendance_session"], eventWide: true },
   "attendance.station.manage": { scopes: ["station"], eventWide: true },
   "attendance.station.read": { scopes: ["station"], eventWide: false },
-  "attendance.scan.execute": { scopes: ["station"], eventWide: false },
+  "attendance.scan.execute": { scopes: ["station"], eventWide: true },
   "attendance.self.read": { scopes: ["self"], eventWide: false },
   "attendance.remedy.self.read": { scopes: ["self"], eventWide: false },
   "attendance.remedy.self.open": { scopes: ["self"], eventWide: false },

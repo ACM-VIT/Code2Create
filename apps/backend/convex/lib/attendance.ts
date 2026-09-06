@@ -111,7 +111,10 @@ export async function requireAssignedDevice(
     });
   }
   const station = await ctx.db.get(args.stationId);
-  if (!station || station.deviceInstallationId !== device._id || station.status !== "active") {
+  if (
+    !station ||
+    (device.stationId !== station._id && station.deviceInstallationId !== device._id)
+  ) {
     throw new ConvexError({
       code: "DEVICE_NOT_ASSIGNED",
       message: "This device is not assigned to the active station.",

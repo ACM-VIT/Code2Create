@@ -52,7 +52,7 @@ export function useDoorStatus(eventSlug: string, enabled: boolean): DutyStatus {
   );
   if (!enabled) return { status: "", active: false };
   if (current === undefined) return { status: "—", active: false };
-  if (current === null) return { status: "Pick a station", active: false };
+  if (current === null) return { status: "Ready to scan", active: false };
   const sent = current.device.lastSequence;
   const pending = current.device.pendingReplayCount;
   if (pending > 0) {
@@ -64,7 +64,7 @@ export function useDoorStatus(eventSlug: string, enabled: boolean): DutyStatus {
   }
   // Omit progress when no scans are pending; a full bar implies active work.
   return {
-    status: current.station.name,
+    status: "Scanner ready",
     active: true,
     headline: { value: String(sent), unit: sent === 1 ? "scan sent" : "scans sent" },
   };

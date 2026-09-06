@@ -70,21 +70,22 @@ async function authoriseScannerDevice(
     )
     .unique();
   if (!device || device.eventId !== event._id || device.status !== "active") return null;
-  const station = await ctx.db
-    .query("attendanceStations")
-    .withIndex("by_device_status", (index) =>
-      index.eq("deviceInstallationId", device._id).eq("status", "active"),
-    )
-    .unique();
+  const station = device.stationId
+    ? await ctx.db.get(device.stationId)
+    : await ctx.db
+        .query("attendanceStations")
+        .withIndex("by_device_status", (index) =>
+          index.eq("deviceInstallationId", device._id).eq("status", "active"),
+        )
+        .unique();
   if (!station || station.eventId !== event._id || !isConfiguredAttendanceStation(station)) {
     return null;
   }
   const grantIds = await matchingPermissionGrantIds(ctx, {
     eventId: event._id,
     eventAccessSubjectId: subject._id,
-    permissionKey: "attendance.station.read",
-    scopeType: "station",
-    scopeId: station._id,
+    permissionKey: "attendance.scan.execute",
+    scopeType: "event",
   });
   if (grantIds.length === 0) return null;
   return { event, device, station };
@@ -127,58 +128,6 @@ async function scannerReceipt(ctx: QueryCtx, presenceEvent: Doc<"attendancePrese
       : {}),
   };
 }
-
-export const availableStations = query({
-  args: { eventSlug: v.string() },
-  returns: v.array(stationSummary),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const planId = event.publishedAttendancePlanVersionId;
-    if (!planId) return [];
-    const plan = await ctx.db.get(planId);
-    if (!plan || plan.eventId !== event._id || plan.status !== "published") return [];
-    const stations = await ctx.db
-      .query("attendanceStations")
-      .withIndex("by_event_status", (index) =>
-        index.eq("eventId", event._id).eq("status", "inactive"),
-      )
-      .collect();
-    const visible = [];
-    for (const station of stations) {
-      if (
-        station.planVersionId !== plan._id ||
-        station.deviceInstallationId !== undefined ||
-        !isConfiguredAttendanceStation(station)
-      ) {
-        continue;
-      }
-      const grantIds = await matchingPermissionGrantIds(ctx, {
-        eventId: event._id,
-        eventAccessSubjectId: subject._id,
-        permissionKey: "attendance.station.manage",
-        scopeType: "station",
-        scopeId: station._id,
-      });
-      if (grantIds.length === 0) continue;
-      const zone = await ctx.db.get(station.zoneId);
-      if (!zone || zone.eventId !== event._id) continue;
-      visible.push({
-        id: station._id,
-        stableKey: station.stableKey,
-        name: station.name,
-        configurationVersion: station.configurationVersion,
-        barcodeSymbologies: plan.vitBarcodeSymbologies,
-        mode: station.mode,
-        allowedCredentialKinds: station.allowedCredentialKinds,
-        ...(station.sessionId !== undefined ? { sessionId: station.sessionId } : {}),
-        zoneName: zone.name,
-      });
-    }
-    return visible;
-  },
-});
 
 export const current = query({
   args: {

@@ -33,6 +33,30 @@ afterAll(() => {
 });
 
 describe("attendance scan direction", () => {
+  test("a scanner uses its automatic event policy without occupying a station", async () => {
+    const backend = seededBackend();
+    const fixture = await seedScannerFixture(backend);
+    await backend.run(async (ctx) => {
+      await ctx.db.patch(fixture.deviceInstallationId, { stationId: fixture.stationId });
+      await ctx.db.patch(fixture.stationId, {
+        deviceInstallationId: undefined,
+        status: "inactive",
+      });
+    });
+
+    const receipt = await asOperator(backend, fixture).mutation(
+      internal.attendanceScan.recordScan,
+      {
+        ...scanArguments(fixture),
+        rovingTransition: "venue_entry",
+        clientOperationId: "automatic-scanner-policy",
+        deviceSequence: 1,
+      },
+    );
+
+    expect(receipt).toMatchObject({ outcome: "accepted", nextState: "inside" });
+  });
+
   test("a session outing is released only by a return scan into its owning session", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
@@ -762,7 +786,7 @@ describe("attendance scan direction", () => {
     expect(saved).toHaveLength(2);
   });
 
-  test("keeps scan duty visible while revoked station read hides the phone assignment", async () => {
+  test("revoking event scan access immediately disables the scanner", async () => {
     const backend = seededBackend();
     const fixture = await seedScannerFixture(backend);
     const operator = asOperator(backend, fixture);
@@ -781,22 +805,22 @@ describe("attendance scan direction", () => {
         .withIndex("by_event_permission_status", (index) =>
           index
             .eq("eventId", fixture.eventId)
-            .eq("permissionKey", "attendance.station.read")
+            .eq("permissionKey", "attendance.scan.execute")
             .eq("status", "active"),
         )
         .unique();
-      if (!grant) throw new Error("The station-read fixture grant is missing.");
+      if (!grant) throw new Error("The scan fixture grant is missing.");
       await ctx.db.patch(grant._id, {
         status: "revoked",
         revokedAt: Date.now(),
         revokedByPersonId: fixture.operatorPersonId,
-        revokeReason: "Scanner projection boundary test",
+        revokeReason: "Scanner access revoked",
       });
     });
 
     await expect(
       operator.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
-    ).resolves.toMatchObject({ attendance: true });
+    ).resolves.toMatchObject({ attendance: false });
     await expect(
       operator.query(api.attendanceScanner.current, {
         eventSlug: fixture.eventSlug,
@@ -1026,20 +1050,29 @@ async function seedScannerFixture(backend: BackendTest, withPermission = true) {
       deviceInstallationId,
       operatorPersonId: operator.personId,
     });
-    for (const permissionKey of ["attendance.scan.execute", "attendance.station.read"] as const) {
-      await insertPermissionGrant(ctx, {
-        eventId,
-        personId: operator.personId,
-        eventAccessSubjectId: operator.subjectId,
-        permissionKey,
-        scopeType: "station",
-        scopeId: stationId,
-        sourceType: "station_assignment",
-        sourceId,
-        grantedByPersonId: operator.personId,
-        reason: "Attendance scan fixture",
-      });
-    }
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId: operator.personId,
+      eventAccessSubjectId: operator.subjectId,
+      permissionKey: "attendance.scan.execute",
+      scopeType: "event",
+      sourceType: "manual",
+      sourceId: "attendance-scan-fixture",
+      grantedByPersonId: operator.personId,
+      reason: "Attendance scan fixture",
+    });
+    await insertPermissionGrant(ctx, {
+      eventId,
+      personId: operator.personId,
+      eventAccessSubjectId: operator.subjectId,
+      permissionKey: "attendance.station.read",
+      scopeType: "station",
+      scopeId: stationId,
+      sourceType: "station_assignment",
+      sourceId,
+      grantedByPersonId: operator.personId,
+      reason: "Attendance scan fixture",
+    });
     const membershipId = await ctx.db.insert("eventMemberships", {
       eventId,
       personId: participant.personId,

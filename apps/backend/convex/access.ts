@@ -390,7 +390,7 @@ async function resolveReviewerCapabilities(
       "panel.read",
       "review.read",
     ]),
-    anyOf(["attendance.station.manage", "attendance.station.read", "attendance.scan.execute"]),
+    any("attendance.scan.execute"),
     selfOrEvent("support.case.read"),
     any("operations.health.read"),
     any("incident.read"),

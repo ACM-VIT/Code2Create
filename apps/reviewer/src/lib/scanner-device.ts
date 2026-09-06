@@ -10,7 +10,6 @@ const scannerDeviceSchema = z
     installationId: z.uuid(),
     deviceSecret: z.string().regex(/^[a-f0-9]{64}$/u),
     registrationOperationId: z.uuid(),
-    stationStableKey: z.string().min(1).max(100),
     deviceName: z.string().min(2).max(80),
     platform: z.enum(["android", "ios"]),
     lastIssuedSequence: z.number().int().nonnegative(),
@@ -52,7 +51,6 @@ function invalidScannerSetupError() {
 
 export async function createScannerDevice(args: {
   eventSlug: string;
-  stationStableKey: string;
   platform: ScannerPlatform;
 }) {
   const installationId = randomUUID();
@@ -61,7 +59,6 @@ export async function createScannerDevice(args: {
     installationId,
     deviceSecret: bytesToHex(await getRandomBytesAsync(32)),
     registrationOperationId: randomUUID(),
-    stationStableKey: args.stationStableKey,
     deviceName: `Scanner ${installationId.slice(-4)}`,
     platform: args.platform,
     lastIssuedSequence: 0,

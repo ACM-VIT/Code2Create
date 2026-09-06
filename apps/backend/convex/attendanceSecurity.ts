@@ -343,8 +343,6 @@ export const commitKeySetRewrap = internalMutation({
 export const registerDevice = internalMutation({
   args: {
     eventSlug: v.string(),
-    stationId: v.id("attendanceStations"),
-    expectedConfigurationVersion: v.number(),
     installationId: v.string(),
     deviceSecretHash: v.string(),
     name: v.string(),
@@ -359,9 +357,48 @@ export const registerDevice = internalMutation({
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const grantIds = await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "attendance.scan.execute",
+      scopeType: "event",
+    });
+    const planId = event.publishedAttendancePlanVersionId;
+    const plan = planId ? await ctx.db.get(planId) : null;
+    if (!plan || plan.eventId !== event._id || plan.status !== "published") {
+      throw new ConvexError({
+        code: "SCANNER_NOT_CONFIGURED",
+        message: "Scanning is not configured for this event.",
+      });
+    }
+    const configured = await ctx.db
+      .query("attendanceStations")
+      .withIndex("by_plan_key", (index) => index.eq("planVersionId", plan._id))
+      .collect();
+    const station =
+      configured.find(
+        (candidate) =>
+          candidate.mode === "roving" &&
+          candidate.sessionId === undefined &&
+          candidate.allowedCredentialKinds !== undefined &&
+          candidate.allowedCredentialKinds.length > 0,
+      ) ??
+      configured.find(
+        (candidate) =>
+          candidate.mode !== undefined &&
+          candidate.allowedCredentialKinds !== undefined &&
+          candidate.allowedCredentialKinds.length > 0,
+      );
+    if (!station) {
+      throw new ConvexError({
+        code: "SCANNER_NOT_CONFIGURED",
+        message: "Scanning is not configured for this event.",
+      });
+    }
     const requestFingerprint = operationFingerprint([
-      args.stationId,
-      args.expectedConfigurationVersion,
+      station._id,
+      station.configurationVersion,
       args.installationId,
       args.deviceSecretHash,
       args.name,
@@ -383,27 +420,7 @@ export const registerDevice = internalMutation({
       if (!deviceInstallationId) {
         throw new Error("The stored attendance-device result is invalid.");
       }
-      return { deviceInstallationId, stationId: args.stationId };
-    }
-    const stationContext = await requireStationPermission(ctx, {
-      eventSlug: args.eventSlug,
-      stationId: args.stationId,
-      expectedConfigurationVersion: args.expectedConfigurationVersion,
-      permissionKey: "attendance.station.manage",
-    });
-    const { subject, station, grantIds } = stationContext;
-    const plan = await ctx.db.get(station.planVersionId);
-    if (!plan || plan.eventId !== event._id || plan.status !== "published") {
-      throw new ConvexError({
-        code: "PLAN_NOT_ACTIVE",
-        message: "Publish the attendance plan before assigning devices.",
-      });
-    }
-    if (station.deviceInstallationId !== undefined || station.status === "active") {
-      throw new ConvexError({
-        code: "STATION_ALREADY_ASSIGNED",
-        message: "This station already has a device.",
-      });
+      return { deviceInstallationId, stationId: station._id };
     }
     const installationId = normalizedText(args.installationId, "Installation ID", 16, 100);
     const existing = await ctx.db
@@ -421,6 +438,7 @@ export const registerDevice = internalMutation({
     const now = Date.now();
     const deviceInstallationId = await ctx.db.insert("attendanceDeviceInstallations", {
       eventId: event._id,
+      stationId: station._id,
       installationId,
       secretHash: args.deviceSecretHash,
       name: normalizedText(args.name, "Device name", 2, 80),
@@ -432,30 +450,10 @@ export const registerDevice = internalMutation({
       pendingReplayCount: 0,
     });
     await appendAttendanceDeviceReadFactById(ctx, deviceInstallationId, now);
-    const configurationVersion = station.configurationVersion + 1;
-    await ctx.db.patch(station._id, {
-      deviceInstallationId,
-      status: "active",
-      configurationVersion,
-      updatedAt: now,
-    });
-    await appendAttendanceStationReadFactById(ctx, station._id, now);
     const sourceId = stationAssignmentSourceId({
       stationId: station._id,
       deviceInstallationId,
       operatorPersonId: person._id,
-    });
-    const scanGrant = await insertPermissionGrant(ctx, {
-      eventId: event._id,
-      personId: person._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "attendance.scan.execute",
-      scopeType: "station",
-      scopeId: station._id,
-      sourceType: "station_assignment",
-      sourceId,
-      grantedByPersonId: person._id,
-      reason: "Assigned scanner operator",
     });
     const stationGrant = await insertPermissionGrant(ctx, {
       eventId: event._id,
@@ -467,9 +465,9 @@ export const registerDevice = internalMutation({
       sourceType: "station_assignment",
       sourceId,
       grantedByPersonId: person._id,
-      reason: "Assigned scanner operator",
+      reason: "Enabled scanner operator",
     });
-    if (scanGrant.created || stationGrant.created) {
+    if (stationGrant.created) {
       await advanceAccessVersion(ctx, subject._id, now);
     }
     await recordOperation(ctx, {
@@ -486,10 +484,9 @@ export const registerDevice = internalMutation({
     await writeAuditEvent(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
-      permissionKey: "attendance.station.manage",
+      permissionKey: "attendance.scan.execute",
       grantIds,
-      scopeType: "station",
-      scopeId: station._id,
+      scopeType: "event",
       action: "attendance.device_registered",
       targetType: "attendance_device",
       targetId: deviceInstallationId,

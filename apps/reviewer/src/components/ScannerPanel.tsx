@@ -37,7 +37,6 @@ import {
 import {
   Action,
   Body,
-  Card,
   ChipRow,
   Field,
   Heading,
@@ -83,7 +82,6 @@ import type { ReviewerRuntime } from "@/lib/runtime";
 import { palette, radius } from "@/theme";
 import { CaseListSkeleton, DoorSkeleton } from "@/components/skeletons";
 
-type StationOption = FunctionReturnType<typeof api.attendanceScanner.availableStations>[number];
 type ScannerAssignment = NonNullable<FunctionReturnType<typeof api.attendanceScanner.current>>;
 type ScanReceipt = FunctionReturnType<typeof api.attendanceActions.recordScan>;
 type StaffedParticipant = FunctionReturnType<
@@ -190,7 +188,6 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
   );
   const [registrationBusy, setRegistrationBusy] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
-  const availableStations = useQuery(api.attendanceScanner.availableStations, { eventSlug });
   const current = useQuery(
     api.attendanceScanner.current,
     deviceState.status === "ready" && deviceState.record
@@ -228,7 +225,7 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
       </SetupFrame>
     );
   }
-  if (deviceState.status === "loading" || availableStations === undefined) {
+  if (deviceState.status === "loading") {
     return <DoorSkeleton />;
   }
   if (deviceState.status === "error") {
@@ -263,19 +260,17 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     );
   }
 
-  const register = async (record: ScannerDeviceRecord, station: StationOption) => {
+  const register = async (record: ScannerDeviceRecord) => {
     setRegistrationBusy(true);
     setRegistrationError(null);
     try {
       await registerDevice({
         eventSlug,
-        stationId: station.id,
-        expectedConfigurationVersion: station.configurationVersion,
         installationId: record.installationId,
         deviceSecret: record.deviceSecret,
         name: record.deviceName,
         platform: record.platform,
-        reason: "Provisioned by the signed-in station operator",
+        reason: "Enabled by the signed-in scanner operator",
         clientOperationId: record.registrationOperationId,
       });
     } catch (error) {
@@ -285,17 +280,16 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }
   };
 
-  const provision = async (station: StationOption) => {
+  const provision = async () => {
     setRegistrationBusy(true);
     setRegistrationError(null);
     try {
       const record = await createScannerDevice({
         eventSlug,
-        stationStableKey: station.stableKey,
         platform,
       });
       setDeviceState({ status: "ready", record });
-      await register(record, station);
+      await register(record);
     } catch (error) {
       setRegistrationError(errorMessage(error, "Scanner setup could not be saved."));
       setRegistrationBusy(false);
@@ -305,38 +299,24 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
   if (!deviceState.record) {
     return (
       <SetupFrame>
-        <Section title="Assign this phone">
+        <Section title="Attendance scanner">
           {staffedOperations.records.size > 0 || staffedOperations.error ? (
             <Problem>
               {staffedOperations.error ??
                 "Finish the saved credential action before assigning this phone again."}
             </Problem>
           ) : null}
-          {availableStations.length === 0 ? (
-            <View style={styles.noStation}>
-              <DutyIcon color={palette.door} name="door" size={40} />
-              <Text style={styles.noStationTitle}>No station free</Text>
-              <Text style={styles.noStationBody}>
-                Every door station is already assigned. The door lead can release one for this
-                phone.
-              </Text>
-            </View>
-          ) : (
-            availableStations.map((station) => (
-              <Card
-                key={station.id}
-                {...(registrationBusy ||
-                staffedOperations.loading ||
-                staffedOperations.error !== null ||
-                staffedOperations.records.size > 0
-                  ? {}
-                  : { onPress: () => void provision(station) })}
-              >
-                <Heading>{station.name}</Heading>
-                <Meta>{station.zoneName}</Meta>
-              </Card>
-            ))
-          )}
+          <Action
+            accent={palette.door}
+            disabled={
+              registrationBusy ||
+              staffedOperations.loading ||
+              staffedOperations.error !== null ||
+              staffedOperations.records.size > 0
+            }
+            label={registrationBusy ? "Starting…" : "Start scanning"}
+            onPress={() => void provision()}
+          />
           {registrationError ? <Problem>{registrationError}</Problem> : null}
         </Section>
       </SetupFrame>
@@ -347,9 +327,6 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return <DoorSkeleton />;
   }
   if (!current) {
-    const pendingStation = availableStations.find(
-      (station) => station.stableKey === deviceRecord.stationStableKey,
-    );
     const clearOldSetup = async () => {
       setRegistrationBusy(true);
       setRegistrationError(null);
@@ -369,42 +346,24 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     return (
       <SetupFrame>
         <Section title="Scanner setup is not active">
-          <Body>
-            {pendingStation
-              ? `Retry ${pendingStation.name} if setup was interrupted, or clear the old setup after operations disabled it.`
-              : "The saved station is no longer available. Clear the old setup and any unsent scans before assigning this phone again."}
-          </Body>
+          <Body>The saved scanner access is no longer active.</Body>
           {staffedOperations.records.size > 0 || staffedOperations.error ? (
             <Problem>
               {staffedOperations.error ??
                 "Finish the saved credential action before changing this phone setup."}
             </Problem>
           ) : null}
-          {pendingStation ? (
-            <Action
-              accent={palette.door}
-              disabled={
-                registrationBusy ||
-                staffedOperations.loading ||
-                staffedOperations.error !== null ||
-                staffedOperations.records.size > 0
-              }
-              label={registrationBusy ? "Assigning…" : "Retry assignment"}
-              onPress={() => register(deviceRecord, pendingStation)}
-            />
-          ) : null}
-          {!pendingStation ? (
-            <QuietAction
-              disabled={
-                registrationBusy ||
-                staffedOperations.loading ||
-                staffedOperations.error !== null ||
-                staffedOperations.records.size > 0
-              }
-              label={registrationBusy ? "Clearing…" : "Clear old setup"}
-              onPress={clearOldSetup}
-            />
-          ) : null}
+          <Action
+            accent={palette.door}
+            disabled={registrationBusy || staffedOperations.loading}
+            label={registrationBusy ? "Starting…" : "Reconnect scanner"}
+            onPress={() => void register(deviceRecord)}
+          />
+          <QuietAction
+            disabled={registrationBusy || staffedOperations.loading}
+            label="Reset scanner"
+            onPress={clearOldSetup}
+          />
           {registrationError ? <Problem>{registrationError}</Problem> : null}
         </Section>
       </SetupFrame>
@@ -691,7 +650,7 @@ function ScannerSurface({
         if (active) {
           setHeartbeatState({
             status: "error",
-            message: errorMessage(error, "Station heartbeat failed."),
+            message: errorMessage(error, "Scanner sync failed."),
           });
         }
       } finally {
@@ -787,7 +746,7 @@ function ScannerSurface({
     }
     if (!stationAcceptsCredential(assignment.station.allowedCredentialKinds, credential.kind)) {
       throw new OperatorError(
-        `${credentialName(credential.kind)} cannot be used at ${assignment.station.name}. Use a credential type assigned to this station.`,
+        `${credentialName(credential.kind)} cannot be used for this scan.`,
       );
     }
     if (assignment.station.mode === "roving" && !assignment.station.sessionId) {
@@ -1572,7 +1531,6 @@ function ScannerSurface({
   if (task === null) {
     return (
       <AttendanceTaskChooser
-        assignment={assignment}
         onFirstCheckIn={() => startTask("staffed")}
         onPresence={() => startTask("presence")}
         presenceBlocker={presenceWorkflowBlocker}
@@ -1660,14 +1618,11 @@ function ScannerSurface({
           options={{
             headerRight: () => (
               <HeaderButton
-                label="This door"
+                label="Activity"
                 onPress={() =>
                   router.push({
                     pathname: "/duty/door-tools",
                     params: {
-                      station: assignment.station.name,
-                      zone: assignment.station.zoneName,
-                      ...(assignment.openSession ? { session: assignment.openSession.name } : {}),
                       pending: String(assignment.device.pendingReplayCount),
                       sent: String(assignment.device.lastSequence),
                     },
@@ -1692,7 +1647,7 @@ function ScannerSurface({
           }
           controls={
             <ScannerTaskContext
-              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID to check outing permission and record departure or return." : "Scan a linked ID or event pass."}
+              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID to record departure or return." : "Scan a linked ID or event pass."}
               onChange={chooseAnotherTask}
               title="Record presence"
             >
@@ -1895,14 +1850,11 @@ function ScannerSurface({
         options={{
           headerRight: () => (
             <HeaderButton
-              label="This door"
+              label="Activity"
               onPress={() =>
                 router.push({
                   pathname: "/duty/door-tools",
                   params: {
-                    station: assignment.station.name,
-                    zone: assignment.station.zoneName,
-                    ...(assignment.openSession ? { session: assignment.openSession.name } : {}),
                     pending: String(assignment.device.pendingReplayCount),
                     sent: String(assignment.device.lastSequence),
                   },
@@ -2057,12 +2009,10 @@ function ManualLookupSheet({
 }
 
 function AttendanceTaskChooser({
-  assignment,
   onFirstCheckIn,
   onPresence,
   presenceBlocker,
 }: {
-  assignment: ScannerAssignment;
   onFirstCheckIn: () => void;
   onPresence: () => void;
   presenceBlocker: string | null;
@@ -2072,20 +2022,6 @@ function AttendanceTaskChooser({
       contentContainerStyle={styles.taskChooser}
       contentInsetAdjustmentBehavior="automatic"
     >
-      <View style={styles.stationCard}>
-        <View style={styles.stationIcon}>
-          <DutyIcon color={palette.onDoor} name="door" size={24} />
-        </View>
-        <View style={styles.stationCopy}>
-          <Text style={styles.taskEyebrow}>ACTIVE STATION</Text>
-          <Text style={styles.stationName}>{assignment.station.name}</Text>
-          <Text style={styles.stationDetail}>
-            {assignment.openSession
-              ? `${assignment.station.zoneName} · ${assignment.openSession.name}`
-              : assignment.station.zoneName}
-          </Text>
-        </View>
-      </View>
       <View style={styles.chooserHeading}>
         <Text style={styles.chooserTitle}>What are you recording?</Text>
         <Text style={styles.chooserLead}>Choose before opening the camera.</Text>
@@ -2792,7 +2728,7 @@ function scannerPlatform(): ScannerPlatform | null {
   return null;
 }
 
-// Detect every supported barcode, then enforce the station format after decoding.
+// Detect every supported barcode, then enforce the configured format after decoding.
 function scannerBarcodeTypes() {
   return [...barcodeSymbologies] as BarcodeType[];
 }
@@ -2829,8 +2765,8 @@ function unreadableCredential(symbology: BarcodeSymbology | null, assignment: Sc
     .map(symbologyName);
   const wanted =
     accepted.length === 0
-      ? "this station only accepts event passes and badges"
-      : `this door reads ${listPhrase(accepted)}`;
+      ? "this scanner only accepts event passes and badges"
+      : `this scanner reads ${listPhrase(accepted)}`;
   return `That card is a ${symbologyName(symbology)} barcode, and ${wanted}. Use manual lookup for first check-in; otherwise ask a coordinator.`;
 }
 
