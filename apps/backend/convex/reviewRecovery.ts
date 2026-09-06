@@ -41,7 +41,7 @@ export const restoreBeforeStart = internalMutation({
       throw new ConvexError("Only the unchanged, published round can be restored before reviews begin.");
     }
     if (!Number.isSafeInteger(args.snapshotAt) || args.snapshotAt < round.createdAt || args.snapshotAt >= now ||
-      !Number.isSafeInteger(args.startsAt) || args.startsAt <= Math.max(now, round.startsAt) ||
+      !Number.isSafeInteger(args.startsAt) || args.startsAt <= round.startsAt ||
       args.startsAt + round.reviewDurationSeconds * 1000 > round.endsAt) {
       throw new ConvexError("Choose a past roster snapshot and a later review start before the current finish.");
     }
