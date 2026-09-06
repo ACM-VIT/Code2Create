@@ -708,7 +708,7 @@ function SubmittedWorkspace({
     <PortalScene
       onSignOut={onSignOut}
       tree="left"
-      logoGlow
+      logoGlow={resultOutcome !== null}
       header={
         <TeamCluster
           team={team}
