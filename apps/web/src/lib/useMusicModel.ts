@@ -69,7 +69,6 @@ export function useMusicModel(): MusicRoomModel {
             requestsUsed: music.usage.requests,
             requestsAllowed: musicWindow.maxRequestsPerParticipant,
             votesUsed: music.usage.votes,
-            votesAllowed: musicWindow.maxVotesPerParticipant,
           }
         : null,
     nowPlaying: views.find((request) => request.state === "playing") ?? null,

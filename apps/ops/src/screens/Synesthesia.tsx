@@ -76,7 +76,6 @@ type WindowValues = {
   catalogSourceLabel: string;
   autoApproveRequests: boolean;
   maxRequestsPerParticipant: string;
-  maxVotesPerParticipant: string;
   maxRequestsTotal: string;
   maxTrackDurationSeconds: string;
   allowExplicit: boolean;
@@ -132,7 +131,6 @@ function initialWindowValues(serverNow: number): WindowValues {
     catalogSourceLabel: "",
     autoApproveRequests: false,
     maxRequestsPerParticipant: "3",
-    maxVotesPerParticipant: "8",
     maxRequestsTotal: "120",
     maxTrackDurationSeconds: "480",
     allowExplicit: false,
@@ -153,7 +151,6 @@ function valuesForWindow(window: SynesthesiaWindow): WindowValues {
     catalogSourceLabel: window.catalogSourceLabel,
     autoApproveRequests: window.autoApproveRequests,
     maxRequestsPerParticipant: String(window.maxRequestsPerParticipant),
-    maxVotesPerParticipant: String(window.maxVotesPerParticipant),
     maxRequestsTotal: String(window.maxRequestsTotal),
     maxTrackDurationSeconds: String(window.maxTrackDurationSeconds),
     allowExplicit: window.allowExplicit,
@@ -484,14 +481,12 @@ function WindowSection({ overview, serverNow }: { overview: Overview; serverNow:
     const startsAt = timestampFromLocal(editor.values.startsAt);
     const endsAt = timestampFromLocal(editor.values.endsAt);
     const maxRequestsPerParticipant = integerFromValue(editor.values.maxRequestsPerParticipant);
-    const maxVotesPerParticipant = integerFromValue(editor.values.maxVotesPerParticipant);
     const maxRequestsTotal = integerFromValue(editor.values.maxRequestsTotal);
     const maxTrackDurationSeconds = integerFromValue(editor.values.maxTrackDurationSeconds);
     if (
       startsAt === null ||
       endsAt === null ||
       maxRequestsPerParticipant === null ||
-      maxVotesPerParticipant === null ||
       maxRequestsTotal === null ||
       maxTrackDurationSeconds === null
     ) {
@@ -515,7 +510,6 @@ function WindowSection({ overview, serverNow }: { overview: Overview; serverNow:
           catalogSourceLabel: editor.values.catalogSourceLabel,
           autoApproveRequests: editor.values.autoApproveRequests,
           maxRequestsPerParticipant,
-          maxVotesPerParticipant,
           maxRequestsTotal,
           maxTrackDurationSeconds,
           allowExplicit: editor.values.allowExplicit,
@@ -622,7 +616,7 @@ function WindowSection({ overview, serverNow }: { overview: Overview; serverNow:
               <p>{windowConsequence(window)}</p>
               <p>
                 {window.catalogSourceLabel} · {window.maxRequestsPerParticipant} requests/person ·{" "}
-                {window.maxVotesPerParticipant} votes/person · {window.maxRequestsTotal} total
+                {window.maxRequestsTotal} total requests · One vote per song
               </p>
               <p>
                 {window.requestsOpen ? "Requests open" : "Requests closed"} ·{" "}
@@ -832,22 +826,6 @@ function WindowSection({ overview, serverNow }: { overview: Overview; serverNow:
                     updateEditorValues({
                       ...editor.values,
                       maxRequestsPerParticipant: event.target.value,
-                    })
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Votes per participant</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="50"
-                  value={editor.values.maxVotesPerParticipant}
-                  required
-                  onChange={(event) =>
-                    updateEditorValues({
-                      ...editor.values,
-                      maxVotesPerParticipant: event.target.value,
                     })
                   }
                 />

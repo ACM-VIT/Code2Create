@@ -65,12 +65,13 @@ One event can have at most 64 music windows. A window contains:
 - request and vote switches;
 - automatic-approval switch;
 - person and event request limits;
-- person vote limit;
 - duration, explicit-content, and energy rules;
 - playback-pause state; and
 - `draft | published | closed` state.
 
 Published windows cannot overlap. Server time controls start, end, and pause state.
+
+Participants can vote for any number of songs in an open voting window, once per song. There is no per-person vote quota.
 
 ## 6. Participant flow
 

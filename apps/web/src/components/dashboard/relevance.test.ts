@@ -103,7 +103,7 @@ test("a queued team owns the hero while service queues remain separate", () => {
   const live: DashboardModels = {
     ...quiet,
     review,
-    music: { ...quiet.music, window: { name: "w", endsAt: now + 1, requestsOpen: true, votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 5, votesUsed: 0, votesAllowed: 10 } },
+    music: { ...quiet.music, window: { name: "w", endsAt: now + 1, requestsOpen: true, votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 5, votesUsed: 0 } },
   };
   const seating = composeDashboard(tileRelevance(live));
   assert.equal(seating.review, "hero");

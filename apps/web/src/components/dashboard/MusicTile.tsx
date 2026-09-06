@@ -56,7 +56,6 @@ export type MusicTileModel = {
     requestsUsed: number;
     requestsAllowed: number;
     votesUsed: number;
-    votesAllowed: number;
   } | null;
   nowPlaying: MusicRequestView | null;
   /** Everything else visible in the window, in play order. */

@@ -146,7 +146,7 @@ function NowPlaying({ model }: { model: MusicRoomModel }) {
       {model.window ? (
         <p className="m-0 text-[11.5px] tabular-nums text-fg/50">
           <LiveNumber value={model.window.requestsUsed} /> of {model.window.requestsAllowed} requests ·{" "}
-          <LiveNumber value={model.window.votesUsed} /> of {model.window.votesAllowed} votes
+          <LiveNumber value={model.window.votesUsed} /> votes · One vote per song
         </p>
       ) : null}
     </section>

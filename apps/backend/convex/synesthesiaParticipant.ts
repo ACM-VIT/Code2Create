@@ -32,7 +32,6 @@ const participantWindow = v.object({
   playbackPaused: v.boolean(),
   catalogSourceLabel: v.string(),
   maxRequestsPerParticipant: v.number(),
-  maxVotesPerParticipant: v.number(),
   version: v.number(),
 });
 
@@ -156,7 +155,8 @@ export const state = query({
             .eq("membershipId", context.membership._id)
             .eq("state", "active"),
         )
-        .take(window.maxVotesPerParticipant + 1),
+        // A participant can vote once for each request in this bounded window.
+        .take(maximumRequestsPerWindow),
       ctx.db
         .query("synesthesiaReports")
         .withIndex("by_window_reporter", (index) =>
@@ -195,7 +195,6 @@ export const state = query({
         playbackPaused: window.playbackPaused,
         catalogSourceLabel: window.catalogSourceLabel,
         maxRequestsPerParticipant: window.maxRequestsPerParticipant,
-        maxVotesPerParticipant: window.maxVotesPerParticipant,
         version: window.version,
       },
       usage: { requests: ownRequests.length, votes: votes.length },
@@ -530,23 +529,6 @@ async function changeVote(
       createdAt: now,
     });
     return { requestId: request._id };
-  }
-  if (args.active) {
-    const activeVotes = await ctx.db
-      .query("songVotes")
-      .withIndex("by_window_member_state", (index) =>
-        index
-          .eq("windowId", window._id)
-          .eq("membershipId", context.membership._id)
-          .eq("state", "active"),
-      )
-      .take(window.maxVotesPerParticipant);
-    if (activeVotes.length >= window.maxVotesPerParticipant) {
-      throw new ConvexError({
-        code: "PARTICIPANT_VOTE_LIMIT",
-        message: "You have used your vote limit for this window.",
-      });
-    }
   }
   const now = Date.now();
   let voteId: Id<"songVotes">;

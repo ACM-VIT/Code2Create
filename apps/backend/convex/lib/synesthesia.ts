@@ -229,7 +229,6 @@ export function synesthesiaWindowFields(args: {
   catalogSourceLabel: string;
   autoApproveRequests: boolean;
   maxRequestsPerParticipant: number;
-  maxVotesPerParticipant: number;
   maxRequestsTotal: number;
   maxTrackDurationSeconds: number;
   allowExplicit: boolean;
@@ -258,9 +257,6 @@ export function synesthesiaWindowFields(args: {
     !Number.isSafeInteger(args.maxRequestsPerParticipant) ||
     args.maxRequestsPerParticipant < 0 ||
     args.maxRequestsPerParticipant > 10 ||
-    !Number.isSafeInteger(args.maxVotesPerParticipant) ||
-    args.maxVotesPerParticipant < 0 ||
-    args.maxVotesPerParticipant > 50 ||
     !Number.isSafeInteger(args.maxRequestsTotal) ||
     args.maxRequestsTotal < 1 ||
     args.maxRequestsTotal > maximumRequestsPerWindow ||
@@ -270,19 +266,13 @@ export function synesthesiaWindowFields(args: {
   ) {
     throw new ConvexError({
       code: "INVALID_WINDOW_POLICY",
-      message: "Window request, vote, or duration limits are outside the supported bounds.",
+      message: "Window request or duration limits are outside the supported bounds.",
     });
   }
   if (args.requestsOpen && args.maxRequestsPerParticipant === 0) {
     throw new ConvexError({
       code: "INVALID_WINDOW_POLICY",
       message: "A request-open window needs a positive per-participant request limit.",
-    });
-  }
-  if (args.votingOpen && args.maxVotesPerParticipant === 0) {
-    throw new ConvexError({
-      code: "INVALID_WINDOW_POLICY",
-      message: "A voting-open window needs a positive per-participant vote limit.",
     });
   }
   return {
@@ -296,7 +286,6 @@ export function synesthesiaWindowFields(args: {
     catalogSourceLabel: normalizedText(args.catalogSourceLabel, "Catalog source", 2, 100),
     autoApproveRequests: args.autoApproveRequests,
     maxRequestsPerParticipant: args.maxRequestsPerParticipant,
-    maxVotesPerParticipant: args.maxVotesPerParticipant,
     maxRequestsTotal: args.maxRequestsTotal,
     maxTrackDurationSeconds: args.maxTrackDurationSeconds,
     allowExplicit: args.allowExplicit,

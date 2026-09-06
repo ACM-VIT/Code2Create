@@ -67,7 +67,7 @@ function MusicFixture() {
     window: {
       name: "Evening music", endsAt: Date.now() + 3_600_000, requestsOpen: true,
       votingOpen: true, playbackPaused: false, requestsUsed: 0, requestsAllowed: 3,
-      votesUsed: 0, votesAllowed: 5,
+      votesUsed: 0,
     },
     nowPlaying: track,
     queue: params.has("queued") ? [{

@@ -1628,7 +1628,6 @@ export default defineSchema({
     catalogSourceLabel: v.string(),
     autoApproveRequests: v.boolean(),
     maxRequestsPerParticipant: v.number(),
-    maxVotesPerParticipant: v.number(),
     maxRequestsTotal: v.number(),
     maxTrackDurationSeconds: v.number(),
     allowExplicit: v.boolean(),
