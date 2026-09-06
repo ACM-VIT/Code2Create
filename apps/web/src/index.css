@@ -1347,8 +1347,10 @@ p {
 }
 
 /* Permission, deadline, and the action remain visible in compact dashboard slots. */
+.outing-call-hint { display: none; }
 @container (max-height: 180px) {
   .outing-body .outing-description { display: none; }
+  .outing-body .outing-call-hint { display: block; }
 }
 @container (max-height: 140px) {
   .outing-body .outing-eyebrow { display: none; }

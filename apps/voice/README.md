@@ -2,6 +2,10 @@
 
 This Cloudflare Worker places one phone call for one accepted delivery ID. Convex decides whether a call is allowed. The Worker cannot read event data or create a page.
 
+Participant outings automatically call once when the exit scan's 15-minute return deadline passes. Convex owns the deadline, source deduplication, eligibility and return checks; its recovery sweep covers existing overdue outings. The request carries `requiredProvider: "sarvam"`, so it uses the pinned event reminder agent even when Twilio is the environment's primary provider, and never falls back to Twilio. The existing agent receives the return-and-scan instructions through `call_message`; no new agent version or agent credentials are needed. Call outcomes appear beside overdue participants in ops. Phone answers and provider completion do not change attendance or release capacity.
+
+Release the voice Worker before the backend that emits this request field, then release the ops and participant web clients. Local verification uses mocked provider requests and callbacks; it does not place participant calls.
+
 The current reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered reminder can call. Its delay is half the page response window, capped at 30 seconds: a default 30-second page can escalate after 15 seconds. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page. Scheduled shift reminders currently use push; adding voice for that purpose is tracked in the [event follow-up plan](../../specs/16-event-follow-up-plan.md).
 
 The Worker uses:

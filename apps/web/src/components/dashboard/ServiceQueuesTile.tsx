@@ -115,7 +115,7 @@ function OutingQueue({ service, busy, pending, onChange }: {
     : status === "expired" ? "Your permission expired"
     : "Need a washroom break?";
   const detail = status === "permitted" ? "Show your ID to staff on the way out. Your 15 minutes start at the exit scan."
-    : status === "out" ? "Have your ID scanned when you return."
+    : status === "out" ? "Return within 15 minutes to avoid an automated reminder call. Have your ID scanned on return."
     : status === "overdue" ? "Please return and have your ID scanned. Your slot stays occupied until then."
     : status === "waiting" ? "All outing slots are occupied. Keep this page open; it will tell you when you can go."
     : status === "unconfigured" ? "Staff are setting up outing capacity."
@@ -131,6 +131,7 @@ function OutingQueue({ service, busy, pending, onChange }: {
         <span className="queue-title block text-[14px] font-medium text-fg/90">{title}</span>
         <p className="outing-description m-0 mt-1 text-[11px] leading-snug text-fg/65">{detail}</p>
         {clockLabel ? <p className="m-0 mt-1 text-[12px] text-rose-light">{clockLabel}</p> : null}
+        {status === "out" ? <p className="outing-call-hint m-0 mt-1 text-[10px] text-fg/65">Automated call if overdue.</p> : null}
       </div>
       {status === "waiting" ? <QueueLane service={service} /> : null}
       <div className="flex items-center justify-between gap-2">

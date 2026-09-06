@@ -22,6 +22,7 @@ export const outboundCallRequestSchema: z.ZodType<OutboundCallRequest> = z
     destinationPhoneE164: e164Phone,
     script: z.string().min(8).max(600),
     callbackUrl,
+    requiredProvider: z.literal("sarvam").optional(),
     venueConfirmation: venueConfirmationCallSchema.optional(),
   })
   .strict();

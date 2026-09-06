@@ -252,6 +252,7 @@ test("a free outing slot grants permission without drawing a queue and requires 
   await page.getByTestId("outing-tile").screenshot({ path: testInfo.outputPath("outing-permission.png") });
   await page.getByRole("button", { name: "Scan departure" }).click();
   await expect(outing.getByText("Your outing is in progress")).toBeVisible();
+  await expect(outing.getByText(/automated reminder call/)).toBeVisible();
   await expect(outing.getByRole("button")).toHaveCount(0);
   await expect(outing.getByText(/Return by/)).toBeVisible();
   await page.clock.fastForward(900_200);
@@ -290,4 +291,10 @@ test("compact outing cards keep permission, deadline and cancellation visible wi
   const dimensions = await tile.locator(".dashboard-tile-scroll").evaluate((element) => ({ height: element.clientHeight, contentHeight: element.scrollHeight }));
   expect(dimensions.contentHeight).toBeLessThanOrEqual(dimensions.height + 1);
   await tile.screenshot({ path: testInfo.outputPath("outing-compact.png") });
+  await page.getByRole("button", { name: "Scan departure" }).click();
+  await expect(tile.getByText("Automated call if overdue.")).toBeVisible();
+  await expect(tile.getByText(/Return by/)).toBeVisible();
+  const outDimensions = await tile.locator(".dashboard-tile-scroll").evaluate((element) => ({ height: element.clientHeight, contentHeight: element.scrollHeight }));
+  expect(outDimensions.contentHeight).toBeLessThanOrEqual(outDimensions.height + 1);
+  await tile.screenshot({ path: testInfo.outputPath("outing-out-compact.png") });
 });

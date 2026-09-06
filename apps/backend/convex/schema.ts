@@ -1341,6 +1341,7 @@ export default defineSchema({
     phase: outingPhase,
   })
     .index("by_membership_kind", ["membershipId", "kind"])
+    .index("by_phase", ["phase.status"])
     .index("by_event_phase_joinedAt", ["eventId", "phase.status", "joinedAt"]),
 
   supportCases: defineTable({
@@ -3743,6 +3744,7 @@ export default defineSchema({
     sourceType: v.union(v.literal("reviewer_page"), v.literal("participant_notification"),
       v.literal("admission_offer_reminder"),
       v.literal("review_team_notice"),
+      v.literal("participant_outing"),
       v.literal("reviewer_shift_reminder"),
       v.literal("reviewer_venue_departure"),
     ),

@@ -9,7 +9,7 @@ import schema from "./schema.ts";
 import { applyOutingScan, outingPolicy, outingRequest } from "./lib/participantServiceQueue";
 import { insertPermissionGrant } from "./lib/permissions";
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -134,6 +134,11 @@ async function fixture(capacity = 15, documentsRead?: number) {
     const client = backend.withIdentity(person.identity);
     return {
       ...person, client,
+      savePhone: (phone = "+919876543210") => backend.run((ctx) => ctx.db.insert("participantProfiles", {
+        eventId, membershipId: person.membershipId, participantClass: "external_participant",
+        fullName: `${key} participant`, phone, gender: "male", institution: "Fixture college",
+        yearOfStudy: "first", profileVersion: 1, updatedAt: now,
+      })),
       request: (clientOperationId: string = crypto.randomUUID()) => client.mutation(api.serviceQueues.join, { eventSlug, kind: "outing_permission", clientOperationId }),
       current: async () => (await client.query(api.serviceQueues.current, { eventSlug }))[0]!,
       scan: (transition: "venue_entry" | "venue_exit", isOfflineReplay = false) => backend.run((ctx) => applyOutingScan(ctx, {
@@ -304,5 +309,159 @@ describe("capacity-managed outings", () => {
     for (let index = 0; index < 80; index += 1) { last = await f.makePerson(`waiter-${index}`); await last.request(); }
     expect(await last.current()).toMatchObject({ status: "waiting", position: 80, waitingCount: 80, occupiedCount: 1 });
     expect(await f.backend.run((ctx) => outingRequest(ctx, last.membershipId))).toMatchObject({ phase: { status: "waiting" } });
+  });
+});
+
+async function overdueCallFixture(phone: string | null = "+919876543210") {
+  const f = await fixture(1);
+  const person = await f.makePerson("overdue-caller");
+  const profileId = phone === null ? null : await person.savePhone(phone);
+  await person.request();
+  await person.scan("venue_exit");
+  const request = await person.current();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(request.returnBy!);
+  const advance = () => f.backend.mutation(internal.serviceQueues.advanceDeadline, { entryId: request.requestId! });
+  const calls = () => f.backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect());
+  const sweep = () => f.backend.mutation(internal.serviceQueues.sweepOverdueCalls, { cursor: null });
+  return { ...f, person, profileId, request, clock, advance, calls, sweep };
+}
+
+describe("overdue outing calls", () => {
+  test("starts one Sarvam reminder at the exit deadline, never before it", async () => {
+    const f = await overdueCallFixture();
+    f.clock.mockReturnValue(f.request.returnBy! - 1);
+    await f.advance(); await f.sweep();
+    expect(await f.calls()).toEqual([]);
+    f.clock.mockReturnValue(f.request.returnBy!);
+    await Promise.all([f.advance(), f.advance()]);
+    await f.sweep();
+    const calls = await f.calls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      sourceType: "participant_outing", sourceId: f.request.requestId,
+      targetPersonId: f.person.personId, state: "pending",
+      destinationPhoneE164: "+919876543210", attemptCount: 0,
+    });
+    const deliveryId = calls[0]!._id;
+    const claims = await Promise.all(["first", "duplicate"].map((attemptId) =>
+      f.backend.mutation(internal.outboundCallState.claimDelivery, { deliveryId, attemptId })));
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(claims.find(Boolean)).toMatchObject({ requiredProvider: "sarvam" });
+    expect(calls[0]!.script).toContain("15-minute");
+    expect(calls[0]!.script).toContain("scan your ID on entry");
+    expect(await f.person.current()).toMatchObject({ status: "overdue", occupiedCount: 1 });
+    const roster = await f.ops.query(api.serviceQueues.roster, {
+      eventSlug: f.eventSlug, status: "overdue", paginationOpts: { cursor: null, numItems: 25 },
+    });
+    expect(roster.page[0]).toMatchObject({ id: f.request.requestId, callState: "sending" });
+  });
+
+  test("unused permissions and waiting requests never call", async () => {
+    const f = await fixture(1);
+    const permitted = await f.makePerson("permitted");
+    const waiting = await f.makePerson("waiting");
+    await permitted.savePhone(); await waiting.savePhone();
+    await permitted.request(); await waiting.request();
+    const first = await permitted.current(); const second = await waiting.current();
+    vi.spyOn(Date, "now").mockReturnValue(first.permissionExpiresAt! + 1);
+    await f.backend.mutation(internal.serviceQueues.advanceDeadline, { entryId: second.requestId! });
+    await f.backend.mutation(internal.serviceQueues.advanceDeadline, { entryId: first.requestId! });
+    await f.backend.mutation(internal.serviceQueues.sweepOverdueCalls, { cursor: null });
+    expect(await f.backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect())).toEqual([]);
+  });
+
+  test("a return before the deadline prevents the call; a later outing gets its own reminder", async () => {
+    const f = await overdueCallFixture();
+    f.clock.mockReturnValue(f.request.returnBy! - 1);
+    await f.person.scan("venue_entry");
+    f.clock.mockReturnValue(f.request.returnBy! + 1);
+    await f.advance(); await f.sweep();
+    expect(await f.calls()).toEqual([]);
+    await f.person.request(); await f.person.scan("venue_exit");
+    const next = await f.person.current();
+    f.clock.mockReturnValue(next.returnBy!);
+    await f.backend.mutation(internal.serviceQueues.advanceDeadline, { entryId: next.requestId! });
+    expect(await f.calls()).toMatchObject([{ sourceId: next.requestId, state: "pending" }]);
+  });
+
+  test.each([false, true])("a recorded return cancels an undispatched call (retry: %s)", async (retry) => {
+    const f = await overdueCallFixture();
+    await f.advance();
+    const deliveryId = (await f.calls())[0]!._id;
+    if (retry) await f.backend.run((ctx) => ctx.db.patch(deliveryId, {
+      state: "retry_wait", nextAttemptAt: Date.now(), attemptCount: 1,
+    }));
+    await f.person.scan("venue_entry");
+    const claim = await f.backend.mutation(internal.outboundCallState.claimDelivery, { deliveryId, attemptId: "after-return" });
+    expect(claim).toBeNull();
+    expect(await f.calls()).toMatchObject([{ state: "cancelled", providerErrorCode: "outing_no_longer_overdue" }]);
+    expect(await f.person.current()).toMatchObject({ occupiedCount: 0 });
+  });
+
+  test.each(["phone", "eligibility", "person", "event", "target"] as const)("rechecks %s before dialing", async (changed) => {
+    const f = await overdueCallFixture();
+    await f.advance();
+    const deliveryId = (await f.calls())[0]!._id;
+    await f.backend.run(async (ctx) => {
+      if (changed === "phone") await ctx.db.patch(f.profileId!, { phone: "+919876543211" });
+      if (changed === "eligibility") await ctx.db.patch(f.person.membershipId, { eligibilityStatus: "suspended" });
+      if (changed === "person") await ctx.db.patch(f.person.personId, { status: "suspended" });
+      if (changed === "event") await ctx.db.patch(f.eventId, { endsAt: Date.now() });
+      if (changed === "target") {
+        const operator = await ctx.db.query("people").filter((q) => q.neq(q.field("_id"), f.person.personId)).first();
+        await ctx.db.patch(deliveryId, { targetPersonId: operator!._id });
+      }
+    });
+    expect(await f.backend.mutation(internal.outboundCallState.claimDelivery, { deliveryId, attemptId: "stale" })).toBeNull();
+    expect((await f.calls())[0]!.state).toBe("cancelled");
+  });
+
+  test.each([null, "invalid-phone"])("records unavailable phones without dialing (%s)", async (phone) => {
+    const f = await overdueCallFixture(phone);
+    await f.advance(); await f.sweep();
+    const calls = await f.calls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ state: "unavailable", attemptCount: 0,
+      providerErrorCode: phone === null ? "participant_phone_missing" : "phone_not_e164" });
+    expect(await f.backend.mutation(internal.outboundCallState.claimDelivery, {
+      deliveryId: calls[0]!._id, attemptId: "unavailable",
+    })).toBeNull();
+  });
+
+  test("the sweep recovers an existing overdue outing without redialing terminal calls", async () => {
+    const f = await overdueCallFixture();
+    await f.backend.run(async (ctx) => {
+      const entry = await ctx.db.get(f.request.requestId!);
+      if (!entry || entry.phase.status !== "out") throw new Error("Expected an outing departure.");
+      await ctx.db.patch(entry._id, { phase: { ...entry.phase, status: "overdue" } });
+    });
+    await f.sweep();
+    const deliveryId = (await f.calls())[0]!._id;
+    await f.backend.mutation(internal.outboundCallState.recordProviderEvent, {
+      deliveryId, providerEventId: crypto.randomUUID(), eventType: "call.no_answer", providerAt: Date.now(),
+    });
+    await f.sweep(); await f.advance();
+    expect(await f.calls()).toMatchObject([{ _id: deliveryId, state: "no_answer" }]);
+    expect(await f.calls()).toHaveLength(1);
+  });
+
+  test("sends the Sarvam requirement to the voice service and completion never releases capacity", async () => {
+    const f = await overdueCallFixture();
+    await f.advance();
+    const deliveryId = (await f.calls())[0]!._id;
+    vi.stubEnv("OUTBOUND_CALL_WORKER_URL", "https://voice.example.test");
+    vi.stubEnv("CONVEX_SITE_URL", "https://backend.example.test");
+    vi.stubEnv("OUTBOUND_CALL_REQUEST_SECRET", "fixture-secret-at-least-32-bytes-long");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ accepted: true, deliveryId }));
+    await f.backend.action(internal.outboundCalls.deliver, { deliveryId });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const body: unknown = JSON.parse(String(fetchMock.mock.calls[0]![1]?.body));
+    expect(body).toMatchObject({ deliveryId, requiredProvider: "sarvam", destinationPhoneE164: "+919876543210" });
+    await f.backend.mutation(internal.outboundCallState.recordProviderEvent, {
+      deliveryId, providerEventId: crypto.randomUUID(), eventType: "call.completed", providerAt: Date.now(),
+    });
+    expect(await f.person.current()).toMatchObject({ status: "overdue", occupiedCount: 1 });
+    await f.sweep();
+    expect(await f.calls()).toHaveLength(1);
   });
 });

@@ -138,6 +138,32 @@ afterEach(() => {
 });
 
 describe("outbound call durable session", () => {
+  test("preserves the required Sarvam agent through ingress, storage and duplicate dispatch", async () => {
+    const { session, storage } = fixture({
+      ...sarvamEnvironment, OUTBOUND_CALL_PRIMARY_PROVIDER: "twilio",
+      TWILIO_ACCOUNT_SID: "AC123", TWILIO_AUTH_TOKEN: "secret", TWILIO_FROM_NUMBER: "+12025550123",
+    });
+    const script = "Your 15-minute outing is over. Please return and have staff scan your ID.";
+    const create = () => session.fetch(new Request("https://voice.internal/create", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...request, requiredProvider: "sarvam", script }),
+    }));
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => Promise.resolve(
+      String(input).startsWith("https://apps.sarvam.ai/")
+        ? Response.json({ attempt_id: "attempt-1" })
+        : new Response(null, { status: 204 }),
+    ));
+    expect((await create()).status).toBe(202);
+    expect((await create()).status).toBe(202);
+    await session.alarm(); await session.alarm();
+    const providerCalls = fetchMock.mock.calls.filter(([input]) => String(input).startsWith("https://apps.sarvam.ai/"));
+    expect(providerCalls).toHaveLength(1);
+    expect(fetchMock.mock.calls.every(([input]) => !String(input).includes("twilio"))).toBe(true);
+    const body: unknown = JSON.parse(String(providerCalls[0]![1]?.body));
+    expect(body).toMatchObject({ app_config: { agent_variables: { call_message: expect.stringContaining(script) } } });
+    expect(storedSession(storage)).toMatchObject({ provider: "sarvam", providerCallId: "attempt-1" });
+  });
+
   test("reports an expired provider dispatch as ambiguous exactly once", async () => {
     const now = Date.UTC(2026, 8, 4, 10);
     vi.useFakeTimers();

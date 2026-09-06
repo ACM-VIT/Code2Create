@@ -2,6 +2,9 @@ import { paginationOptsValidator, paginationResultValidator } from "convex/serve
 import { ConvexError, v, type Infer } from "convex/values";
 
 import { internalMutation, mutation, query } from "./_generated/server";
+import { internal } from "./_generated/api";
+import { outboundCallDeliveryState } from "./values";
+import { enqueueOverdueOutingCall, outingCall } from "./lib/outingCalls";
 import { writeAuditEvent } from "./lib/audit";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEligibleMembership, requireMembership, requireEventSubject } from "./lib/identity";
@@ -178,7 +181,7 @@ export const configure = mutation({
 
 export const roster = query({
   args: { eventSlug: v.string(), status: v.union(v.literal("waiting"), v.literal("permitted"), v.literal("out"), v.literal("overdue")), paginationOpts: paginationOptsValidator },
-  returns: paginationResultValidator(v.object({ id: v.id("participantServiceQueueEntries"), name: v.string(), phase: outingPhase, joinedAt: v.number() })),
+  returns: paginationResultValidator(v.object({ id: v.id("participantServiceQueueEntries"), name: v.string(), phase: outingPhase, joinedAt: v.number(), callState: v.union(outboundCallDeliveryState, v.null()) })),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
@@ -188,7 +191,8 @@ export const roster = query({
       .withIndex("by_event_phase_joinedAt", (q) => q.eq("eventId", event._id).eq("phase.status", args.status)).paginate(args.paginationOpts);
     return { ...result, page: await Promise.all(result.page.map(async (entry) => {
       const person = await ctx.db.get(entry.personId);
-      return { id: entry._id, name: person?.displayName ?? "Participant", phase: entry.phase, joinedAt: entry.joinedAt };
+      const call = entry.phase.status === "overdue" ? await outingCall(ctx, entry) : null;
+      return { id: entry._id, name: person?.displayName ?? "Participant", phase: entry.phase, joinedAt: entry.joinedAt, callState: call?.state ?? null };
     })) };
   },
 });
@@ -208,6 +212,21 @@ export const advanceDeadline = internalMutation({
     if (entry.phase.status === "out" && entry.phase.returnBy <= now) {
       await ctx.db.patch(entry._id, { phase: { ...entry.phase, status: "overdue" } });
     }
+    await enqueueOverdueOutingCall(ctx, entry._id, now);
+    return null;
+  },
+});
+
+/** Recover overdue reminders in bounded pages, including outings already overdue at release. */
+export const sweepOverdueCalls = internalMutation({
+  args: { cursor: v.union(v.string(), v.null()) }, returns: v.null(),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("participantServiceQueueEntries")
+      .withIndex("by_phase", (q) => q.eq("phase.status", "overdue"))
+      .paginate({ cursor: args.cursor, numItems: 25 });
+    const now = Date.now();
+    for (const entry of page.page) await enqueueOverdueOutingCall(ctx, entry._id, now);
+    if (!page.isDone) await ctx.scheduler.runAfter(0, internal.serviceQueues.sweepOverdueCalls, { cursor: page.continueCursor });
     return null;
   },
 });

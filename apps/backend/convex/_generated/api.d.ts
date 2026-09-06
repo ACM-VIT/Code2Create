@@ -162,6 +162,7 @@ import type * as lib_operationsHealth from "../lib/operationsHealth.js";
 import type * as lib_operationsHealthSnapshot from "../lib/operationsHealthSnapshot.js";
 import type * as lib_operationsIntelligenceValidators from "../lib/operationsIntelligenceValidators.js";
 import type * as lib_outboundCalls from "../lib/outboundCalls.js";
+import type * as lib_outingCalls from "../lib/outingCalls.js";
 import type * as lib_outingValues from "../lib/outingValues.js";
 import type * as lib_participantAssistant from "../lib/participantAssistant.js";
 import type * as lib_participantEligibility from "../lib/participantEligibility.js";
@@ -496,6 +497,7 @@ declare const fullApi: ApiFromModules<{
   "lib/operationsHealthSnapshot": typeof lib_operationsHealthSnapshot;
   "lib/operationsIntelligenceValidators": typeof lib_operationsIntelligenceValidators;
   "lib/outboundCalls": typeof lib_outboundCalls;
+  "lib/outingCalls": typeof lib_outingCalls;
   "lib/outingValues": typeof lib_outingValues;
   "lib/participantAssistant": typeof lib_participantAssistant;
   "lib/participantEligibility": typeof lib_participantEligibility;

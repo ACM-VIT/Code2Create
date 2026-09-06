@@ -85,6 +85,10 @@ Increasing capacity grants waiting requests in arrival order. Reducing it preser
 
 Automatic movement needs a live connection. A second scan within 15 seconds is a duplicate and cannot reverse the first movement. Exact operation retries return the original receipt. An unsent offline or stale automatic scan is rejected rather than guessing a direction later. Deliberate exits also need a live permission check; an unverified offline exit leaves presence unchanged and needs review. A valid replayed return can release an occupied slot only after the ordinary attendance replay checks succeed. The operator taps **Scan next** after reading the result.
 
+At the 15-minute return deadline, the server marks the outing overdue and queues one Sarvam agent call to the participant’s registered phone. A minute-by-minute, paginated sweep recovers reminders for already-overdue outings. Waiting requests and unused permissions never trigger calls. The accepted exit scan is the authority for this automatic, exact-participant reminder; no staff member needs to request a call or hold a separate communications grant.
+
+Every dispatch rechecks that the same outing is still overdue, the participant remains active, eligible and admitted, the event window is open, and the phone still matches. A return scanned before dispatch cancels the reminder. A call already sent to the provider may still connect. Duplicate deadline jobs, sweep passes and dispatch attempts reuse one delivery per outing. Busy, unanswered and failed calls are not automatically redialed. Missing or invalid phones become visible unavailable deliveries. The ops **Overdue** roster shows call progress and outcomes for staff follow-up. Provider completion or a spoken answer never marks a return, extends the outing, or frees capacity; the matching return scan remains authoritative.
+
 ## 4. Participant credentials
 
 Code2Create does not issue a separate attendance card to the full participant population.
