@@ -1,3 +1,4 @@
+import { tinComputerBenefit } from "../components/benefits/teamBenefits";
 import { outingFixture } from "./outingFixture";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AccountBadge } from "../components/portal/AccountBadge";
@@ -773,6 +774,7 @@ const dashboardHelp: HelpTileModel = {
 const dashboardBenefits: BenefitsTileModel = {
   available: true,
   benefits: [
+    tinComputerBenefit,
     { id: "b1", name: "Cloud credits", description: "USD 200 on the event account.", link: "https://example.com/credits", scope: "team", code: "C2C-CLOUD-4F7Q" },
     { id: "b2", name: "Design tool seat", link: "https://example.com/seat", scope: "person", code: "SEAT-91KD-22" },
   ],

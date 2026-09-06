@@ -1,3 +1,4 @@
+import { tinComputerBenefit } from "../components/benefits/teamBenefits";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -224,7 +225,7 @@ export function DashboardLive({
 
   const benefitsModel: BenefitsTileModel = {
     available: capabilities?.hasTeamMembership ?? false,
-    benefits: benefits ?? [],
+    benefits: benefits === undefined ? [] : [...benefits, tinComputerBenefit],
   };
 
   const helpModel: HelpTileModel = {

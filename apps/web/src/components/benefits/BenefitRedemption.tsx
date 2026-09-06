@@ -37,6 +37,7 @@ export function BenefitRedemption({ benefit, animate, onClose }: {
   }, [ready, benefit.id]);
 
   const copy = async () => {
+    if (!benefit.code) return;
     try {
       await navigator.clipboard.writeText(benefit.code);
       setCopyState("copied");
@@ -52,7 +53,7 @@ export function BenefitRedemption({ benefit, animate, onClose }: {
     {!ready ? <>
       <h2 id={titleId} className="sr-only">{benefit.name}</h2>
       <BenefitChest onComplete={reveal} />
-      <PortalTextButton className="benefit-reveal__skip" onClick={reveal}>Show code now</PortalTextButton>
+      <PortalTextButton className="benefit-reveal__skip" onClick={reveal}>{benefit.code ? "Show code now" : "Show benefit now"}</PortalTextButton>
     </> : <div className="benefit-reveal__card">
       <div aria-hidden className="benefit-reveal__petals">
         {petals.map((petal, index) => <span key={index} style={{ left: petal.left, top: petal.top, rotate: `${petal.rotation}deg` }}>
@@ -63,10 +64,10 @@ export function BenefitRedemption({ benefit, animate, onClose }: {
         <p className="benefit-reveal__scope">{benefit.scope === "team" ? "For your team" : "Just for you"}</p>
         <h2 id={titleId}>{benefit.name}</h2>
         {benefit.description ? <p className="benefit-reveal__description">{benefit.description}</p> : null}
-        <p className="benefit-reveal__hint">{benefit.link ? "Copy your code, then redeem it with the provider." : "Your benefit code is ready to use."}</p>
-        <code data-ph-sensitive className="benefit-reveal__code">{benefit.code}</code>
+        <p className="benefit-reveal__hint">{benefit.code ? (benefit.link ? "Copy your code, then redeem it with the provider." : "Your benefit code is ready to use.") : "Visit the provider to claim your benefit."}</p>
+        {benefit.code ? <code data-ph-sensitive className="benefit-reveal__code">{benefit.code}</code> : null}
         <div className="benefit-reveal__actions">
-          <PortalButton size="sm" variant="solid" onClick={() => void copy()}>{copyState === "copied" ? "Copied!" : "Copy code"}</PortalButton>
+          {benefit.code ? <PortalButton size="sm" variant="solid" onClick={() => void copy()}>{copyState === "copied" ? "Copied!" : "Copy code"}</PortalButton> : null}
           {benefit.link ? <a href={benefit.link} target="_blank" rel="noopener noreferrer" className="benefit-reveal__redeem">Redeem benefit <span aria-hidden>↗</span></a> : null}
         </div>
         <p role="status" className="benefit-reveal__feedback">

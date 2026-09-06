@@ -14,7 +14,7 @@ export type BenefitView = {
   description?: string;
   link?: string;
   scope: "team" | "person";
-  code: string;
+  code?: string;
 };
 
 export type BenefitsTileModel = {
@@ -49,7 +49,7 @@ export function BenefitsTile({ slot, model }: {
             <img src="/assets/magic-lucky-chest.webp" alt="" loading="lazy" className="h-11 w-12 shrink-0 object-contain" />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-display text-[19px] leading-tight">{benefit.name}</span>
-              <span className="text-[12px] text-fg/65">{hasRevealedBenefit(benefit.id) ? "View code & details" : "Reveal your benefit"}</span>
+              <span className="text-[12px] text-fg/65">{hasRevealedBenefit(benefit.id) ? (benefit.code ? "View code & details" : "View details") : "Reveal your benefit"}</span>
             </span>
             <span aria-hidden className="text-rose-light">↗</span>
           </button>)}
