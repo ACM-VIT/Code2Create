@@ -18,7 +18,7 @@ import {
   type BarcodeType,
 } from "expo-camera";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 
 import { DutyIcon } from "@/components/DutyIcon";
 import { useCameraAccess } from "@/lib/use-camera-access";
@@ -78,7 +78,6 @@ import {
   runPersistentClientOperation,
   usePersistentClientOperations,
 } from "@/lib/client-operation-intents";
-import type { ReviewerRuntime } from "@/lib/runtime";
 import { palette, radius } from "@/theme";
 import { CaseListSkeleton, DoorSkeleton } from "@/components/skeletons";
 
@@ -179,8 +178,7 @@ function SetupFrame({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
-  const eventSlug = runtime.configuration.eventSlug;
+export function ScannerPanel({ eventSlug }: { eventSlug: string }) {
   const staffedOperations = usePersistentClientOperations(eventSlug, staffedOperationSlots);
   const platform = scannerPlatform();
   const [deviceState, setDeviceState] = useState<DeviceState>(() =>
@@ -323,7 +321,7 @@ export function ScannerPanel({ runtime }: { runtime: ReviewerRuntime }) {
     );
   }
   const deviceRecord = deviceState.record;
-  if (current === undefined) {
+  if (current === undefined || (!current && registrationBusy)) {
     return <DoorSkeleton />;
   }
   if (!current) {
@@ -392,7 +390,13 @@ function ScannerSurface({
   onDeviceRecord: (record: ScannerDeviceRecord) => void;
 }) {
   const staffedOperations = usePersistentClientOperations(eventSlug, staffedOperationSlots);
-  const { permission, requestPermission } = useCameraAccess();
+  const { permission, requestPermission, error: cameraAccessError, refresh: refreshCameraAccess } = useCameraAccess();
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [cameraFocused, setCameraFocused] = useState(false);
+  useFocusEffect(useCallback(() => {
+    setCameraFocused(true);
+    return () => setCameraFocused(false);
+  }, []));
   const recordScan = useAction(api.attendanceActions.recordScan);
   const scannerHeartbeat = useAction(api.attendanceActions.scannerHeartbeat);
   const resolveExternalPass = useAction(api.attendanceActions.resolveExternalPass);
@@ -680,7 +684,7 @@ function ScannerSurface({
     permission?.granted && appIsActive ? heartbeatState : { status: "checking" };
 
   const handleBarcode = async (scan: BarcodeScanningResult) => {
-    if (busyRef.current || replayingRef.current || receipt || pendingConfirmation) return;
+    if (!cameraFocused || !appIsActive || manualLookupOpen || historyOpen || busyRef.current || replayingRef.current || receipt || pendingConfirmation) return;
     busyRef.current = true;
     setBusy(true);
     setScanError(null);
@@ -1520,7 +1524,7 @@ function ScannerSurface({
     setScanError(null);
   };
 
-  if (!permission) {
+  if (!permission && !cameraAccessError) {
     return (
       <SetupFrame>
         <Meta>Checking camera access…</Meta>
@@ -1538,17 +1542,19 @@ function ScannerSurface({
     );
   }
 
-  if (!permission.granted && scannerReady(task, credentialSetup)) {
+  if ((cameraAccessError || cameraError || !permission?.granted) && scannerReady(task, credentialSetup)) {
     return (
       <>
         <SetupFrame>
-          <Section title="Camera access">
-            <Body>The camera is used only to decode ID barcodes and event QR codes.</Body>
+          <Section title={cameraAccessError || cameraError ? "Camera unavailable" : "Camera access"}>
+            {cameraAccessError || cameraError ? <Problem>{cameraAccessError ?? cameraError}</Problem> : null}
             <Action
               accent={palette.door}
-              label="Allow the camera"
+              label={cameraAccessError || cameraError ? "Try camera again" : permission?.canAskAgain === false ? "Open Settings" : "Allow the camera"}
               onPress={async () => {
-                await requestPermission();
+                if (cameraError) setCameraError(null);
+                else if (cameraAccessError) await refreshCameraAccess();
+                else await requestPermission();
               }}
             />
             {task === "staffed" && credentialSetup.step === "participant" ? (
@@ -1633,10 +1639,11 @@ function ScannerSurface({
           }}
         />
         <ScanSurface
-          camera={
+          camera={cameraFocused && appIsActive && !manualLookupOpen && !historyOpen ? (
             <CameraView
               barcodeScannerSettings={{ barcodeTypes }}
               facing="back"
+              onMountError={() => setCameraError("The camera could not start. Close other camera apps and try again.")}
               onBarcodeScanned={
                 busy || replaying || receipt || pendingConfirmation || pendingScan
                   ? undefined
@@ -1644,7 +1651,7 @@ function ScannerSurface({
               }
               style={StyleSheet.absoluteFill}
             />
-          }
+          ) : null}
           controls={
             <ScannerTaskContext
               detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID to record departure or return." : "Scan a linked ID or event pass."}
@@ -1865,16 +1872,17 @@ function ScannerSurface({
         }}
       />
       <ScanSurface
-        camera={
+        camera={cameraFocused && appIsActive && !manualLookupOpen && !historyOpen ? (
           <CameraView
             barcodeScannerSettings={{ barcodeTypes }}
             facing="back"
+            onMountError={() => setCameraError("The camera could not start. Close other camera apps and try again.")}
             onBarcodeScanned={
               busy || replaying || !scannerReady(task, credentialSetup) ? undefined : handleBarcode
             }
             style={StyleSheet.absoluteFill}
           />
-        }
+        ) : null}
         controls={
           <ScannerTaskContext
             detail={staffedPrompt.detail}

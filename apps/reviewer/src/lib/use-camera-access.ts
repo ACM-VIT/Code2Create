@@ -5,7 +5,7 @@ import { Linking } from "react-native";
 import { useDeviceCheck } from "./use-device-check";
 
 export function useCameraAccess() {
-  const { value, error, request } = useDeviceCheck(
+  const { value, error, refresh, request } = useDeviceCheck(
     Camera.getCameraPermissionsAsync,
     "Camera access could not be checked. Open Settings and try again.",
   );
@@ -22,5 +22,5 @@ export function useCameraAccess() {
       }),
     [request],
   );
-  return { permission: value, requestPermission, error };
+  return { permission: value, requestPermission, error, refresh };
 }
