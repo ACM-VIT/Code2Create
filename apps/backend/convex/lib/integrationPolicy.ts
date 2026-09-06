@@ -65,6 +65,26 @@ export function integrationPolicyChecksum(policy: IntegrationPolicy) {
   return fingerprintText(JSON.stringify(normalizeIntegrationPolicy(policy)));
 }
 
+export function integrationPolicyDocumentChecksum(policy: Doc<"integrationPolicyVersions">) {
+  const normalized = normalizeIntegrationPolicy(integrationPolicyFromDocument(policy));
+  if (policy.maxActiveFigmaFilesPerTeam === undefined) {
+    return integrationPolicyChecksum(normalized);
+  }
+  // Preserve the original checksum format for immutable, pre-Figma-removal records.
+  // Runtime policy inputs remain GitHub-only; legacy fields are not reintroduced there.
+  const figmaFreezeAt = optionalTimestamp(policy.figmaFreezeAt, "Legacy Figma freeze time");
+  return fingerprintText(JSON.stringify({
+    policyVersion: normalized.policyVersion,
+    requiredGitHubTopic: normalized.requiredGitHubTopic,
+    maxActiveGitHubRepositoriesPerTeam: normalized.maxActiveGitHubRepositoriesPerTeam,
+    maxActiveFigmaFilesPerTeam: boundedInteger(
+      policy.maxActiveFigmaFilesPerTeam, "Legacy Figma file limit", 10,
+    ),
+    ...(normalized.githubFreezeAt !== undefined ? { githubFreezeAt: normalized.githubFreezeAt } : {}),
+    ...(figmaFreezeAt !== undefined ? { figmaFreezeAt } : {}),
+  }));
+}
+
 export function integrationPolicyFromDocument(
   policy: Doc<"integrationPolicyVersions">,
 ): IntegrationPolicy {
@@ -104,7 +124,7 @@ export async function loadPublishedIntegrationPolicy(ctx: ReadCtx, event: Doc<"e
     });
   }
   const normalized = normalizeIntegrationPolicy(integrationPolicyFromDocument(policy));
-  if (integrationPolicyChecksum(normalized) !== policy.checksum) {
+  if (integrationPolicyDocumentChecksum(policy) !== policy.checksum) {
     throw new Error("The published integration-policy checksum is invalid.");
   }
   return { policy, normalized };
@@ -216,7 +236,7 @@ export async function publishIntegrationPolicy(
     });
   }
   const normalized = normalizeIntegrationPolicy(integrationPolicyFromDocument(draft));
-  if (integrationPolicyChecksum(normalized) !== draft.checksum) {
+  if (integrationPolicyDocumentChecksum(draft) !== draft.checksum) {
     throw new Error("The integration-policy draft checksum does not match its content.");
   }
   const issues = await integrationPolicyPublicationIssues(ctx, {

@@ -387,7 +387,7 @@ async function shiftReminderFixture(leadMs = 240_000) {
 }
 
 describe("automatic panel staffing", () => {
-  test("projects a reserve's duty and heartbeat without requiring a panel", async () => {
+  test.each([undefined, "pending", "complete", "blocked"] as const)("projects a reserve's duty without requiring a panel or legacy training (%s)", async (trainingStatus) => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
     await prepareAutomaticStaffing(backend, fixture);
@@ -395,6 +395,10 @@ describe("automatic panel staffing", () => {
     const sessionId = await createAuthSession(backend, authUserId, Date.now());
     const device = await backend.run(async (ctx) => {
       await ctx.db.patch(fixture.reservePersonId, { authUserId });
+      const profile = await ctx.db.query("reviewerProfiles")
+        .withIndex("by_event_person", q => q.eq("eventId", fixture.eventId).eq("personId", fixture.reservePersonId)).unique();
+      if (!profile) throw new Error("Reserve profile missing");
+      await ctx.db.patch(profile._id, { trainingStatus });
       const clock = await ctx.db.query("reviewerClockIns")
         .withIndex("by_round_person", q => q.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.reservePersonId)).unique();
       if (!clock) throw new Error("Reserve clock missing");

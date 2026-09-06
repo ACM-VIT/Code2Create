@@ -12,7 +12,7 @@ import {
 } from "./lib/configurationOperationResult";
 import { requireEventBySlug } from "./lib/events";
 import {
-  integrationPolicyChecksum,
+  integrationPolicyDocumentChecksum,
   integrationPolicyFromDocument,
   integrationPolicyInput,
   integrationPolicyPublicationIssues,
@@ -43,7 +43,7 @@ const policyView = v.object({
 
 function readPolicy(policy: Doc<"integrationPolicyVersions">) {
   const normalized = normalizeIntegrationPolicy(integrationPolicyFromDocument(policy));
-  if (integrationPolicyChecksum(normalized) !== policy.checksum) {
+  if (integrationPolicyDocumentChecksum(policy) !== policy.checksum) {
     throw new Error("The integration-policy checksum does not match its content.");
   }
   return {
@@ -160,7 +160,7 @@ export const validateDraft = query({
       eventId: event._id,
       policy: normalized,
     });
-    if (integrationPolicyChecksum(normalized) !== draft.checksum) {
+    if (integrationPolicyDocumentChecksum(draft) !== draft.checksum) {
       issues.unshift("The draft checksum does not match its integration policy.");
     }
     return {

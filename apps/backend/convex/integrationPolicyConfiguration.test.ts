@@ -8,18 +8,78 @@ import {
   githubTopicVerificationIsCurrent,
   integrationPolicyChecksum,
   githubIntegrationFrozenAt,
+  loadPublishedIntegrationPolicy,
   normalizeIntegrationPolicy,
   publishIntegrationPolicy,
   saveIntegrationPolicyDraft,
   type IntegrationPolicy,
 } from "./lib/integrationPolicy.ts";
 import { permissionCatalog } from "./lib/permissionCatalog.ts";
+import { fingerprintText } from "./lib/strings.ts";
 import schema from "./schema.ts";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 type BackendTest = TestConvex<typeof schema>;
 
 describe("integration policy configuration", () => {
+  test.each([false, true])("loads legacy Figma policy records without changing their checksums (freeze: %s)", async (withFreeze) => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, `legacy-${withFreeze}`);
+    const legacy = {
+      policyVersion: "integrations-v1",
+      requiredGitHubTopic: "code2create-7",
+      maxActiveGitHubRepositoriesPerTeam: 10,
+      maxActiveFigmaFilesPerTeam: 10,
+      ...(withFreeze ? { githubFreezeAt: fixture.now, figmaFreezeAt: fixture.now } : {}),
+    };
+    const checksum = fingerprintText(JSON.stringify(legacy));
+    await backend.run((ctx) => ctx.db.patch(fixture.policyId, { ...legacy, checksum }));
+    const loaded = await backend.run((ctx) => loadPublishedIntegrationPolicy(ctx, fixture.event));
+    expect(loaded.policy.checksum).toBe(checksum);
+    expect(loaded.normalized).toEqual({
+      policyVersion: legacy.policyVersion,
+      requiredGitHubTopic: legacy.requiredGitHubTopic,
+      maxActiveGitHubRepositoriesPerTeam: legacy.maxActiveGitHubRepositoriesPerTeam,
+      ...(withFreeze ? { githubFreezeAt: fixture.now } : {}),
+    });
+    const draft = await backend.run((ctx) => saveIntegrationPolicyDraft(ctx, {
+      event: fixture.event, actorPersonId: fixture.personId,
+      policy: { ...loaded.normalized, policyVersion: "integrations-v2" }, now: fixture.now + 1,
+    }));
+    const saved = await backend.run((ctx) => ctx.db.get(draft.policyVersionId));
+    expect(saved).not.toHaveProperty("maxActiveFigmaFilesPerTeam");
+    expect(saved).not.toHaveProperty("figmaFreezeAt");
+  });
+
+  test("publishes a legacy draft and still rejects altered legacy policy content", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend, "legacy-draft");
+    const legacy = {
+      policyVersion: "integrations-v2",
+      requiredGitHubTopic: "code2create-7-0",
+      maxActiveGitHubRepositoriesPerTeam: 10,
+      maxActiveFigmaFilesPerTeam: 10,
+      githubFreezeAt: fixture.now,
+      figmaFreezeAt: fixture.now,
+    };
+    const checksum = fingerprintText(JSON.stringify(legacy));
+    const draftId = await backend.run((ctx) => ctx.db.insert("integrationPolicyVersions", {
+      ...legacy, checksum, eventId: fixture.event._id, version: 2, status: "draft",
+      createdByPersonId: fixture.personId, createdAt: fixture.now,
+    }));
+    await backend.run((ctx) => publishIntegrationPolicy(ctx, {
+      event: fixture.event, draftPolicyId: draftId, expectedDraftChecksum: checksum, now: fixture.now + 1,
+    }));
+    const event = { ...fixture.event, publishedIntegrationPolicyId: draftId };
+    await backend.run((ctx) => loadPublishedIntegrationPolicy(ctx, event));
+    await backend.run((ctx) => ctx.db.patch(draftId, { figmaFreezeAt: fixture.now + 1 }));
+    await expect(backend.run((ctx) => loadPublishedIntegrationPolicy(ctx, event)))
+      .rejects.toThrow("checksum is invalid");
+    await backend.run((ctx) => ctx.db.patch(draftId, { figmaFreezeAt: fixture.now, requiredGitHubTopic: "changed" }));
+    await expect(backend.run((ctx) => loadPublishedIntegrationPolicy(ctx, event)))
+      .rejects.toThrow("checksum is invalid");
+  });
+
   test("keeps read, draft, validation, and publication independently event scoped", () => {
     for (const permissionKey of [
       "configuration.integration.read",
