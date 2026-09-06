@@ -4137,10 +4137,12 @@ export default defineSchema({
     teamId: v.id("teams"),
     personId: v.id("people"),
     stateDigest: v.string(),
+    requestedInstallationId: v.optional(v.string()),
     returnPath: v.string(),
     status: v.union(
       v.literal("pending"),
       v.literal("verifying"),
+      v.literal("discovered"),
       v.literal("completed"),
       v.literal("failed"),
       v.literal("expired"),

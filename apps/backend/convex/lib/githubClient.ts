@@ -7,6 +7,27 @@ const githubApiVersion = "2026-03-10";
 const githubRequestTimeoutMs = 30_000;
 const githubUserAuthorizeUrl = "https://github.com/login/oauth/authorize";
 
+export function githubIntegrationCallbackUri(site = process.env.PARTICIPANT_SITE_URL) {
+  if (!site?.trim()) {
+    throw new ConvexError({
+      code: "PARTICIPANT_SITE_NOT_CONFIGURED",
+      message: "The participant site is not configured.",
+    });
+  }
+  const url = new URL(site.trim());
+  const localHttp = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
+  if (
+    (!localHttp && url.protocol !== "https:") ||
+    url.username || url.password || url.pathname !== "/" || url.search || url.hash
+  ) {
+    throw new ConvexError({
+      code: "PARTICIPANT_SITE_NOT_CONFIGURED",
+      message: "The participant site URL is invalid.",
+    });
+  }
+  return `${url.origin}/integrations/github/callback`;
+}
+
 export function githubStarAuthorizationUrl(args: {
   clientId: string;
   redirectUri: string;

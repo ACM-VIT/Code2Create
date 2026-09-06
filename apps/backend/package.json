@@ -55,7 +55,7 @@
     "test:intelligence": "vitest run convex/lib/operationsAutonomyPolicy.test.ts convex/operationsAutonomy.test.ts convex/operationsIntelligence.test.ts convex/operationsEpisodes.test.ts convex/intelligenceReads.test.ts convex/intelligenceRecommendations.test.ts convex/intelligenceObservability.test.ts",
     "test:push": "node --test convex/lib/pushTokens.test.ts convex/lib/reviewerPagePush.test.ts",
     "test:voice": "vitest run convex/lib/outboundCalls.test.ts convex/outboundCallConsents.test.ts convex/outboundCallState.test.ts convex/reviewerRepage.test.ts convex/reviewerVenue.test.ts",
-    "test:github-repositories": "vitest run convex/lib/githubClient.test.ts convex/githubRepositoryOrder.test.ts convex/githubTeamMetrics.test.ts convex/integrationOperations.test.ts",
+    "test:github-repositories": "vitest run convex/lib/githubClient.test.ts convex/githubConnection.test.ts convex/githubRepositoryOrder.test.ts convex/githubTeamMetrics.test.ts convex/integrationOperations.test.ts",
     "test:queue-estimate": "node --test convex/lib/queueEstimate.test.ts convex/lib/reviewOverviewCounts.test.ts && vitest run convex/participantReview.test.ts convex/lib/reviewQuestionSources.test.ts convex/lib/reviewRepositoryInventory.test.ts convex/lib/reviewPanelRouting.test.ts",
     "test:service-queues": "vitest run convex/serviceQueues.test.ts",
     "test:synesthesia": "vitest run convex/synesthesiaVoting.test.ts convex/lib/youtubeCatalog.test.ts",

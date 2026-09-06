@@ -2,7 +2,7 @@
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { ConvexError, v } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { RequestError } from "octokit";
 
 import type { Id } from "./_generated/dataModel";
@@ -12,6 +12,7 @@ import {
   GitHubOctokit,
   githubApp,
   githubConfiguration,
+  githubIntegrationCallbackUri,
   installationOctokit,
   isGitHubRateLimit,
   repositoryOctokit,
@@ -21,7 +22,7 @@ import { githubInstallationContract } from "./lib/githubInstallationContract";
 import { repositoryKind } from "./values";
 
 type SetupClaim =
-  | { kind: "verify"; intentId: Id<"githubSetupIntents"> }
+  | { kind: "verify"; intentId: Id<"githubSetupIntents">; requestedInstallationId?: string }
   | { kind: "completed"; connectionId: Id<"githubInstallationConnections"> };
 
 type ConnectionContext = {
@@ -132,28 +133,49 @@ function normalizedLanguages(values: Record<string, number>) {
 }
 
 export const beginConnection = action({
-  args: { eventSlug: v.string() },
+  args: {
+    eventSlug: v.string(),
+    installationId: v.optional(v.string()),
+    install: v.optional(v.boolean()),
+  },
   returns: v.object({ installUrl: v.string() }),
   handler: async (ctx, args): Promise<{ installUrl: string }> => {
     const state = randomBytes(32).toString("base64url");
+    const requestedInstallationId = args.installationId === undefined
+      ? undefined : String(safeGitHubId(args.installationId, "Installation ID"));
+    if (args.install && requestedInstallationId) {
+      throw new ConvexError({ code: "SETUP_INVALID", message: "Choose either an existing installation or a new installation." });
+    }
+    const app = githubApp();
     await ctx.runMutation(internal.githubIntegrations.createSetupIntent, {
       eventSlug: args.eventSlug,
       stateDigest: opaqueDigest(state),
+      ...(requestedInstallationId ? { requestedInstallationId } : {}),
     });
-    const installUrl = await githubApp().getInstallationUrl({ state });
+    const installUrl = args.install
+      ? await app.getInstallationUrl({ state })
+      : app.oauth.getWebFlowAuthorizationUrl({ state, redirectUrl: githubIntegrationCallbackUri() }).url;
     return { installUrl };
   },
 });
+
+const connectionResult = v.union(
+  v.object({ kind: v.literal("connected"), connectionId: v.id("githubInstallationConnections") }),
+  v.object({
+    kind: v.literal("choose_installation"),
+    installations: v.array(v.object({ installationId: v.string(), accountLogin: v.string() })),
+  }),
+);
 
 export const completeConnection = action({
   args: {
     eventSlug: v.string(),
     state: v.string(),
     code: v.string(),
-    installationId: v.string(),
+    installationId: v.optional(v.string()),
   },
-  returns: v.object({ connectionId: v.id("githubInstallationConnections") }),
-  handler: async (ctx, args): Promise<{ connectionId: Id<"githubInstallationConnections"> }> => {
+  returns: connectionResult,
+  handler: async (ctx, args): Promise<Infer<typeof connectionResult>> => {
     if (
       args.state.length < 32 ||
       args.state.length > 256 ||
@@ -171,14 +193,36 @@ export const completeConnection = action({
       stateDigest: opaqueDigest(args.state),
       attemptId,
     });
-    if (claim.kind === "completed") return { connectionId: claim.connectionId };
+    if (claim.kind === "completed") return { kind: "connected", connectionId: claim.connectionId };
 
     try {
       const configuration = githubConfiguration();
       const app = githubApp(configuration);
-      const installationId = safeGitHubId(args.installationId, "Installation ID");
+      if (claim.requestedInstallationId && args.installationId && claim.requestedInstallationId !== args.installationId) {
+        throw new ConvexError({ code: "GITHUB_INSTALLER_MISMATCH", message: "GitHub returned a different installation. Start the connection again." });
+      }
       const token = await app.oauth.createToken({ code: args.code });
       const userOctokit = new GitHubOctokit({ auth: token.authentication.token });
+      const selectedInstallationId = claim.requestedInstallationId ?? args.installationId;
+      if (!selectedInstallationId) {
+        const installations: { installationId: string; accountLogin: string }[] = [];
+        // Bound provider work without silently dropping accounts from the picker.
+        for (let page = 1; page <= 10; page += 1) {
+          const response = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser({ per_page: 100, page });
+          for (const installation of response.data.installations) {
+            if (String(installation.app_id) !== configuration.appId || installation.suspended_at || !installation.account) continue;
+            const account = installation.account;
+            installations.push({ installationId: String(installation.id), accountLogin: "login" in account ? account.login : account.slug });
+          }
+          if (page * 100 >= response.data.total_count) break;
+          if (page === 10) {
+            throw new ConvexError({ code: "GITHUB_TOO_MANY_INSTALLATIONS", message: "This account has too many installations to list. Use an account with access to the project's installation." });
+          }
+        }
+        await ctx.runMutation(internal.githubIntegrations.finishSetupDiscovery, { intentId: claim.intentId, attemptId });
+        return { kind: "choose_installation", installations };
+      }
+      const installationId = safeGitHubId(selectedInstallationId, "Installation ID");
       await userOctokit.rest.apps.listInstallationReposForAuthenticatedUser({
         installation_id: installationId,
         per_page: 1,
@@ -187,6 +231,9 @@ export const completeConnection = action({
       const verifiedInstallation = await app.octokit.rest.apps.getInstallation({
         installation_id: installationId,
       });
+      if (verifiedInstallation.data.suspended_at) {
+        throw new ConvexError({ code: "GITHUB_INSTALLATION_SUSPENDED", message: "This GitHub App installation is suspended. Ask its owner to restore access." });
+      }
       if (String(verifiedInstallation.data.app_id) !== configuration.appId) {
         throw new ConvexError({
           code: "GITHUB_INSTALLER_MISMATCH",
@@ -230,7 +277,7 @@ export const completeConnection = action({
         targetType: targetType(verifiedInstallation.data.target_type),
         repositorySelection: installationSelection(verifiedInstallation.data.repository_selection),
       });
-      return { connectionId: result.connectionId };
+      return { kind: "connected", connectionId: result.connectionId };
     } catch (error) {
       await ctx.runMutation(internal.githubIntegrations.failSetupIntent, {
         intentId: claim.intentId,

@@ -515,6 +515,7 @@ export const createSetupIntent = internalMutation({
   args: {
     eventSlug: v.string(),
     stateDigest: v.string(),
+    requestedInstallationId: v.optional(v.string()),
   },
   returns: v.object({ intentId: v.id("githubSetupIntents") }),
   handler: async (ctx, args) => {
@@ -539,6 +540,7 @@ export const createSetupIntent = internalMutation({
       teamId: team._id,
       personId: person._id,
       stateDigest: args.stateDigest,
+      ...(args.requestedInstallationId ? { requestedInstallationId: args.requestedInstallationId } : {}),
       returnPath: "/integrations",
       status: "pending",
       expiresAt: now + 10 * 60 * 1_000,
@@ -552,6 +554,7 @@ const setupClaim = v.union(
   v.object({
     kind: v.literal("verify"),
     intentId: v.id("githubSetupIntents"),
+    requestedInstallationId: v.optional(v.string()),
   }),
   v.object({
     kind: v.literal("completed"),
@@ -608,7 +611,7 @@ export const claimSetupIntent = internalMutation({
         message: "This GitHub connection is already being verified.",
       });
     }
-    if (intent.status === "failed") {
+    if (intent.status === "failed" || intent.status === "discovered") {
       throw new ConvexError({
         code: "SETUP_FAILED",
         message: "Start the GitHub connection again.",
@@ -619,7 +622,33 @@ export const claimSetupIntent = internalMutation({
       attemptId: args.attemptId,
       claimExpiresAt: now + 2 * 60 * 1_000,
     });
-    return { kind: "verify", intentId: intent._id };
+    return {
+      kind: "verify",
+      intentId: intent._id,
+      ...(intent.requestedInstallationId ? { requestedInstallationId: intent.requestedInstallationId } : {}),
+    };
+  },
+});
+
+// Discovery consumes the OAuth code. Choosing an account starts a new, account-bound
+// authorization so no user token needs to be persisted or sent to the browser.
+export const finishSetupDiscovery = internalMutation({
+  args: { intentId: v.id("githubSetupIntents"), attemptId: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const intent = await ctx.db.get("githubSetupIntents", args.intentId);
+    if (
+      !intent || intent.status !== "verifying" ||
+      intent.attemptId !== args.attemptId || intent.expiresAt <= Date.now()
+    ) {
+      throw new ConvexError({ code: "SETUP_INVALID", message: "Start the GitHub connection again." });
+    }
+    await ctx.db.patch("githubSetupIntents", intent._id, {
+      status: "discovered",
+      completedAt: Date.now(),
+      claimExpiresAt: undefined,
+    });
+    return null;
   },
 });
 
@@ -657,6 +686,7 @@ export const finishSetupIntent = internalMutation({
       intent.personId !== person._id ||
       intent.status !== "verifying" ||
       intent.attemptId !== args.attemptId ||
+      (intent.requestedInstallationId !== undefined && intent.requestedInstallationId !== args.installationId) ||
       intent.expiresAt <= Date.now()
     ) {
       throw new ConvexError({ code: "SETUP_STALE", message: "Start the GitHub connection again." });

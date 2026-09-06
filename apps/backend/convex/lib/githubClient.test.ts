@@ -2,6 +2,7 @@ import { RequestError } from "octokit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  githubIntegrationCallbackUri,
   githubRepositoryIsStarred,
   githubOAuthGrantRevocationRequest,
   githubStarAuthorizationUrl,
@@ -13,6 +14,13 @@ import {
 import { githubInstallationContract } from "./githubInstallationContract";
 
 describe("GitHub request boundary", () => {
+  it("uses the repository callback, independently of star onboarding", () => {
+    expect(githubIntegrationCallbackUri("https://c2c.sh")).toBe("https://c2c.sh/integrations/github/callback");
+    expect(githubIntegrationCallbackUri("http://localhost:5180/")).toBe("http://localhost:5180/integrations/github/callback");
+    for (const site of ["", "http://c2c.sh", "https://name:secret@c2c.sh", "https://c2c.sh/onboarding", "https://c2c.sh?redirect=elsewhere"]) {
+      expect(() => githubIntegrationCallbackUri(site)).toThrow();
+    }
+  });
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
