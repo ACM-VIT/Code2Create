@@ -41,6 +41,10 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      C2C_PRODUCTION_ORIGIN_IP: 20.204.40.131
+      C2C_PRODUCTION_NSG: nsg-c2c-production-app
+      C2C_DEPLOY_NSG_RULE: AllowBackendDeployHttps
     steps:
       - uses: actions/checkout@v6
 
@@ -57,8 +61,8 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Allow this runner to read the production vault
-        id: vault-network
+      - name: Allow this runner to deploy to the production origin
+        id: production-network
         shell: bash
         run: |
           set -euo pipefail
@@ -67,35 +71,69 @@ jobs:
             echo "The runner did not resolve a valid public IPv4 address." >&2
             exit 1
           fi
+          echo "runner_ip=${runner_ip}" >>"${GITHUB_OUTPUT}"
           az keyvault network-rule add \
             --resource-group rg-code2create-production \
             --name kv-c2c-prod-b88416 \
             --ip-address "${runner_ip}/32" \
             --output none
-          echo "runner_ip=${runner_ip}" >>"${GITHUB_OUTPUT}"
+          az network nsg rule create \
+            --resource-group rg-code2create-production \
+            --nsg-name "${C2C_PRODUCTION_NSG}" \
+            --name "${C2C_DEPLOY_NSG_RULE}" \
+            --priority 100 \
+            --direction Inbound \
+            --access Allow \
+            --protocol Tcp \
+            --source-address-prefixes "${runner_ip}/32" \
+            --source-port-ranges '*' \
+            --destination-address-prefixes '*' \
+            --destination-port-ranges 443 \
+            --description "Ephemeral direct origin access for the production backend deployment" \
+            --output none
+          echo "${C2C_PRODUCTION_ORIGIN_IP} realtime.c2c.sh # code2create-backend-deploy" \
+            | sudo tee -a /etc/hosts >/dev/null
           for attempt in {1..12}; do
             if az keyvault secret show \
               --vault-name kv-c2c-prod-b88416 \
               --name convex-admin-key \
               --query id \
-              --output tsv >/dev/null 2>&1; then
+              --output tsv >/dev/null 2>&1 \
+              && curl --fail --silent --show-error \
+                --connect-timeout 5 \
+                --max-time 15 \
+                https://realtime.c2c.sh/version >/dev/null; then
               exit 0
             fi
             sleep 10
           done
-          echo "The production vault firewall did not admit the runner in time." >&2
+          echo "The production vault or direct backend origin did not admit the runner in time." >&2
           exit 1
 
       - name: Deploy exact revision to self-hosted Convex
         run: bash infra/azure/production/deploy-convex.sh "${GITHUB_SHA}"
 
-      - name: Remove this runner from the production vault
-        if: ${{ always() && steps.vault-network.outputs.runner_ip != '' }}
+      - name: Remove this runner from the production networks
+        if: ${{ always() && steps.production-network.outputs.runner_ip != '' }}
         env:
-          RUNNER_IP: ${{ steps.vault-network.outputs.runner_ip }}
+          RUNNER_IP: ${{ steps.production-network.outputs.runner_ip }}
         run: |
+          cleanup_status=0
+          sudo sed -i '/# code2create-backend-deploy$/d' /etc/hosts || cleanup_status=1
+          if az network nsg rule show \
+            --resource-group rg-code2create-production \
+            --nsg-name "${C2C_PRODUCTION_NSG}" \
+            --name "${C2C_DEPLOY_NSG_RULE}" \
+            --output none 2>/dev/null; then
+            az network nsg rule delete \
+              --resource-group rg-code2create-production \
+              --nsg-name "${C2C_PRODUCTION_NSG}" \
+              --name "${C2C_DEPLOY_NSG_RULE}" \
+              --output none || cleanup_status=1
+          fi
           az keyvault network-rule remove \
             --resource-group rg-code2create-production \
             --name kv-c2c-prod-b88416 \
             --ip-address "${RUNNER_IP}/32" \
-            --output none
+            --output none || cleanup_status=1
+          exit "${cleanup_status}"

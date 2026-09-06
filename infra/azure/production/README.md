@@ -25,6 +25,9 @@ this inventory.
 - no public PostgreSQL, Convex dashboard, Docker socket, or SSH listener;
 - Cloudflare-proxied `realtime.c2c.sh` and `api.c2c.sh` origins with the backend
   accepting HTTPS traffic only from Cloudflare's published ranges;
+- production deployments temporarily admitting only the current GitHub runner's
+  IPv4 `/32` to origin port 443, then removing that rule during unconditional
+  workflow cleanup;
 - a separate production deployment secret inventory; and
 - automated database backup verification plus a timed restore rehearsal into an
   isolated environment.
@@ -106,10 +109,14 @@ prints the token.
 Normal function releases use `.github/workflows/backend-deploy.yml`. Production
 deployment is an explicit workflow run from `main`; it does not run on a push.
 The production GitHub environment authenticates to Azure with OIDC, can read
-only the production Key Vault secrets allowed by its role, and passes the exact
-Git revision to `deploy-convex.sh`. No Azure client secret or Convex admin key is
-stored in GitHub. Environment configuration remains a separate operator action
-and is not part of an ordinary code deployment.
+only the production Key Vault secrets allowed by its role, has Network
+Contributor scoped to `nsg-c2c-production-app`, and passes the exact Git revision
+to `deploy-convex.sh`. The workflow resolves `realtime.c2c.sh` directly to the
+recorded Azure origin only while its ephemeral port-443 rule is active. This
+keeps long Convex deployment requests outside Cloudflare's proxy read timeout;
+public application traffic remains proxied. No Azure client secret or Convex
+admin key is stored in GitHub. Environment configuration remains a separate
+operator action and is not part of an ordinary code deployment.
 
 Discord support is an additional interface over the same Convex support cases;
 it does not replace the operations dashboard. Its bot runs in the separate
@@ -154,8 +161,10 @@ embedding uses the separate V8 action pool, so background novelty indexing
 cannot take the participant-facing question slots. Keep these production limits
 together so background indexing cannot consume participant-facing capacity.
 
-Only ports 80 and 443 accept inbound traffic, and only from Cloudflare's
-published IPv4 proxy ranges. SSH is not an operational path; use Azure Run
+Only ports 80 and 443 accept inbound traffic. The persistent rules admit only
+Cloudflare's published IPv4 proxy ranges; the production deployment workflow
+adds the current GitHub runner's IPv4 `/32` to port 443 and removes it in its
+unconditional cleanup step. SSH is not an operational path; use Azure Run
 Command for host maintenance. The Convex dashboard is intentionally absent from
 the production Compose file.
 
