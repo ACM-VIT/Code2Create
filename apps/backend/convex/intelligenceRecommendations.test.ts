@@ -545,6 +545,11 @@ describe("intelligence recommendations", () => {
         )
         .unique();
       if (!operator) throw new Error("The operator subject is missing.");
+      await ctx.db.insert("eventRoles", {
+        eventId: fixture.eventId, personId: fixture.operatorPersonId, eventAccessSubjectId: operator._id,
+        role: "board", status: "active", validFrom: Date.now() - 1000,
+        sourceType: "manual", sourceId: "paging-test-board", assignedByPersonId: fixture.operatorPersonId, createdAt: Date.now(),
+      });
       const member = (endedAt: number) =>
         ctx.db.insert("reviewPanelMembers", {
           eventId: fixture.eventId,

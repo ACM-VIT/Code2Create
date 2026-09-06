@@ -1,5 +1,5 @@
 import type { Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { advanceAccessVersion } from "./accessVersion";
 import { insertPermissionGrant } from "./permissions";
 
@@ -140,4 +140,14 @@ export async function grantReviewAssignmentAccess(
   if (createdCount > 0) {
     await advanceAccessVersion(ctx, args.eventAccessSubjectId, Date.now());
   }
+}
+
+/** Committee panel changes belong to Board; the event owner retains full control. */
+export async function canManagePanelRoster(ctx: MutationCtx | QueryCtx, eventId: Id<"events">, personId: Id<"people">) {
+  const roles = await ctx.db.query("eventRoles")
+    .withIndex("by_event_person_status", q => q.eq("eventId", eventId).eq("personId", personId).eq("status", "active"))
+    .collect();
+  const now = Date.now();
+  return roles.some(role => (role.role === "board" || role.role === "supreme") &&
+    role.validFrom <= now && (role.validUntil === undefined || role.validUntil > now));
 }

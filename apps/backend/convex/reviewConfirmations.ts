@@ -300,160 +300,203 @@ export const mine = query({
   },
 });
 
+const confirmationInput = {
+  eventSlug: v.string(),
+  roundId: v.id("reviewRounds"),
+  windows: v.array(windowInput),
+  expectedVersion: v.number(),
+  clientOperationId: v.string(),
+};
+
+type ConfirmationInput = {
+  eventSlug: string;
+  roundId: Id<"reviewRounds">;
+  windows: { startsAt: number; endsAt: number }[];
+  expectedVersion: number;
+  clientOperationId: string;
+};
+
 export const respond = mutation({
-  args: {
-    eventSlug: v.string(),
-    roundId: v.id("reviewRounds"),
-    windows: v.array(windowInput),
-    expectedVersion: v.number(),
-    clientOperationId: v.string(),
-  },
+  args: confirmationInput,
   returns: v.object({ version: v.number() }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const fingerprint = operationFingerprint([
-      args.roundId,
-      args.expectedVersion,
-      JSON.stringify(args.windows),
-    ]);
-    const prior = await findOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.round.confirm",
-      requestFingerprint: fingerprint,
-    });
-    if (prior)
-      return {
-        version: storedOperationVersion(
-          prior.resultJson,
-          "review confirmation",
-        ),
-      };
-    const [round, request, confirmation] = await Promise.all([
-      ctx.db.get(args.roundId),
-      ctx.db
-        .query("reviewConfirmationRequests")
-        .withIndex("by_roundId", (q) => q.eq("roundId", args.roundId))
-        .unique(),
-      ctx.db
-        .query("reviewerRoundConfirmations")
-        .withIndex("by_roundId_and_personId", (q) =>
-          q.eq("roundId", args.roundId).eq("personId", person._id),
-        )
-        .unique(),
-    ]);
-    if (!(await isRoundReviewer(ctx, args.roundId, person._id))) throw new ConvexError({ code: "REVIEWER_NOT_ROSTERED", message: "You are not on this round's reviewer roster." });
-    const now = Date.now();
-    if (
-      !round ||
-      round.eventId !== event._id ||
-      !["published", "open"].includes(round.status) ||
-      !request ||
-      request.state === "closed" ||
-      request.opensAt > now ||
-      request.closesAt <= now ||
-      round.endsAt <= now ||
-      !confirmation
-    ) {
-      throw new ConvexError({
-        code: "CONFIRMATION_NOT_OPEN",
-        message: "Availability confirmation is not open for this round.",
-      });
-    }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "reviewer.clock_in",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    if (confirmation.version !== args.expectedVersion) {
-      throw new ConvexError({
-        code: "CONFIRMATION_CHANGED",
-        message: "Your availability changed. Refresh before saving.",
-      });
-    }
-    const windows = confirmedReviewWindows(args.windows, round);
-    const assignments = await ctx.db
-      .query("reviewAssignments")
-      .withIndex("by_event_person_status", (q) =>
-        q
-          .eq("eventId", event._id)
-          .eq("reviewerPersonId", person._id)
-          .eq("status", "assigned"),
-      )
-      .take(101);
-    if (assignments.length > 100)
-      throw new Error("Reviewer assignment limit exceeded.");
-    for (const assignment of assignments.filter(
-      (assignment) => assignment.roundId === round._id,
-    )) {
-      const session = await ctx.db.get(assignment.reviewSessionId);
-      if (
-        session &&
-        (session.status === "active" || session.status === "scoring")
-      )
-        throw new ConvexError({
-          code: "ACTIVE_REVIEW_ASSIGNED",
-          message: "Finish your active review before changing availability.",
-        });
-    }
-    if (windows.length > 0 && !windows.some((window) => window.endsAt > now)) {
-      throw new ConvexError({
-        code: "AVAILABILITY_ENDED",
-        message: "Choose availability that has not already ended.",
-      });
-    }
-    const status =
-      windows.length === 0 ? ("unavailable" as const) : ("confirmed" as const);
-    const version = confirmation.version + 1;
-    await ctx.db.patch(confirmation._id, {
-      status,
-      windows,
-      version,
-      respondedAt: now,
-      updatedAt: now,
-    });
-    await scheduleShiftReminders(
-      ctx,
-      { ...confirmation, status, windows, version },
-      round,
-      now,
-    );
-    await recordOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.round.confirm",
-      requestFingerprint: fingerprint,
-      targetType: "reviewer_round_confirmation",
-      targetId: confirmation._id,
-      resultJson: String(version),
-      createdAt: now,
-    });
-    await writeAuditEvent(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      permissionKey: "reviewer.clock_in",
-      grantIds,
-      scopeType: "round",
-      scopeId: round._id,
-      action: "reviewer.round_confirmed",
-      targetType: "reviewer_round_confirmation",
-      targetId: confirmation._id,
-      previousSummary: JSON.stringify({
-        status: confirmation.status,
-        windows: confirmation.windows,
-      }),
-      nextSummary: JSON.stringify({ status, windows }),
-      reason: "Reviewer confirmed their actual hours in the app.",
-    });
-    return { version };
-  },
+  handler: (ctx, args) => recordConfirmation(ctx, args),
 });
+
+export const recordForReviewer = mutation({
+  args: { ...confirmationInput, reviewerPersonId: v.id("people"), reason: v.string() },
+  returns: v.object({ version: v.number() }),
+  handler: (ctx, args) => recordConfirmation(ctx, args, {
+    reviewerPersonId: args.reviewerPersonId,
+    reason: args.reason,
+  }),
+});
+
+async function recordConfirmation(
+  ctx: MutationCtx,
+  args: ConfirmationInput,
+  organizer?: { reviewerPersonId: Id<"people">; reason: string },
+): Promise<{ version: number }> {
+  const event = await requireEventBySlug(ctx, args.eventSlug);
+  const { person } = await requireCurrentPerson(ctx);
+  const subject = await requireEventSubject(ctx, event._id, person._id);
+  const reviewerPersonId = organizer?.reviewerPersonId ?? person._id;
+  const reason = organizer
+    ? normalizedText(organizer.reason, "Reason", 3, 300)
+    : "Reviewer confirmed their actual hours in the app.";
+  const commandName = organizer ? "reviewer.round.confirm_for_reviewer" : "reviewer.round.confirm";
+  const fingerprint = operationFingerprint([
+    args.roundId,
+    args.expectedVersion,
+    JSON.stringify(args.windows),
+    ...(organizer ? [reviewerPersonId, reason] : []),
+  ]);
+  const prior = await findOperation(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    clientOperationId: args.clientOperationId,
+    commandName,
+    requestFingerprint: fingerprint,
+  });
+  if (prior)
+    return {
+      version: storedOperationVersion(
+        prior.resultJson,
+        "review confirmation",
+      ),
+    };
+  const grantIds = await requirePermission(ctx, {
+    eventId: event._id,
+    eventAccessSubjectId: subject._id,
+    ...(organizer
+      ? { permissionKey: "review.configuration.publish", scopeType: "event" }
+      : { permissionKey: "reviewer.clock_in", scopeType: "round", scopeId: args.roundId }),
+  });
+  if (organizer) {
+    const reviewer = await ctx.db.get(reviewerPersonId);
+    if (!reviewer || reviewer.status !== "active") {
+      throw new ConvexError({ code: "REVIEWER_INACTIVE", message: "Choose an active reviewer." });
+    }
+    const reviewerSubject = await requireEventSubject(ctx, event._id, reviewerPersonId);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: reviewerSubject._id,
+      permissionKey: "reviewer.clock_in",
+      scopeType: "round",
+      scopeId: args.roundId,
+    });
+  }
+  const [round, request, confirmation] = await Promise.all([
+    ctx.db.get(args.roundId),
+    ctx.db
+      .query("reviewConfirmationRequests")
+      .withIndex("by_roundId", (q) => q.eq("roundId", args.roundId))
+      .unique(),
+    ctx.db
+      .query("reviewerRoundConfirmations")
+      .withIndex("by_roundId_and_personId", (q) =>
+        q.eq("roundId", args.roundId).eq("personId", reviewerPersonId),
+      )
+      .unique(),
+  ]);
+  if (!(await isRoundReviewer(ctx, args.roundId, reviewerPersonId))) throw new ConvexError({ code: "REVIEWER_NOT_ROSTERED", message: "You are not on this round's reviewer roster." });
+  const now = Date.now();
+  if (
+    !round ||
+    round.eventId !== event._id ||
+    !["published", "open"].includes(round.status) ||
+    !request ||
+    (!organizer && (request.state === "closed" || request.opensAt > now || request.closesAt <= now)) ||
+    round.endsAt <= now ||
+    !confirmation
+  ) {
+    throw new ConvexError({
+      code: "CONFIRMATION_NOT_OPEN",
+      message: "Availability confirmation is not open for this round.",
+    });
+  }
+  if (confirmation.version !== args.expectedVersion) {
+    throw new ConvexError({
+      code: "CONFIRMATION_CHANGED",
+      message: "Your availability changed. Refresh before saving.",
+    });
+  }
+  const windows = confirmedReviewWindows(args.windows, round);
+  const assignments = await ctx.db
+    .query("reviewAssignments")
+    .withIndex("by_event_person_status", (q) =>
+      q
+        .eq("eventId", event._id)
+        .eq("reviewerPersonId", reviewerPersonId)
+        .eq("status", "assigned"),
+    )
+    .take(101);
+  if (assignments.length > 100)
+    throw new Error("Reviewer assignment limit exceeded.");
+  for (const assignment of assignments.filter(
+    (assignment) => assignment.roundId === round._id,
+  )) {
+    const session = await ctx.db.get(assignment.reviewSessionId);
+    if (
+      session &&
+      (session.status === "active" || session.status === "scoring")
+    )
+      throw new ConvexError({
+        code: "ACTIVE_REVIEW_ASSIGNED",
+        message: "Finish your active review before changing availability.",
+      });
+  }
+  if (windows.length > 0 && !windows.some((window) => window.endsAt > now)) {
+    throw new ConvexError({
+      code: "AVAILABILITY_ENDED",
+      message: "Choose availability that has not already ended.",
+    });
+  }
+  const status =
+    windows.length === 0 ? ("unavailable" as const) : ("confirmed" as const);
+  const version = confirmation.version + 1;
+  await ctx.db.patch(confirmation._id, {
+    status,
+    windows,
+    version,
+    respondedAt: now,
+    updatedAt: now,
+  });
+  await scheduleShiftReminders(
+    ctx,
+    { ...confirmation, status, windows, version },
+    round,
+    now,
+  );
+  await recordOperation(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    clientOperationId: args.clientOperationId,
+    commandName,
+    requestFingerprint: fingerprint,
+    targetType: "reviewer_round_confirmation",
+    targetId: confirmation._id,
+    resultJson: String(version),
+    createdAt: now,
+  });
+  await writeAuditEvent(ctx, {
+    eventId: event._id,
+    actorPersonId: person._id,
+    grantIds,
+    ...(organizer
+      ? { permissionKey: "review.configuration.publish", scopeType: "event" }
+      : { permissionKey: "reviewer.clock_in", scopeType: "round", scopeId: round._id }),
+    action: organizer ? "reviewer.round_confirmation_recorded_by_organizer" : "reviewer.round_confirmed",
+    targetType: "reviewer_round_confirmation",
+    targetId: confirmation._id,
+    previousSummary: JSON.stringify({
+      status: confirmation.status,
+      windows: confirmation.windows,
+    }),
+    nextSummary: JSON.stringify({ reviewerPersonId, status, windows }),
+    reason,
+  });
+  return { version };
+}
 
 export const reschedule = mutation({
   args: {

@@ -36,7 +36,7 @@ Reviewer assessment is a one-time preparation task performed with the event owne
 
 Prepared panels are provisional. App confirmations, current availability, conflicts, clock-in, and qualified replacements continue to govern live staffing and fair JC rotation. See [Event follow-up plan](16-event-follow-up-plan.md) for the preparation handoff and remaining implementation work.
 
-Availability belongs to each round. Around 23:00 IST, the app asks each rostered person to confirm every time window they can cover or explicitly decline. Reviewers can revise their response. The server merges touching or overlapping windows, checks round boundaries, and requires enough time for a complete review. A pending response is not availability, and confirmation is not arrival.
+Availability belongs to each round. Around 23:00 IST, the app asks each rostered person to confirm every time window they can cover or explicitly decline. Reviewers can revise their response. The server merges touching or overlapping windows, checks round boundaries, and requires enough time for a complete review. A pending response is not availability, and confirmation is not arrival. An organizer with event-wide review-configuration authority may record a rostered reviewer’s confirmed hours with a reason, including after the self-confirmation window closes. The audit identifies the organizer; this does not reopen the window or clock the reviewer in. The same round bounds, active-review restrictions, version checks and shift reminders apply.
 
 ## 3. Panel planning
 
