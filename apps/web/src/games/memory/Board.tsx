@@ -298,6 +298,22 @@ function PairsBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: Mem
   const bankedMs = useRef(0)
   const reported = useRef(false)
   const opened = useRef(false)
+  /**
+   * The pending "turn the mismatch back over" timer.
+   *
+   * It belongs to the board that started it. Dealing a new one has to cancel it,
+   * or it fires against the fresh board and hides a pair that has only just been
+   * turned up — before the player has had their look at it.
+   */
+  const revealTimer = useRef<number | null>(null)
+
+  const cancelReveal = useCallback(() => {
+    if (revealTimer.current === null) return
+    window.clearTimeout(revealTimer.current)
+    revealTimer.current = null
+  }, [])
+
+  useEffect(() => cancelReveal, [cancelReveal])
 
   const complete = game.status === 'complete'
   const pairs = matchedPairs(game)
@@ -328,6 +344,7 @@ function PairsBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: Mem
   }, [complete, game.moves, onRoundEnd])
 
   const newGame = useCallback(() => {
+    cancelReveal()
     setGame(createGame())
     setElapsedMs(0)
     setPaused(false)
@@ -335,7 +352,7 @@ function PairsBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: Mem
     bankedMs.current = 0
     reported.current = false
     opened.current = false
-  }, [])
+  }, [cancelReveal])
 
   const togglePause = useCallback(() => {
     setPaused((wasPaused) => {
@@ -367,10 +384,14 @@ function PairsBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: Mem
       setGame(result.state)
 
       if (result.event.type === 'mismatch') {
-        window.setTimeout(() => setGame((current) => concealMismatch(current)), mismatchRevealMs)
+        cancelReveal()
+        revealTimer.current = window.setTimeout(() => {
+          revealTimer.current = null
+          setGame((current) => concealMismatch(current))
+        }, mismatchRevealMs)
       }
     },
-    [game, onRoundStart, paused],
+    [cancelReveal, game, onRoundStart, paused],
   )
 
   /** Where the event mark sits: the middle of the five-by-five map. */
