@@ -228,7 +228,6 @@ function rowMeta(request: MusicRequestView): ReactNode {
   if (request.state !== "queued" && request.state !== "approved") {
     parts.push(musicStateLabels[request.state]);
   }
-  if (request.publicReason) parts.push(request.publicReason);
   if (request.isMine) parts.push("yours");
   return parts.length > 0 ? parts.join(" · ") : null;
 }

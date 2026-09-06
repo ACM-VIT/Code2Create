@@ -29,7 +29,6 @@ export type MusicRequestView = {
   hasVoted: boolean;
   canVote: boolean;
   isMine: boolean;
-  publicReason?: string;
   /** Server time the desk marked it playing; drives the progress bar. */
   playbackStartedAt?: number;
   /** The full room lets a participant flag a request for the desk. */
@@ -594,7 +593,6 @@ function OpenMusic({
                       <span className="block truncate text-[11.5px] text-fg/55">
                         {item.artist} · {durationLabel(item.durationSeconds)} ·{" "}
                         {stateLabels[item.state]}
-                        {item.publicReason ? ` · ${item.publicReason}` : ""}
                       </span>
                     </span>
                     <VoteButton

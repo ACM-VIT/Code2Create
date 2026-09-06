@@ -6,6 +6,7 @@ import { describe, expect, test } from "vitest";
 import { api, components } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import schema from "./schema.ts";
+import { publicLeaderboardName } from "./games";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
 const betterAuthModules = import.meta.glob(
@@ -18,6 +19,15 @@ const maximumScore = 20_830;
 const maximumScorePerSecond = 750;
 
 describe("games leaderboard", () => {
+  test("removes VIT registration numbers from public names", () => {
+    expect(publicLeaderboardName("Ishaan Deepak Samdani 23BME0453")).toBe(
+      "Ishaan Deepak Samdani",
+    );
+    expect(publicLeaderboardName("ISHITA JOSHI (24BEL0054)")).toBe("ISHITA JOSHI");
+    expect(publicLeaderboardName("25 BCE2114 - Avni Jain")).toBe("Avni Jain");
+    expect(publicLeaderboardName("23BME0453")).toBe("Player");
+  });
+
   test("ranks people rather than rounds, however often one person replays", async () => {
     const backend = seededBackend();
     const fixture = await seedFixture(backend, 3);

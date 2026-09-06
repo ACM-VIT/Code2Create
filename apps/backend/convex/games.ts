@@ -55,6 +55,19 @@ const leaderboardEntry = v.object({
   isYou: v.boolean(),
 });
 
+const vitRegistrationNumberPattern =
+  /\s*(?:[-–—|·]\s*)?[([]?\b\d{2}\s*[a-z]{3}\s*\d{4}\b[\])]?\s*/giu;
+
+/** Registration numbers sometimes arrive inside a person's profile name. */
+export function publicLeaderboardName(displayName: string) {
+  const name = displayName
+    .replace(vitRegistrationNumberPattern, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^(?:[-–—|·]\s*)+|(?:\s*[-–—|·])+$/gu, "");
+  return name || "Player";
+}
+
 /** The published game for `key`, or a client error when the key is unknown. */
 function requireGame(key: string) {
   const game = gameDefinition(key);
@@ -255,7 +268,7 @@ export const leaderboard = query({
       if (!player) continue;
       entries.push({
         personId: standing.personId,
-        displayName: player.displayName,
+        displayName: publicLeaderboardName(player.displayName),
         bestScore: standing.bestScore,
         playedAt: standing.achievedAt,
         isYou: person !== null && person._id === standing.personId,
