@@ -1,4 +1,3 @@
-import { LiveNumber } from "./LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
@@ -7,6 +6,9 @@ import { useEffect, useState, type SubmitEvent } from "react";
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
+import { dayTimeLabel } from "./dashboard/format";
+import { PortalButton, PortalTextButton } from "./portal/PortalButton";
+import { PortalError, PortalLabel, PortalTextarea } from "./portal/PortalField";
 
 type CheckpointState = FunctionReturnType<typeof api.projectCheckpoints.mine>;
 type Checkpoint = CheckpointState["checkpoints"][number];
@@ -17,11 +19,24 @@ type DraftSnapshot = {
   followUpAnswer: string;
 };
 
+/**
+ * The team's checkpoints as a timeline: one section per update, the one
+ * that needs writing first, each with its state and window on one line.
+ * The forms and the collaborative-draft handling underneath are unchanged.
+ */
 export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
   const state = useQuery(api.projectCheckpoints.mine, { eventSlug });
 
-  if (state === undefined) return null;
-  if (!state.configured) return null;
+  if (state === undefined) {
+    return (
+      <p role="status" className="m-0 text-[13px] text-fg/55">
+        Loading…
+      </p>
+    );
+  }
+  if (!state.configured || state.checkpoints.length === 0) {
+    return <p className="m-0 text-[13px] text-fg/60">Nothing to update yet.</p>;
+  }
 
   const actionableIndex = state.checkpoints.findIndex(
     (checkpoint) =>
@@ -30,41 +45,17 @@ export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
       checkpoint.availability === "late",
   );
   const primaryIndex = actionableIndex >= 0 ? actionableIndex : 0;
-  const primaryCheckpoint = state.checkpoints[primaryIndex];
-  const otherCheckpoints = state.checkpoints.filter((_, index) => index !== primaryIndex);
+  const ordered = [
+    ...state.checkpoints.slice(primaryIndex, primaryIndex + 1),
+    ...state.checkpoints.filter((_, index) => index !== primaryIndex),
+  ];
 
   return (
-    <section className="checkpoint-panel">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">During the event</p>
-          <h2>Team updates</h2>
-        </div>
-      </div>
-      <p className="muted">Share one update when it opens so your team has a clear build record.</p>
-      <div className="checkpoint-list">
-        {primaryCheckpoint ? (
-          <CheckpointCard checkpoint={primaryCheckpoint} timezone={timezone} />
-        ) : null}
-      </div>
-      {otherCheckpoints.length > 0 ? (
-        <details className="checkpoint-other-updates">
-          <summary>
-            <span>Earlier and upcoming updates</span>
-            <small><LiveNumber value={otherCheckpoints.length} /></small>
-          </summary>
-          <div className="checkpoint-list">
-            {otherCheckpoints.map((checkpoint) => (
-              <CheckpointCard
-                checkpoint={checkpoint}
-                key={checkpoint.checkpointKey}
-                timezone={timezone}
-              />
-            ))}
-          </div>
-        </details>
-      ) : null}
-    </section>
+    <ol className="m-0 flex list-none flex-col divide-y divide-petal-line p-0">
+      {ordered.map((checkpoint) => (
+        <CheckpointCard key={checkpoint.checkpointKey} checkpoint={checkpoint} timezone={timezone} />
+      ))}
+    </ol>
   );
 }
 
@@ -205,205 +196,229 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
     }
   };
 
+  const active = checkpoint.availability === "open" || checkpoint.availability === "late";
+  const submitted = checkpoint.submission !== null && checkpoint.submission !== undefined;
+  const frozen = busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft;
+
   return (
-    <article className="checkpoint-card">
-      <header>
-        <div>
-          <h3>{checkpoint.displayName}</h3>
-          {checkpoint.phaseName.toLocaleLowerCase("en") !==
-          checkpoint.displayName.toLocaleLowerCase("en") ? (
-            <p className="muted">{checkpoint.phaseName}</p>
-          ) : null}
+    <li className="py-5 first:pt-2 last:pb-2">
+      <header className="flex items-baseline justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span
+            aria-hidden
+            className={`size-2 shrink-0 rounded-full ${
+              submitted
+                ? "bg-rose-light"
+                : active
+                  ? "border border-rose-light"
+                  : checkpoint.availability === "closed"
+                    ? "bg-fg/25"
+                    : "border border-rose/45"
+            }`}
+          />
+          <h2 className="m-0 truncate font-display text-[19px] font-normal text-fg">
+            {checkpoint.displayName}
+          </h2>
         </div>
-        <span className={`checkpoint-state ${checkpoint.availability}`}>
-          {availabilityLabel(checkpoint.availability)}
+        <span
+          className={`shrink-0 text-[11px] ${active && !submitted ? "text-rose-light" : "text-fg/50"}`}
+        >
+          {availabilityLabel(checkpoint)}
         </span>
       </header>
-      <p className="fine-print">{checkpointWindow(checkpoint, timezone)}</p>
+      <p className="m-0 mt-1 pl-[18px] text-[12px] text-fg/50">{checkpointWindow(checkpoint, timezone)}</p>
 
-      {remoteDraftChanged && localDraftDirty ? (
-        <div className="notice">
-          <p>A teammate changed this update. Your unsaved text is still here.</p>
-          <div className="button-row">
-            <button
-              className="secondary compact"
-              disabled={busy !== null || operationPending}
+      <div className="mt-4 flex flex-col gap-4 pl-[18px]">
+        {remoteDraftChanged && localDraftDirty ? (
+          <p className="m-0 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-[12.5px] text-fg/70">
+            <span>A teammate changed this update; your unsaved text is still here.</span>
+            <PortalTextButton
               type="button"
+              disabled={busy !== null || operationPending}
               onClick={loadTeamDraft}
+              className="text-rose-light!"
             >
-              Use team version
-            </button>
-            <button
-              className="primary compact"
-              disabled={busy !== null || operationPending}
+              use the team’s version
+            </PortalTextButton>
+            <PortalTextButton
               type="button"
+              disabled={busy !== null || operationPending}
               onClick={keepLocalDraft}
+              className="text-rose-light!"
             >
-              Keep my draft
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      {checkpoint.submission ? (
-        <div className="checkpoint-submission">
-          <p>{checkpoint.submission.updateText}</p>
-          <p className="muted">{checkpoint.followUpQuestion}</p>
-          <p>{checkpoint.submission.followUpAnswer}</p>
-          <p className="fine-print">
-            Submitted {formatTime(checkpoint.submission.submittedAt, timezone)} ·{" "}
-            {submissionTimingLabel(checkpoint.submission.timing)}
+              keep mine
+            </PortalTextButton>
           </p>
-        </div>
-      ) : checkpoint.canEdit ? (
-        <>
-          <form className="checkpoint-form" onSubmit={saveFirstAnswer}>
-            <label className="field">
-              <span>{checkpoint.prompt}</span>
-              <textarea
-                minLength={10}
-                maxLength={4000}
-                required
-                disabled={
-                  busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft
-                }
-                value={updateText}
-                onChange={(event) => {
-                  setUpdateText(event.currentTarget.value);
-                  setReviewing(false);
-                }}
-              />
-            </label>
-            <button
-              className="secondary"
-              disabled={
-                busy !== null ||
-                followUpPending ||
-                submitPending ||
-                (!updatePending && (remoteDraftChanged || awaitingLiveDraft))
-              }
-              type="submit"
-            >
-              {busy === "update"
-                ? "Saving…"
-                : updatePending
-                  ? "Confirm earlier save"
-                  : checkpoint.draft?.updateText
-                    ? "Save changes"
-                    : "Continue"}
-            </button>
-          </form>
+        ) : null}
 
-          {checkpoint.draft?.updateText && !updateDirty ? (
-            <form className="checkpoint-form" onSubmit={saveSecondAnswer}>
-              <label className="field">
-                <span>{checkpoint.followUpQuestion}</span>
-                <textarea
-                  minLength={2}
-                  maxLength={2000}
+        {checkpoint.submission ? (
+          <div className="flex flex-col gap-3">
+            <p className="m-0 text-[14px] leading-relaxed whitespace-pre-wrap text-fg/90">
+              {checkpoint.submission.updateText}
+            </p>
+            <div>
+              <PortalLabel>{checkpoint.followUpQuestion}</PortalLabel>
+              <p className="m-0 text-[13.5px] leading-relaxed whitespace-pre-wrap text-fg/80">
+                {checkpoint.submission.followUpAnswer}
+              </p>
+            </div>
+          </div>
+        ) : checkpoint.canEdit ? (
+          <>
+            <form className="flex flex-col gap-3" onSubmit={saveFirstAnswer}>
+              <label className="block">
+                <PortalLabel>{checkpoint.prompt}</PortalLabel>
+                <PortalTextarea
+                  rows={5}
+                  minLength={10}
+                  maxLength={4000}
                   required
-                  disabled={
-                    busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft
-                  }
-                  value={followUpAnswer}
+                  disabled={frozen}
+                  value={updateText}
                   onChange={(event) => {
-                    setFollowUpAnswer(event.currentTarget.value);
+                    setUpdateText(event.currentTarget.value);
                     setReviewing(false);
                   }}
                 />
               </label>
-              <button
-                className="secondary"
-                disabled={
-                  busy !== null ||
-                  updatePending ||
-                  submitPending ||
-                  (!followUpPending && (remoteDraftChanged || awaitingLiveDraft))
-                }
-                type="submit"
-              >
-                {busy === "follow_up"
-                  ? "Saving…"
-                  : followUpPending
-                    ? "Confirm earlier save"
-                    : checkpoint.draft.followUpAnswer
-                      ? "Save changes"
-                      : "Save answer"}
-              </button>
+              <div className="flex justify-end">
+                <PortalButton
+                  size="xs"
+                  type="submit"
+                  disabled={
+                    busy !== null ||
+                    followUpPending ||
+                    submitPending ||
+                    (!updatePending && (remoteDraftChanged || awaitingLiveDraft))
+                  }
+                >
+                  {busy === "update"
+                    ? "Saving…"
+                    : updatePending
+                      ? "Confirm earlier save"
+                      : checkpoint.draft?.updateText
+                        ? "Save changes"
+                        : "Continue"}
+                </PortalButton>
+              </div>
             </form>
-          ) : null}
 
-          {checkpoint.draft?.followUpAnswer && !updateDirty && !followUpDirty ? (
-            reviewing ? (
-              <div className="checkpoint-confirmation">
-                <p>
-                  This freezes the update above for the event record. It does not affect judging
-                  scores.
-                </p>
-                <div className="offer-actions">
-                  <button
-                    className="secondary"
-                    disabled={
-                      busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft
-                    }
-                    type="button"
-                    onClick={() => setReviewing(false)}
-                  >
-                    Keep editing
-                  </button>
-                  <button
-                    className="primary"
+            {checkpoint.draft?.updateText && !updateDirty ? (
+              <form className="flex flex-col gap-3" onSubmit={saveSecondAnswer}>
+                <label className="block">
+                  <PortalLabel>{checkpoint.followUpQuestion}</PortalLabel>
+                  <PortalTextarea
+                    rows={3}
+                    minLength={2}
+                    maxLength={2000}
+                    required
+                    disabled={frozen}
+                    value={followUpAnswer}
+                    onChange={(event) => {
+                      setFollowUpAnswer(event.currentTarget.value);
+                      setReviewing(false);
+                    }}
+                  />
+                </label>
+                <div className="flex justify-end">
+                  <PortalButton
+                    size="xs"
+                    type="submit"
                     disabled={
                       busy !== null ||
                       updatePending ||
-                      followUpPending ||
-                      (!submitPending && (remoteDraftChanged || awaitingLiveDraft))
+                      submitPending ||
+                      (!followUpPending && (remoteDraftChanged || awaitingLiveDraft))
                     }
-                    type="button"
-                    onClick={() => void submitUpdate()}
                   >
-                    {busy === "submit"
-                      ? "Submitting…"
-                      : submitPending
-                        ? "Confirm earlier submission"
-                        : "Confirm submission"}
-                  </button>
+                    {busy === "follow_up"
+                      ? "Saving…"
+                      : followUpPending
+                        ? "Confirm earlier save"
+                        : checkpoint.draft.followUpAnswer
+                          ? "Save changes"
+                          : "Save answer"}
+                  </PortalButton>
                 </div>
-              </div>
-            ) : (
-              <button
-                className="primary"
-                disabled={
-                  busy !== null || operationPending || remoteDraftChanged || awaitingLiveDraft
-                }
-                type="button"
-                onClick={() => setReviewing(true)}
-              >
-                Submit update
-              </button>
-            )
-          ) : null}
-        </>
-      ) : (
-        <p className="muted">{unavailableMessage(checkpoint)}</p>
-      )}
+              </form>
+            ) : null}
 
-      {error ? (
-        <p className="notice error" role="alert">
-          {error}
-        </p>
-      ) : null}
-    </article>
+            {checkpoint.draft?.followUpAnswer && !updateDirty && !followUpDirty ? (
+              reviewing ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="m-0 text-[12.5px] text-fg/60">
+                    This freezes the update for the event record. It doesn’t affect judging.
+                  </p>
+                  <div className="flex gap-2">
+                    <PortalButton
+                      size="xs"
+                      type="button"
+                      disabled={frozen}
+                      onClick={() => setReviewing(false)}
+                    >
+                      Keep editing
+                    </PortalButton>
+                    <PortalButton
+                      size="xs"
+                      variant="solid"
+                      type="button"
+                      disabled={
+                        busy !== null ||
+                        updatePending ||
+                        followUpPending ||
+                        (!submitPending && (remoteDraftChanged || awaitingLiveDraft))
+                      }
+                      onClick={() => void submitUpdate()}
+                    >
+                      {busy === "submit"
+                        ? "Submitting…"
+                        : submitPending
+                          ? "Confirm earlier submission"
+                          : "Confirm submission"}
+                    </PortalButton>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-end">
+                  <PortalButton
+                    size="xs"
+                    variant="solid"
+                    type="button"
+                    disabled={frozen}
+                    onClick={() => setReviewing(true)}
+                  >
+                    Submit update
+                  </PortalButton>
+                </div>
+              )
+            ) : null}
+          </>
+        ) : (
+          <p className="m-0 text-[13px] text-fg/55">{unavailableMessage(checkpoint)}</p>
+        )}
+
+        <PortalError message={error} />
+      </div>
+    </li>
   );
 }
 
-function availabilityLabel(availability: Checkpoint["availability"]) {
-  if (availability === "awaiting_confirmation") return "Locked";
-  if (availability === "upcoming") return "Upcoming";
-  if (availability === "open") return "Open";
-  if (availability === "late") return "Late";
-  if (availability === "closed") return "Closed";
-  return "Submitted";
+function availabilityLabel(checkpoint: Checkpoint) {
+  if (checkpoint.submission) return "submitted";
+  switch (checkpoint.availability) {
+    case "awaiting_confirmation":
+      return "locked";
+    case "upcoming":
+      return "upcoming";
+    case "open":
+      return "open";
+    case "late":
+      return "late";
+    case "closed":
+      return "closed";
+    default:
+      return "submitted";
+  }
 }
 
 function draftSnapshot(checkpoint: Checkpoint): DraftSnapshot {
@@ -418,21 +433,23 @@ function normalizeDraftText(value: string) {
   return value.trim().replace(/\r\n/g, "\n");
 }
 
-function submissionTimingLabel(timing: NonNullable<Checkpoint["submission"]>["timing"]) {
-  return timing === "on_time" ? "On time" : "After the due time";
-}
-
 function checkpointWindow(checkpoint: Checkpoint, timezone: string) {
-  if (checkpoint.availability === "upcoming") {
-    return `Opens ${formatTime(checkpoint.opensAt, timezone)}`;
+  if (checkpoint.submission) {
+    return `submitted ${dayTimeLabel(checkpoint.submission.submittedAt, timezone)} · ${
+      checkpoint.submission.timing === "on_time" ? "on time" : "after the due time"
+    }`;
   }
-  if (checkpoint.availability === "open") {
-    return `Due ${formatTime(checkpoint.dueAt, timezone)}`;
+  switch (checkpoint.availability) {
+    case "upcoming":
+    case "awaiting_confirmation":
+      return `opens ${dayTimeLabel(checkpoint.opensAt, timezone)}`;
+    case "open":
+      return `due ${dayTimeLabel(checkpoint.dueAt, timezone)}`;
+    case "late":
+      return `due time passed · open until ${dayTimeLabel(checkpoint.closesAt, timezone)}`;
+    default:
+      return `closed ${dayTimeLabel(checkpoint.closesAt, timezone)}`;
   }
-  if (checkpoint.availability === "late") {
-    return `Due time passed. Open until ${formatTime(checkpoint.closesAt, timezone)}`;
-  }
-  return `Window ${formatTime(checkpoint.opensAt, timezone)}–${formatTime(checkpoint.closesAt, timezone)}`;
 }
 
 function unavailableMessage(checkpoint: Checkpoint) {
@@ -440,19 +457,11 @@ function unavailableMessage(checkpoint: Checkpoint) {
     !checkpoint.canEdit &&
     (checkpoint.availability === "open" || checkpoint.availability === "late")
   ) {
-    return "This update is read-only for your account.";
+    return "Your team lead writes this one.";
   }
   if (checkpoint.availability === "awaiting_confirmation") {
-    return "This opens after your team confirms its event place.";
+    return "Opens once your team confirms its place.";
   }
-  if (checkpoint.availability === "upcoming") return "Nothing is needed yet.";
-  return "The submission window has ended.";
-}
-
-function formatTime(timestamp: number, timezone: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone: timezone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(timestamp);
+  if (checkpoint.availability === "upcoming") return "Nothing needed yet.";
+  return "The window has closed.";
 }
