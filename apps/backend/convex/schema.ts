@@ -4114,6 +4114,9 @@ export default defineSchema({
     requiredGitHubTopic: v.string(),
     maxActiveGitHubRepositoriesPerTeam: v.number(),
     githubFreezeAt: v.optional(v.number()),
+    // Retained for existing policy records; new policies no longer configure Figma.
+    maxActiveFigmaFilesPerTeam: v.optional(v.number()),
+    figmaFreezeAt: v.optional(v.number()),
     checksum: v.string(),
     createdByPersonId: v.id("people"),
     createdAt: v.number(),
