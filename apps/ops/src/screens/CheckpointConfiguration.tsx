@@ -35,12 +35,10 @@ type EditorDefinition = {
 };
 
 const phaseLabels = {
-  introduction: "Introduction",
   ideation: "Ideation",
-  build: "Build",
   intermediate_update: "Intermediate update",
   final_update: "Final update",
-} satisfies Record<Definition["phaseKey"], string>;
+} satisfies Record<Definition["checkpointKey"], string>;
 
 const defaults = [
   {
@@ -243,7 +241,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                   {index + 1}
                 </div>
                 <div className="checkpoint-plan-copy">
-                  <span>{phaseLabels[definition.phaseKey]} phase</span>
+                  <span>{phaseLabels[definition.checkpointKey]} phase</span>
                   <h3>{definition.displayName}</h3>
                   <div className="checkpoint-question-preview">
                     <p>{definition.prompt}</p>
@@ -252,7 +250,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                 </div>
                 <div className="checkpoint-plan-window">
                   <strong>
-                    Open during {phaseLabels[definition.phaseKey].toLocaleLowerCase("en-IN")}
+                    Open during {phaseLabels[definition.checkpointKey].toLocaleLowerCase("en-IN")}
                   </strong>
                   <span>{checkpointCloseCopy(definition.graceMinutes)}</span>
                 </div>
@@ -369,7 +367,7 @@ export function CheckpointConfiguration({ tabs }: { tabs: ConfigurationTabsVisib
                     <header className="checkpoint-editor-card-heading">
                       <span>{index + 1}</span>
                       <div>
-                        <small>{phaseLabels[definition.phaseKey]} phase</small>
+                        <small>{phaseLabels[definition.checkpointKey]} phase</small>
                         <strong>{definition.displayName}</strong>
                       </div>
                     </header>

@@ -65,13 +65,7 @@ export const eventRole = v.union(
   v.literal("external_judge"),
 );
 
-export const eventPhaseKey = v.union(
-  v.literal("introduction"),
-  v.literal("ideation"),
-  v.literal("build"),
-  v.literal("intermediate_update"),
-  v.literal("final_update"),
-);
+export const eventPhaseKey = v.string();
 
 export type EventPhaseKey = Infer<typeof eventPhaseKey>;
 

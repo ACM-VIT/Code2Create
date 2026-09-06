@@ -37,14 +37,10 @@ function invalidSchedule(message: string): never {
   throw new ConvexError({ code: "INVALID_PHASE_SCHEDULE", message });
 }
 
-function phaseOrder(phaseKey: EventPhaseKey) {
-  return eventPhaseKeys.indexOf(phaseKey);
-}
-
 export function phaseScheduleIssues(phases: readonly NormalizedPhase[]) {
   const issues: string[] = [];
-  if (phases.length !== eventPhaseKeys.length) {
-    issues.push("The schedule must contain one definition for each of the five event phases.");
+  if (phases.length > 32) {
+    issues.push("The schedule may contain at most 32 phases.");
   }
   const keys = phases.map((phase) => phase.phaseKey);
   if (new Set(keys).size !== keys.length) issues.push("Every event phase may appear only once.");
@@ -53,6 +49,9 @@ export function phaseScheduleIssues(phases: readonly NormalizedPhase[]) {
       issues.push(`The ${phaseKey.replaceAll("_", " ")} phase is missing.`);
   }
   for (const phase of phases) {
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(phase.phaseKey)) {
+      issues.push("Phase keys must use lowercase letters, numbers, and underscores.");
+    }
     if (
       !Number.isSafeInteger(phase.startsAt) ||
       !Number.isSafeInteger(phase.endsAt) ||
@@ -66,11 +65,11 @@ export function phaseScheduleIssues(phases: readonly NormalizedPhase[]) {
     if (duration < 60_000 || duration > 14 * 24 * 60 * 60_000) {
       issues.push(`${phase.displayName} must last between one minute and fourteen days.`);
     }
-    if (phase.displayOrder !== phaseOrder(phase.phaseKey)) {
-      issues.push(`${phase.displayName} is not in the canonical event-phase order.`);
-    }
   }
   const ordered = phases.toSorted((left, right) => left.displayOrder - right.displayOrder);
+  if (ordered.some((phase, index) => phase.displayOrder !== index)) {
+    issues.push("Phases must have a consecutive display order.");
+  }
   for (let index = 1; index < ordered.length; index += 1) {
     const previous = ordered[index - 1];
     const current = ordered[index];
@@ -94,9 +93,12 @@ export function normalizePhaseSchedule(phases: readonly PhaseScheduleInput[]): N
       description: normalizedText(phase.description, "Phase description", 5, 500),
       startsAt: phase.startsAt,
       endsAt: phase.endsAt,
-      displayOrder: phaseOrder(phase.phaseKey),
     }))
-    .toSorted((left, right) => left.displayOrder - right.displayOrder);
+    .toSorted(
+      (left, right) =>
+        left.startsAt - right.startsAt || left.phaseKey.localeCompare(right.phaseKey),
+    )
+    .map((phase, displayOrder) => ({ ...phase, displayOrder }));
   const issue = phaseScheduleIssues(normalized)[0];
   if (issue) invalidSchedule(issue);
   return normalized;
@@ -149,11 +151,18 @@ export function phaseSchedulePublicationIssues(
   draft: readonly NormalizedPhase[],
   now: number,
 ) {
+  // The first publication records the actual timetable, even if setup finishes after opening.
+  // Once published, elapsed phases remain immutable.
+  if (published.length === 0) return [];
   const issues: string[] = [];
   const draftByKey = new Map(draft.map((phase) => [phase.phaseKey, phase]));
   for (const prior of published) {
     const next = draftByKey.get(prior.phaseKey);
-    if (!next) continue;
+    if (!next) {
+      if (prior.startsAt <= now)
+        issues.push(`${prior.displayName} has started and cannot be removed.`);
+      continue;
+    }
     if (prior.endsAt <= now) {
       if (JSON.stringify(prior) !== JSON.stringify(next)) {
         issues.push(`${prior.displayName} has ended and cannot be rewritten.`);
@@ -197,6 +206,10 @@ export function describePhaseScheduleChanges(
       ? []
       : [`Update ${phase.displayName}.`];
   });
+  const draftKeys = new Set(draft.map((phase) => phase.phaseKey));
+  for (const phase of published) {
+    if (!draftKeys.has(phase.phaseKey)) changes.push(`Remove ${phase.displayName}.`);
+  }
   return changes.length > 0 ? changes : ["No participant-visible phase changes."];
 }
 
@@ -260,7 +273,12 @@ export async function savePhaseScheduleDraft(
       createdAt: args.now,
     });
   }
-  return { scheduleVersionId, scheduleVersion: version, checksum, changed: true };
+  return {
+    scheduleVersionId,
+    scheduleVersion: version,
+    checksum,
+    changed: true,
+  };
 }
 
 export async function publishPhaseSchedule(
@@ -323,7 +341,10 @@ export async function publishPhaseSchedule(
     const issues = phaseSchedulePublicationIssues(publishedPhases, phases, args.now);
     const issue = issues[0];
     if (issue) {
-      throw new ConvexError({ code: "PHASE_SCHEDULE_RETROACTIVE", message: issue });
+      throw new ConvexError({
+        code: "PHASE_SCHEDULE_RETROACTIVE",
+        message: issue,
+      });
     }
     await ctx.db.patch(published._id, { status: "superseded" });
   }

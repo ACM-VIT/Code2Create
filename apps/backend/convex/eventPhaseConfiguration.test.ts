@@ -3,7 +3,10 @@ import { describe, expect, test } from "vitest";
 
 import type { Id } from "./_generated/dataModel.js";
 import {
+  describePhaseScheduleChanges,
+  loadPublishedPhaseSchedule,
   normalizePhaseSchedule,
+  phaseSchedulePublicationIssues,
   publishPhaseSchedule,
   savePhaseScheduleDraft,
   type PhaseScheduleInput,
@@ -17,7 +20,7 @@ describe("event-phase configuration", () => {
   test("rejects missing and overlapping phase sets", () => {
     const complete = phases(Date.UTC(2027, 8, 10, 10));
     expect(() => normalizePhaseSchedule(complete.slice(0, 4))).toThrow(
-      "one definition for each of the five event phases",
+      "final update phase is missing",
     );
     const overlapping = complete.map((phase) => ({ ...phase }));
     const build = overlapping[2];
@@ -25,6 +28,112 @@ describe("event-phase configuration", () => {
     if (!build || !ideation) throw new Error("The fixture needs ideation and build phases.");
     build.startsAt = ideation.endsAt - 1;
     expect(() => normalizePhaseSchedule(overlapping)).toThrow("overlaps");
+  });
+
+  test("supports reviews and ceremonies in chronological order while retaining checkpoint phases", () => {
+    const base = phases(Date.UTC(2027, 8, 10, 10));
+    const last = base.at(-1)!;
+    const extra = ["review_1", "review_2", "final_pitches", "closing"].map((phaseKey, index) => ({
+      phaseKey,
+      displayName: phaseKey.replaceAll("_", " "),
+      description: "Published event timetable.",
+      startsAt: last.endsAt + index * 60 * 60_000,
+      endsAt: last.endsAt + (index + 1) * 60 * 60_000,
+    }));
+    const normalized = normalizePhaseSchedule([...extra.toReversed(), ...base]);
+    expect(normalized.map((row) => row.phaseKey)).toEqual(
+      [...base, ...extra].map((row) => row.phaseKey),
+    );
+    expect(normalized.map((row) => row.displayOrder)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  test("cannot remove a started custom phase while future phases remain editable", () => {
+    const base = phases(Date.UTC(2027, 8, 10, 10));
+    const startsAt = base.at(-1)!.endsAt;
+    const published = normalizePhaseSchedule([
+      ...base,
+      {
+        phaseKey: "closing",
+        displayName: "Closing ceremony",
+        description: "Awards and closing ceremony.",
+        startsAt,
+        endsAt: startsAt + 60 * 60_000,
+      },
+    ]);
+    const removed = normalizePhaseSchedule(base);
+    expect(phaseSchedulePublicationIssues(published, removed, startsAt - 1)).toEqual([]);
+    expect(phaseSchedulePublicationIssues(published, removed, startsAt + 1)).toContain(
+      "Closing ceremony has started and cannot be removed.",
+    );
+  });
+
+  test("rejects duplicate or invalid phase identifiers", () => {
+    const base = phases(Date.UTC(2027, 8, 10, 10));
+    const last = base.at(-1)!;
+    const extra = {
+      ...last,
+      startsAt: last.endsAt,
+      endsAt: last.endsAt + 60_000,
+    };
+    expect(() => normalizePhaseSchedule([...base, extra])).toThrow("only once");
+    expect(() =>
+      normalizePhaseSchedule([...base, { ...extra, phaseKey: "Closing ceremony" }]),
+    ).toThrow("Phase keys");
+  });
+
+  test("accepts an initial timetable after opening and preserves its history afterwards", async () => {
+    const backend = convexTest(schema, modules);
+    const fixture = await seedFixture(backend);
+    const initial = normalizePhaseSchedule(phases(fixture.phaseStart));
+    const now = fixture.phaseStart + 90 * 60_000;
+    expect(phaseSchedulePublicationIssues([], initial, now)).toEqual([]);
+    const draft = await backend.run((ctx) =>
+      savePhaseScheduleDraft(ctx, {
+        event: fixture.event,
+        actorPersonId: fixture.personId,
+        phases: initial,
+        now,
+      }),
+    );
+    await backend.run((ctx) =>
+      publishPhaseSchedule(ctx, {
+        event: fixture.event,
+        draftScheduleId: draft.scheduleVersionId,
+        expectedDraftChecksum: draft.checksum,
+        now,
+      }),
+    );
+    const event = await requireEvent(backend, fixture.event._id);
+    const schedule = await backend.run((ctx) => loadPublishedPhaseSchedule(ctx, event));
+    expect(schedule?.windows.map((row) => row.phaseKey)).toEqual(
+      initial.map((row) => row.phaseKey),
+    );
+    const rewritten = initial.map((row) =>
+      row.phaseKey === "introduction"
+        ? { ...row, description: "Changed after the phase ended." }
+        : row,
+    );
+    expect(phaseSchedulePublicationIssues(initial, rewritten, now)).toContain(
+      "Introduction has ended and cannot be rewritten.",
+    );
+  });
+
+  test("includes removed future phases in the publication preview", () => {
+    const base = phases(Date.UTC(2027, 8, 10, 10));
+    const startsAt = base.at(-1)!.endsAt;
+    const published = normalizePhaseSchedule([
+      ...base,
+      {
+        phaseKey: "closing",
+        displayName: "Closing ceremony",
+        description: "Awards and closing ceremony.",
+        startsAt,
+        endsAt: startsAt + 60 * 60_000,
+      },
+    ]);
+    expect(describePhaseScheduleChanges(published, normalizePhaseSchedule(base))).toEqual([
+      "Remove Closing ceremony.",
+    ]);
   });
 
   test("publishes the first complete schedule atomically", async () => {

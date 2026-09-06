@@ -353,6 +353,19 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                     <header>
                       <span>Phase {index + 1}</span>
                       <strong>{phase.displayName}</strong>
+                      {!phaseDefaults.some((required) => required.phaseKey === phase.phaseKey) ? (
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            setPhases((current) =>
+                              current.filter((row) => row.phaseKey !== phase.phaseKey),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      ) : null}
                     </header>
                     <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3.5">
                       <label className="field">
@@ -361,7 +374,9 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                           required
                           value={phase.displayName}
                           onChange={(event) =>
-                            updatePhase(phase.phaseKey, { displayName: event.target.value })
+                            updatePhase(phase.phaseKey, {
+                              displayName: event.target.value,
+                            })
                           }
                         />
                       </label>
@@ -372,7 +387,9 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                           type="datetime-local"
                           value={phase.startsAt}
                           onChange={(event) =>
-                            updatePhase(phase.phaseKey, { startsAt: event.target.value })
+                            updatePhase(phase.phaseKey, {
+                              startsAt: event.target.value,
+                            })
                           }
                         />
                       </label>
@@ -383,7 +400,9 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                           type="datetime-local"
                           value={phase.endsAt}
                           onChange={(event) =>
-                            updatePhase(phase.phaseKey, { endsAt: event.target.value })
+                            updatePhase(phase.phaseKey, {
+                              endsAt: event.target.value,
+                            })
                           }
                         />
                       </label>
@@ -394,13 +413,34 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                         required
                         value={phase.description}
                         onChange={(event) =>
-                          updatePhase(phase.phaseKey, { description: event.target.value })
+                          updatePhase(phase.phaseKey, {
+                            description: event.target.value,
+                          })
                         }
                       />
                     </label>
                   </article>
                 ))}
               </div>
+              <button
+                type="button"
+                className="secondary"
+                disabled={phases.length >= 32}
+                onClick={() =>
+                  setPhases((current) => [
+                    ...current,
+                    {
+                      phaseKey: `phase_${crypto.randomUUID().replaceAll("-", "")}`,
+                      displayName: "New phase",
+                      description: "",
+                      startsAt: current.at(-1)?.endsAt ?? "",
+                      endsAt: "",
+                    },
+                  ])
+                }
+              >
+                Add phase
+              </button>
             </fieldset>
             <section className="configuration-save">
               <label className="field">
@@ -412,11 +452,6 @@ export function PhaseConfiguration({ tabs }: { tabs: ConfigurationTabsVisibility
                   onChange={(event) => setDraftReason(event.target.value)}
                 />
               </label>
-              {phases.length === phaseDefaults.length ? null : (
-                <p className="notice">
-                  The schedule needs all {phaseDefaults.length} phases before it can be saved.
-                </p>
-              )}
               <button className="primary" disabled={busy} type="submit">
                 {busy
                   ? "Saving…"
