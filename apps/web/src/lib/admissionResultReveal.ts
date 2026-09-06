@@ -4,6 +4,10 @@ type ApplicationState = SubmittedIntake["application"]["state"];
 
 export type AdmissionResultOutcome = "selected" | "waitlisted" | "not_selected";
 
+export function admissionResultUsesChest(outcome: AdmissionResultOutcome) {
+  return outcome === "selected";
+}
+
 export function admissionResultOutcome(
   state: ApplicationState,
 ): AdmissionResultOutcome | null {

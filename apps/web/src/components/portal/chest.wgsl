@@ -571,28 +571,7 @@ fn foregroundOrbit(screen: vec2f, time: f32, start: f32, duration: f32, warmth: 
   return trailColor * (band * frontHalf * (0.15 + 0.85 * comet) * 0.92 + horizontal * 0.28) * life;
 }
 
-fn renderBackground(screen: vec2f, uv: vec2f, time: f32) -> vec3f {
-  let vertical = saturate(uv.y);
-  var color = mix(vec3f(0.025, 0.085, 0.29), vec3f(0.075, 0.36, 0.69), vertical);
-  let centerGlow = exp(-2.2 * dot(screen - vec2f(0.0, 0.02), screen - vec2f(0.0, 0.02)));
-  color += centerGlow * vec3f(0.055, 0.16, 0.28);
-
-  if (screen.y < -0.19) {
-    let depth = 1.0 / max(0.08, -screen.y + 0.02);
-    let gridX = screen.x * depth * 3.2;
-    let gridZ = depth * 1.52;
-    let checkerValue = fract((floor(gridX) + floor(gridZ)) * 0.5) * 2.0;
-    let gridDistance = min(abs(fract(gridX) - 0.5), abs(fract(gridZ) - 0.5));
-    let gridLine = 1.0 - smoothstep(0.43, 0.49, gridDistance);
-    let floorFade = (1.0 - smoothstep(-0.75, -0.18, screen.y)) * (1.0 - smoothstep(2.0, 8.0, depth));
-    let tile = mix(vec3f(0.045, 0.16, 0.40), vec3f(0.075, 0.22, 0.52), checkerValue);
-    color = mix(color, tile + gridLine * vec3f(0.025, 0.065, 0.11), floorFade * 0.75);
-  }
-
-  let shadowPoint = (screen - vec2f(0.0, -0.39)) / vec2f(0.42, 0.085);
-  let shadow = exp(-3.5 * dot(shadowPoint, shadowPoint));
-  color *= 1.0 - shadow * 0.42;
-
+fn renderRewardBurst(screen: vec2f, time: f32) -> vec3f {
   let rewardPhase = smoothstep(3.52, 3.72, time);
   let radialPoint = screen - vec2f(0.0, 0.02);
   let radialAngle = atan2(radialPoint.y, radialPoint.x);
@@ -608,9 +587,7 @@ fn renderBackground(screen: vec2f, uv: vec2f, time: f32) -> vec3f {
   let centerWhite = exp(-2.8 * radialDistance * radialDistance);
   var burst = rewardColor * (0.72 + broadBeam * 1.18 + fineBeam * 0.72) * exp(-0.20 * radialDistance);
   burst += vec3f(1.40, 1.28, 1.56) * centerWhite * 1.12;
-  color = mix(color, burst + vec3f(0.06, 0.12, 0.34), rewardPhase);
-
-  return color;
+  return burst * rewardPhase;
 }
 
 fn addSparkles(color: vec3f, screen: vec2f, time: f32, fade: f32) -> vec3f {
@@ -634,14 +611,8 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let screen = vec2f((uv.x - 0.5) * aspect, 0.5 - uv.y) * 1.9;
   let rewardPhase = smoothstep(3.52, 3.72, time);
 
-  var color = renderBackground(screen, uv, time);
+  var color = renderRewardBurst(screen, time);
   color = addSparkles(color, screen, time, 1.0);
-
-  let starPoint = screen - vec2f(0.0, 0.62);
-  let star = starMask(starPoint, 0.058);
-  let starAura = exp(-32.0 * dot(starPoint, starPoint));
-  color += starAura * vec3f(0.55, 0.43, 0.06) * 0.28;
-  color = mix(color, vec3f(4.0, 2.9, 0.18), star);
 
   let energy = pulseEnergy(time);
   let ice = iceCharge(time);
@@ -716,7 +687,7 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
 
   let whiteoutIn = smoothstep(3.06, 3.23, time);
   let whiteoutOut = 1.0 - smoothstep(3.52, 3.63, time);
-  let whiteout = whiteoutIn * whiteoutOut;
+  let whiteout = whiteoutIn * whiteoutOut * exp(-2.4 * dot(screen, screen));
   let vignettePoint = vec2f((uv.x - 0.5) * 1.06, (uv.y - 0.5) * 0.92);
   let vignette = smoothstep(0.84, 0.24, dot(vignettePoint, vignettePoint));
   color *= mix(0.82, 1.0, vignette);
@@ -724,5 +695,8 @@ fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   color = pow(color, vec3f(0.86));
   color = mix(color, vec3f(1.0), whiteout);
 
-  return vec4f(color * params.intensity, 1.0);
+  let effectAlpha = saturate(max(color.r, max(color.g, color.b)) * 0.82);
+  let chestCoverage = chest.a * chestVisibility;
+  let alpha = 1.0 - (1.0 - effectAlpha) * (1.0 - chestCoverage);
+  return vec4f(color * params.intensity * alpha, alpha);
 }

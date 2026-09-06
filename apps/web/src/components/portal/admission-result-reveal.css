@@ -4,7 +4,7 @@
   z-index: 4;
   overflow: hidden;
   isolation: isolate;
-  background: #071b53;
+  background: transparent;
 }
 
 .admission-result-reveal__canvas {
@@ -13,6 +13,7 @@
   display: block;
   width: 100%;
   height: 100%;
+  pointer-events: none;
 }
 
 .admission-result-reveal__chest {
@@ -27,13 +28,13 @@
   transition: opacity 80ms linear;
   user-select: none;
   filter:
-    drop-shadow(0 0.42rem 0.3rem rgb(68 16 121 / 30%))
-    drop-shadow(0 0 0.75rem rgb(157 66 255 / 24%));
+    drop-shadow(0 0.42rem 0.3rem color-mix(in srgb, var(--color-wash) 68%, transparent))
+    drop-shadow(0 0 0.9rem color-mix(in srgb, var(--color-rose) 52%, transparent));
   will-change: transform, opacity, filter;
 }
 
 .admission-result-reveal--fallback .admission-result-reveal__chest {
-  animation: c2c-result-chest-fallback 700ms cubic-bezier(0.16, 0.78, 0.3, 1) both;
+  animation: c2c-result-chest-fallback 1.4s cubic-bezier(0.16, 0.78, 0.3, 1) both;
 }
 
 .admission-result-reveal__card-wrap {
@@ -42,181 +43,143 @@
   z-index: 2;
   display: grid;
   place-items: center;
-  padding: 6.5rem 2rem 5.5rem;
-  animation: c2c-result-card-arrive 620ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  padding: 6.5rem 2rem 5rem;
+}
+
+.admission-result-reveal--selected .admission-result-reveal__card-wrap {
+  animation: c2c-result-petal-card-arrive 680ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.admission-result-reveal--waitlisted .admission-result-reveal__card-wrap,
+.admission-result-reveal--not_selected .admission-result-reveal__card-wrap {
+  animation: c2c-result-quiet-card-arrive 520ms ease-out both;
 }
 
 .admission-result-reveal__card {
   position: relative;
-  display: flex;
-  width: min(35rem, calc(100vw - 3rem));
-  min-height: 22rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 3.5rem 3.25rem 2.75rem;
-  border: 1px solid rgb(255 218 230 / 80%);
-  border-radius: 2rem 1.2rem 2.2rem 1.35rem;
-  color: #35142d;
+  display: grid;
+  width: min(38rem, calc(100vw - 3rem));
+  min-height: 23rem;
+  place-items: center;
+  color: var(--color-fg);
   text-align: center;
-  background:
-    radial-gradient(circle at 18% 4%, rgb(255 255 255 / 95%), transparent 31%),
-    radial-gradient(circle at 87% 93%, rgb(230 155 181 / 30%), transparent 34%),
-    linear-gradient(145deg, #fffaf7 0%, #fbe7eb 58%, #f5d5df 100%);
-  box-shadow:
-    0 0 0 0.32rem rgb(124 37 86 / 38%),
-    0 1.8rem 5rem rgb(16 7 52 / 54%),
-    0 0 5rem rgb(255 202 223 / 88%),
-    inset 0 0 3.5rem rgb(255 255 255 / 64%);
 }
 
-.admission-result-reveal__card::before,
-.admission-result-reveal__card::after {
+.admission-result-reveal__card--petals {
+  border: 0;
+  background: none;
+  filter: drop-shadow(0 1.8rem 4rem var(--shade-2));
+}
+
+.admission-result-reveal__card--petals::before {
   position: absolute;
-  inset: 0.75rem;
-  border: 1px solid rgb(178 89 125 / 32%);
-  border-radius: 1.45rem 0.8rem 1.6rem 0.9rem;
+  inset: 12% 7%;
+  z-index: 0;
+  border-radius: 48%;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in srgb, var(--color-wash) 88%, transparent) 0%,
+    color-mix(in srgb, var(--color-wash) 72%, transparent) 48%,
+    transparent 76%
+  );
+  filter: blur(0.45rem);
   content: "";
-  pointer-events: none;
 }
 
-.admission-result-reveal__card::after {
-  inset: 1.05rem;
-  border-style: dashed;
-  border-color: rgb(178 89 125 / 20%);
+.admission-result-reveal__card--quiet {
+  min-height: 20rem;
+  padding: 3.25rem;
+  border: 2px solid var(--color-glass-edge);
+  border-radius: var(--radius-petal);
+  background-image: var(--petal-card-bg);
+  box-shadow:
+    0 1.8rem 4rem var(--shade-2),
+    0 0 3rem color-mix(in srgb, var(--color-rose) 18%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.admission-result-reveal__petal-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  filter:
+    drop-shadow(0 0.3rem 0.4rem color-mix(in srgb, var(--color-wash) 50%, transparent))
+    drop-shadow(0 0 1.15rem color-mix(in srgb, var(--color-rose-light) 38%, transparent));
 }
 
 .admission-result-reveal__frame-petal {
   position: absolute;
-  z-index: 3;
   display: block;
-  filter: drop-shadow(0 0.25rem 0.4rem rgb(90 17 61 / 30%));
+  line-height: 0;
   animation: c2c-result-petal-breathe 2.7s ease-in-out infinite;
 }
 
-.admission-result-reveal__mark {
-  position: absolute;
-  top: -2.25rem;
-  left: 50%;
-  display: grid;
-  width: 4.5rem;
-  height: 4.5rem;
-  place-items: center;
-  border: 1px solid rgb(255 224 234 / 85%);
-  border-radius: 50%;
-  transform: translateX(-50%);
-  background: rgb(83 25 68 / 92%);
-  box-shadow: 0 0 2.6rem rgb(255 192 218 / 90%);
-}
-
-.admission-result-reveal__mark img {
-  width: 2.2rem;
-  filter: drop-shadow(0 0 0.8rem rgb(255 214 230));
-}
-
-.admission-result-reveal__eyebrow {
-  margin: 0 0 0.9rem;
-  color: #a54c72;
-  font-family: var(--font-ui);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+.admission-result-reveal__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  max-width: 31rem;
+  flex-direction: column;
+  align-items: center;
+  padding: 3.75rem 3.25rem 3.25rem;
 }
 
 .admission-result-reveal__card h1 {
-  max-width: 27rem;
+  max-width: 29rem;
   margin: 0;
+  color: var(--color-fg);
   font-family: var(--font-display);
-  font-size: clamp(2.3rem, 6.5vw, 4.25rem);
+  font-size: clamp(2.25rem, 6.5vw, 4.15rem);
   font-weight: 400;
   letter-spacing: -0.035em;
-  line-height: 0.96;
+  line-height: 0.98;
+  text-shadow: 0 0.45rem 2rem var(--scene-text-glow);
   text-wrap: balance;
 }
 
 .admission-result-reveal__message {
   max-width: 27rem;
   margin: 1.25rem 0 0;
-  color: rgb(53 20 45 / 72%);
+  color: color-mix(in srgb, var(--color-fg) 74%, transparent);
+  font-family: var(--font-ui);
   font-size: 0.95rem;
   line-height: 1.55;
+  text-shadow: 0 0.3rem 1.4rem var(--scene-text-glow);
   text-wrap: balance;
 }
 
 .admission-result-reveal__event {
-  margin: 0.85rem 0 0;
-  color: #a54c72;
+  margin: 0.8rem 0 0;
+  color: var(--color-rose-light);
+  font-family: var(--font-ui);
   font-size: 0.72rem;
   font-weight: 650;
   letter-spacing: 0.08em;
 }
 
-.admission-result-reveal__skip,
-.admission-result-reveal__replay {
-  position: absolute;
-  right: max(1.25rem, env(safe-area-inset-right));
-  bottom: max(1.25rem, env(safe-area-inset-bottom));
-  z-index: 3;
-  border: 1px solid rgb(255 255 255 / 24%);
-  border-radius: 999px;
-  color: rgb(255 255 255 / 80%);
-  background: rgb(5 18 63 / 48%);
-  box-shadow: 0 0.6rem 1.4rem rgb(0 13 54 / 24%);
-  backdrop-filter: blur(0.7rem);
-}
-
-.admission-result-reveal__skip {
-  padding: 0.72rem 1rem;
-  font-size: 0.76rem;
-}
-
-.admission-result-reveal__replay {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-height: 2.75rem;
-  padding: 0 1rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  animation: c2c-result-replay-arrive 220ms ease-out 400ms both;
-}
-
-.admission-result-reveal__replay svg {
-  width: 1rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 2.2;
-}
-
-.admission-result-reveal__skip:hover,
-.admission-result-reveal__replay:hover {
-  border-color: rgb(255 255 255 / 48%);
-  background: rgb(22 53 125 / 62%);
-}
-
-.admission-result-reveal__skip:focus-visible,
-.admission-result-reveal__replay:focus-visible {
-  outline: 3px solid #f8bfd4;
-  outline-offset: 3px;
-}
-
-@keyframes c2c-result-card-arrive {
+@keyframes c2c-result-petal-card-arrive {
   from {
     opacity: 0;
-    transform: translateY(-3rem) scale(0.48) rotate(-2deg);
+    transform: translateY(2rem) scale(0.84);
   }
-  66% {
+  70% {
     opacity: 1;
-    transform: translateY(0.35rem) scale(1.035) rotate(0.5deg);
+    transform: translateY(-0.25rem) scale(1.02);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1) rotate(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes c2c-result-quiet-card-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -233,48 +196,52 @@
 @keyframes c2c-result-chest-fallback {
   0% {
     opacity: 0;
-    transform: translate(-50%, -45%) scale(0.72);
+    transform: perspective(42rem) translate(-50%, -45%) rotateY(-18deg) scale(0.72);
     filter: brightness(0.8) drop-shadow(0 0 0 transparent);
   }
-  62% {
+  24% {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1.08);
-    filter: brightness(1.4) drop-shadow(0 0 2.5rem rgb(244 132 194 / 85%));
+    transform: perspective(42rem) translate(-50%, -50%) rotateY(12deg) scale(1);
+  }
+  58% {
+    opacity: 1;
+    transform: perspective(42rem) translate(-50%, -50%) rotateY(-10deg) scale(1.08);
+    filter: brightness(1.4) drop-shadow(0 0 2.5rem var(--color-rose));
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.35);
-    filter: brightness(2) drop-shadow(0 0 5rem rgb(255 220 236));
+    transform: perspective(42rem) translate(-50%, -50%) rotateY(0) scale(1.35);
+    filter: brightness(2) drop-shadow(0 0 5rem var(--color-rose-light));
   }
-}
-
-@keyframes c2c-result-replay-arrive {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 @media (max-width: 640px) {
   .admission-result-reveal__card-wrap {
-    padding: 7rem 1.5rem 6rem;
+    padding: 7rem 1.5rem 5.5rem;
   }
 
   .admission-result-reveal__card {
     min-height: 21rem;
-    padding: 3.25rem 2rem 2.5rem;
   }
 
-  .admission-result-reveal__skip,
-  .admission-result-reveal__replay {
-    right: 50%;
-    transform: translateX(50%);
+  .admission-result-reveal__card--quiet {
+    min-height: 19rem;
+    padding: 2.5rem 1.5rem;
+  }
+
+  .admission-result-reveal__content {
+    padding: 3rem 2rem 2.75rem;
+  }
+
+  .admission-result-reveal__petal-frame {
+    transform: scale(0.9);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .admission-result-reveal__card-wrap,
   .admission-result-reveal__frame-petal,
-  .admission-result-reveal__chest,
-  .admission-result-reveal__replay {
+  .admission-result-reveal__chest {
     animation-duration: 1ms;
     animation-iteration-count: 1;
   }

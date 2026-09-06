@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { AdmissionResultOutcome } from "../../lib/admissionResultReveal";
+import {
+  admissionResultUsesChest,
+  type AdmissionResultOutcome,
+} from "../../lib/admissionResultReveal";
 import { Petal } from "./Petal";
 import { PortalButton } from "./PortalButton";
 import { PortalScene } from "./PortalScene";
 import chestShader from "./chest.wgsl?raw";
 import "./admission-result-reveal.css";
 
-const sequenceDurationMs = 4_050;
 const cardRevealAtMs = 3_500;
+const fallbackStartupAfterMs = 1_500;
+const fallbackDurationMs = 1_400;
 
 const vertexShader = /* wgsl */ `
 struct VertexOutput {
@@ -30,45 +34,53 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
 }
 `;
 
-const framePetals = [
-  { left: "2%", top: "-14px", rotation: -38, size: 28, delay: -0.4 },
-  { left: "14%", top: "-19px", rotation: 18, size: 23, delay: -1.1 },
-  { left: "28%", top: "-13px", rotation: 52, size: 30, delay: -1.8 },
-  { left: "44%", top: "-20px", rotation: -9, size: 25, delay: -0.8 },
-  { left: "61%", top: "-14px", rotation: 31, size: 29, delay: -1.5 },
-  { left: "78%", top: "-18px", rotation: -55, size: 24, delay: -0.2 },
-  { left: "94%", top: "-10px", rotation: 17, size: 27, delay: -1.3 },
-  { left: "100%", top: "20%", rotation: 68, size: 25, delay: -0.6 },
-  { left: "98%", top: "48%", rotation: 112, size: 30, delay: -1.7 },
-  { left: "100%", top: "76%", rotation: 74, size: 24, delay: -1 },
-  { left: "91%", top: "95%", rotation: 142, size: 29, delay: -0.3 },
-  { left: "72%", top: "98%", rotation: 194, size: 24, delay: -1.4 },
-  { left: "51%", top: "96%", rotation: 156, size: 30, delay: -0.7 },
-  { left: "31%", top: "99%", rotation: 213, size: 23, delay: -1.9 },
-  { left: "11%", top: "94%", rotation: 170, size: 29, delay: -1.2 },
-  { left: "-3%", top: "78%", rotation: 248, size: 25, delay: -0.5 },
-  { left: "-5%", top: "50%", rotation: 286, size: 30, delay: -1.6 },
-  { left: "-3%", top: "21%", rotation: 235, size: 24, delay: -0.9 },
-] as const;
+const horizontalPetals = Array.from({ length: 17 }, (_, index) => {
+  const left = `${index * 6.25}%`;
+  const size = 42 + (index % 4) * 5;
+  return [
+    { left, top: "-7%", rotation: -52 + index * 19, size, delay: -(index % 6) * 0.24 },
+    {
+      left,
+      top: "92%",
+      rotation: 128 + index * 17,
+      size: size + (index % 2) * 4,
+      delay: -((index + 3) % 7) * 0.21,
+    },
+  ];
+}).flat();
+
+const verticalPetals = Array.from({ length: 9 }, (_, index) => {
+  const top = `${8 + index * 10.5}%`;
+  const size = 44 + (index % 3) * 6;
+  return [
+    { left: "-5%", top, rotation: 208 + index * 23, size, delay: -(index % 5) * 0.27 },
+    {
+      left: "94%",
+      top,
+      rotation: 32 + index * 21,
+      size: size + (index % 2) * 3,
+      delay: -((index + 2) % 6) * 0.23,
+    },
+  ];
+}).flat();
+
+const selectedCardPetals = [...horizontalPetals, ...verticalPetals];
 
 const resultCopy: Record<
   AdmissionResultOutcome,
-  { eyebrow: string; heading: string; message: (teamName: string) => string; action: string }
+  { heading: string; message: (teamName: string) => string; action: string }
 > = {
   selected: {
-    eyebrow: "The shortlist is here",
     heading: "You are selected for this hack!",
     message: (teamName) => `${teamName}, your team made the Code2Create shortlist.`,
     action: "See what’s next",
   },
   waitlisted: {
-    eyebrow: "Your result is here",
     heading: "You’re on the waitlist.",
     message: (teamName) => `${teamName} is still in consideration. We’ll share an update if a place opens.`,
     action: "View your status",
   },
   not_selected: {
-    eyebrow: "Your result is here",
     heading: "Better luck next time",
     message: (teamName) => `Thank you, ${teamName}, for sharing your idea with Code2Create.`,
     action: "Continue",
@@ -154,7 +166,7 @@ async function startChestAnimation(args: {
   chestBitmap.close();
 
   const format = gpu.getPreferredCanvasFormat();
-  context.configure({ device, format, alphaMode: "opaque" });
+  context.configure({ device, format, alphaMode: "premultiplied" });
   const shader = device.createShaderModule({ code: `${chestShader}\n${vertexShader}` });
   const pipeline = await device.createRenderPipelineAsync({
     label: "code2create-result-chest-pipeline",
@@ -216,7 +228,7 @@ async function startChestAnimation(args: {
       return;
     }
     resize();
-    const elapsedMs = Math.min(performance.now() - startedAt, sequenceDurationMs);
+    const elapsedMs = performance.now() - startedAt;
     const [halfWidth, halfHeight] = chestHalfSize(args.canvas, args.chestArt);
     uniformValues[0] = args.canvas.width;
     uniformValues[1] = args.canvas.height;
@@ -233,7 +245,7 @@ async function startChestAnimation(args: {
           view: context.getCurrentTexture().createView(),
           loadOp: "clear",
           storeOp: "store",
-          clearValue: { r: 0.027, g: 0.106, b: 0.325, a: 1 },
+          clearValue: { r: 0, g: 0, b: 0, a: 0 },
         },
       ],
     });
@@ -248,7 +260,7 @@ async function startChestAnimation(args: {
       revealed = true;
       args.onReveal();
     }
-    if (elapsedMs < sequenceDurationMs) frame = requestAnimationFrame(render);
+    frame = requestAnimationFrame(render);
   };
   frame = requestAnimationFrame(render);
   return stop;
@@ -269,27 +281,38 @@ export function AdmissionResultReveal({
   onSignOut?: () => void;
   onContinue: () => void;
 }) {
+  const showsChest = admissionResultUsesChest(outcome);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const chestArtRef = useRef<HTMLImageElement>(null);
-  const [sequence, setSequence] = useState(0);
-  const [revealed, setRevealed] = useState(false);
+  const [revealed, setRevealed] = useState(!showsChest);
   const [fallback, setFallback] = useState(false);
   const copy = resultCopy[outcome];
   const reveal = useCallback(() => setRevealed(true), []);
 
   useEffect(() => {
+    if (!showsChest) return;
     const canvas = canvasRef.current;
     const chestArt = chestArtRef.current;
     if (!canvas || !chestArt) return;
+    chestArt.style.opacity = "1";
     const stopped = { current: false };
     let cleanup: (() => void) | undefined;
+    let usingFallback = false;
+    let startupTimer = 0;
     let fallbackTimer = 0;
+    const beginFallback = () => {
+      if (stopped.current || usingFallback) return;
+      usingFallback = true;
+      setFallback(true);
+      fallbackTimer = window.setTimeout(reveal, fallbackDurationMs);
+    };
+    startupTimer = window.setTimeout(beginFallback, fallbackStartupAfterMs);
     void startChestAnimation({
       canvas,
       chestArt,
       stopped,
       onReady: () => {
-        chestArt.style.opacity = "0";
+        if (!usingFallback) chestArt.style.opacity = "0";
       },
       onReveal: reveal,
     })
@@ -298,31 +321,29 @@ export function AdmissionResultReveal({
           stop?.();
           return;
         }
+        window.clearTimeout(startupTimer);
+        if (usingFallback) {
+          stop?.();
+          return;
+        }
         if (stop) {
           cleanup = stop;
           return;
         }
-        setFallback(true);
-        fallbackTimer = window.setTimeout(reveal, 700);
+        beginFallback();
       })
       .catch((error: unknown) => {
         console.error("Could not start the admission result chest", error);
-        if (stopped.current) return;
-        setFallback(true);
-        fallbackTimer = window.setTimeout(reveal, 700);
+        window.clearTimeout(startupTimer);
+        beginFallback();
       });
     return () => {
       stopped.current = true;
+      window.clearTimeout(startupTimer);
       window.clearTimeout(fallbackTimer);
       cleanup?.();
     };
-  }, [reveal, sequence]);
-
-  const replay = () => {
-    setRevealed(false);
-    setSequence((current) => current + 1);
-    if (chestArtRef.current) chestArtRef.current.style.opacity = "1";
-  };
+  }, [reveal, showsChest]);
 
   return (
     <PortalScene
@@ -333,75 +354,71 @@ export function AdmissionResultReveal({
       fill
     >
       <section
-        className={`admission-result-reveal ${fallback ? "admission-result-reveal--fallback" : ""}`}
+        className={`admission-result-reveal admission-result-reveal--${outcome} ${
+          fallback ? "admission-result-reveal--fallback" : ""
+        }`}
         aria-label={`Admission result for ${teamName}`}
       >
-        <canvas ref={canvasRef} aria-hidden className="admission-result-reveal__canvas" />
-        <img
-          key={sequence}
-          ref={chestArtRef}
-          src="/assets/magic-lucky-chest.webp"
-          alt=""
-          draggable={false}
-          className="admission-result-reveal__chest"
-        />
-
-        <p className="sr-only" role="status" aria-live="polite">
-          {revealed ? copy.heading : "Opening your Code2Create result."}
-        </p>
+        {showsChest && !revealed ? (
+          <>
+            <canvas ref={canvasRef} aria-hidden className="admission-result-reveal__canvas" />
+            <img
+              ref={chestArtRef}
+              src="/assets/magic-lucky-chest.webp"
+              alt=""
+              draggable={false}
+              className="admission-result-reveal__chest"
+            />
+            <p className="sr-only" role="status" aria-live="polite">
+              Opening your Code2Create result.
+            </p>
+          </>
+        ) : null}
 
         {revealed ? (
           <div className="admission-result-reveal__card-wrap">
-            <div className="admission-result-reveal__card" role="status">
-              {framePetals.map((petal, index) => (
-                <span
-                  key={`${petal.left}-${petal.top}`}
-                  aria-hidden
-                  className="admission-result-reveal__frame-petal"
-                  style={{
-                    left: petal.left,
-                    top: petal.top,
-                    rotate: `${petal.rotation}deg`,
-                    animationDelay: `${petal.delay}s`,
-                  }}
+            <div
+              className={`admission-result-reveal__card admission-result-reveal__card--${
+                showsChest ? "petals" : "quiet"
+              }`}
+              role="status"
+            >
+              {showsChest ? (
+                <div aria-hidden className="admission-result-reveal__petal-frame">
+                  {selectedCardPetals.map((petal, index) => (
+                    <span
+                      key={`${petal.left}-${petal.top}-${index}`}
+                      className="admission-result-reveal__frame-petal"
+                      style={{
+                        left: petal.left,
+                        top: petal.top,
+                        rotate: `${petal.rotation}deg`,
+                        animationDelay: `${petal.delay}s`,
+                      }}
+                    >
+                      <Petal
+                        size={petal.size}
+                        state={index % 7 === 0 ? "current" : "done"}
+                      />
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div className="admission-result-reveal__content">
+                <h1>{copy.heading}</h1>
+                <p className="admission-result-reveal__message">{copy.message(teamName)}</p>
+                <p className="admission-result-reveal__event">{eventName}</p>
+                <PortalButton
+                  type="button"
+                  variant="solid"
+                  className="relative z-10 mt-6"
+                  onClick={onContinue}
                 >
-                  <Petal size={petal.size} state={index % 4 === 0 ? "current" : "done"} />
-                </span>
-              ))}
-              <div aria-hidden className="admission-result-reveal__mark">
-                <img src="/assets/logo.svg" alt="" />
+                  {copy.action}
+                </PortalButton>
               </div>
-              <p className="admission-result-reveal__eyebrow">{copy.eyebrow}</p>
-              <h1>{copy.heading}</h1>
-              <p className="admission-result-reveal__message">{copy.message(teamName)}</p>
-              <p className="admission-result-reveal__event">{eventName}</p>
-              <PortalButton
-                type="button"
-                variant="solid"
-                className="relative z-10 mt-6"
-                onClick={onContinue}
-              >
-                {copy.action}
-              </PortalButton>
             </div>
           </div>
-        ) : (
-          <button
-            type="button"
-            className="admission-result-reveal__skip"
-            onClick={reveal}
-          >
-            reveal now
-          </button>
-        )}
-
-        {revealed ? (
-          <button type="button" className="admission-result-reveal__replay" onClick={replay}>
-            <svg viewBox="0 0 24 24" aria-hidden>
-              <path d="M20 11a8 8 0 1 1-2.34-5.66L20 7.68M20 3v4.68h-4.68" />
-            </svg>
-            Replay chest
-          </button>
         ) : null}
       </section>
     </PortalScene>

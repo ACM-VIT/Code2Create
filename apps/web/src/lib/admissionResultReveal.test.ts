@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   admissionResultOutcome,
   admissionResultRevealKey,
+  admissionResultUsesChest,
 } from "./admissionResultReveal.ts";
 
 test("reveals every published admission decision with the right outcome", () => {
@@ -19,6 +20,12 @@ test("does not treat workflow or later RSVP states as new result announcements",
   assert.equal(admissionResultOutcome("under_review"), null);
   assert.equal(admissionResultOutcome("offer_expired"), null);
   assert.equal(admissionResultOutcome("withdrawn"), null);
+});
+
+test("reserves the chest animation for selected teams", () => {
+  assert.equal(admissionResultUsesChest("selected"), true);
+  assert.equal(admissionResultUsesChest("waitlisted"), false);
+  assert.equal(admissionResultUsesChest("not_selected"), false);
 });
 
 test("keeps one reveal receipt across accepted offer lifecycle transitions", () => {
