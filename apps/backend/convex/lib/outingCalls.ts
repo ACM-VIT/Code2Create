@@ -14,6 +14,14 @@ export function outingCall(ctx: QueryCtx | MutationCtx, entry: Doc<"participantS
 async function currentOverdueOuting(ctx: MutationCtx, entryId: Id<"participantServiceQueueEntries">, now: number) {
   const entry = await ctx.db.get(entryId);
   if (!entry || entry.phase.status !== "overdue" || entry.phase.returnBy > now) return null;
+  const phase = entry.phase;
+  const departures = await ctx.db.query("attendancePresenceEvents")
+    .withIndex("by_membership_time", (q) => q.eq("membershipId", entry.membershipId).eq("receivedAt", phase.departedAt))
+    .collect();
+  if (!departures.some((scan) => scan.eventId === entry.eventId && scan.sourceKind === "scanner" &&
+    scan.outcome === "accepted" && scan.movementReason === "short_break" &&
+    scan.transition === (phase.returnTransition === "venue_entry" ? "venue_exit" : "zone_exit") &&
+    scan.sessionId === phase.sessionId && scan.outing?.status === "out" && scan.outing.returnBy === phase.returnBy)) return null;
   const [event, membership, person] = await Promise.all([
     ctx.db.get(entry.eventId), ctx.db.get(entry.membershipId), ctx.db.get(entry.personId),
   ]);

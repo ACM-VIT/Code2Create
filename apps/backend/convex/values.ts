@@ -1,4 +1,7 @@
 import { type Infer, v } from "convex/values";
+import { attendanceMovementReasons } from "@code2create/domain";
+
+export const attendanceMovementReason = v.union(...attendanceMovementReasons.map((reason) => v.literal(reason)));
 
 export const participantClass = v.union(
   v.literal("vit_student"),

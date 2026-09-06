@@ -1,5 +1,6 @@
 import { TableAggregate } from "@convex-dev/aggregate";
 import type { Infer } from "convex/values";
+import type { AttendanceMovementReason } from "@code2create/domain";
 
 import { components, internal } from "../_generated/api";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
@@ -118,6 +119,7 @@ export async function expireOutingPermission(ctx: MutationCtx, entry: Entry, now
 
 /** Called only after attendance accepts the proposed movement, within its transaction. */
 export async function applyOutingScan(ctx: MutationCtx, args: {
+  movementReason: AttendanceMovementReason;
   eventId: Id<"events">;
   membershipId: Id<"eventMemberships">;
   transition: "venue_entry" | "venue_exit" | "zone_entry" | "zone_exit" | "session_confirm";
@@ -141,7 +143,14 @@ export async function applyOutingScan(ctx: MutationCtx, args: {
     await fillOutingCapacity(ctx, args.eventId, args.now);
     return { allowed: true, outing: { status: "returned", position: null, returnBy } };
   }
-  // Offline evidence cannot authorize an outing against historical capacity.
+  if (args.movementReason !== "short_break") {
+    if (entry) {
+      await deleteParticipantServiceQueueEntry(ctx, entry);
+      await fillOutingCapacity(ctx, args.eventId, args.now);
+    }
+    return { allowed: true, outing: null };
+  }
+  // Offline evidence cannot authorize a short break against historical capacity.
   if (args.isOfflineReplay) {
     return { allowed: false, outing: { status: "online_required", position: null, returnBy: null } };
   }

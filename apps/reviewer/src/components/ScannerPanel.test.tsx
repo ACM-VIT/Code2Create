@@ -1,10 +1,11 @@
 import { type ReactNode, useEffect } from "react";
 import { CameraView } from "expo-camera";
-import { act, create, type ReactTestRenderer } from "react-test-renderer";
+import { act, create } from "react-test-renderer";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { ScannerPanel } from "./ScannerPanel";
 import { DutyErrorBoundary } from "./DutyErrorBoundary";
+import { enqueuePendingAttendanceScan } from "@/lib/pending-attendance-scans";
 
 const state = vi.hoisted(() => ({
   registered: false,
@@ -94,7 +95,7 @@ vi.mock("@/lib/pending-attendance-scans", () => ({
   removePendingAttendanceScan: vi.fn(),
 }));
 
-let renderer: ReactTestRenderer;
+let renderer: ReturnType<typeof create>;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
@@ -189,7 +190,38 @@ test("a decoded card records once while busy and supports scanning the next pers
     callback({ type: "code128", data: "26BDS0102" }),
   ]); });
   expect(state.action).toHaveBeenCalledOnce();
+  expect(state.action).toHaveBeenCalledWith(expect.objectContaining({ rovingTransition: "venue_entry", movementReason: "general" }));
   expect(renderer.root.findByProps({ label: "Scan next" })).toBeDefined();
   await act(async () => { renderer.root.findByProps({ label: "Scan next" }).props.onPress(); });
   expect(renderer.root.findByType(CameraView).props.onBarcodeScanned).toBeTypeOf("function");
+});
+
+test("staff choose a departure reason before scanning and keep it for the next person", async () => {
+  state.action.mockResolvedValue({ outcome: "accepted", reasonCode: "venue_exit_recorded",
+    transition: "venue_exit", movementReason: "meal", serverTime: assignment.serverNow, participant: { displayName: "Dinner attendee" } });
+  await start();
+  await act(async () => { renderer.root.findByProps({ selected: "venue_entry" }).props.onSelect("venue_exit"); });
+  expect(renderer.root.findAllByType(CameraView)).toHaveLength(0);
+  expect(state.action).not.toHaveBeenCalled();
+  await act(async () => { renderer.root.findByProps({ label: "Meal", detail: "Flexible return. No short-break timer." }).props.onPress(); });
+  await act(async () => { await renderer.root.findByType(CameraView).props.onBarcodeScanned({ type: "code128", data: "26BDS0102" }); });
+  expect(state.action).toHaveBeenCalledWith(expect.objectContaining({ rovingTransition: "venue_exit", movementReason: "meal" }));
+  expect(enqueuePendingAttendanceScan).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ rovingTransition: "venue_exit", movementReason: "meal" }) }));
+  expect(JSON.stringify(renderer.toJSON())).not.toContain("capacity needs setup");
+  await act(async () => { renderer.root.findByProps({ label: "Scan next" }).props.onPress(); });
+  expect(renderer.root.findByProps({ selected: "venue_exit" })).toBeDefined();
+  expect(renderer.root.findByProps({ label: "Meal", detail: "Tap to change reason" })).toBeDefined();
+});
+
+test("washroom departures send an explicit short-break reason and coming in never sends an exit", async () => {
+  state.action.mockResolvedValue({ outcome: "accepted", reasonCode: "venue_exit_recorded", serverTime: assignment.serverNow, participant: null });
+  await start();
+  await act(async () => { renderer.root.findByProps({ selected: "venue_entry" }).props.onSelect("venue_exit"); });
+  await act(async () => { renderer.root.findByProps({ label: "Washroom / short break", detail: "15-minute permission on departure; release the slot on return." }).props.onPress(); });
+  await act(async () => { await renderer.root.findByType(CameraView).props.onBarcodeScanned({ type: "code128", data: "26BDS0102" }); });
+  expect(state.action).toHaveBeenLastCalledWith(expect.objectContaining({ rovingTransition: "venue_exit", movementReason: "short_break" }));
+  await act(async () => { renderer.root.findByProps({ label: "Scan next" }).props.onPress(); });
+  await act(async () => { renderer.root.findByProps({ selected: "venue_exit" }).props.onSelect("venue_entry"); });
+  await act(async () => { await renderer.root.findByType(CameraView).props.onBarcodeScanned({ type: "code128", data: "26BDS0102" }); });
+  expect(state.action).toHaveBeenLastCalledWith(expect.objectContaining({ rovingTransition: "venue_entry" }));
 });

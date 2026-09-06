@@ -28,6 +28,7 @@ import {
   admissionReviewAssignmentState,
   applicationState,
   attendanceCredentialKind,
+  attendanceMovementReason,
   attendanceCorrectionKind,
   attendanceExpectationBuildState,
   attendancePresenceOutcome,
@@ -2751,6 +2752,7 @@ export default defineSchema({
 
   attendancePresenceEvents: defineTable({
     eventId: v.id("events"),
+    movementReason: v.optional(attendanceMovementReason),
     outing: v.optional(outingScanDecision),
     sourceKind: attendancePresenceSourceKind,
     stationId: v.optional(v.id("attendanceStations")),

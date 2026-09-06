@@ -10,6 +10,7 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { matchingPermissionGrantIds } from "./lib/permissions";
 import {
   attendanceScannerCredentialKind,
+  attendanceMovementReason,
   attendanceScanTransition,
   attendanceStationMode,
   barcodeSymbology,
@@ -38,6 +39,7 @@ const openSession = v.union(
 );
 
 const scanReceipt = v.object({
+  movementReason: v.optional(attendanceMovementReason),
   outing: v.optional(outingScanDecision),
   id: v.id("attendancePresenceEvents"),
   outcome: v.union(
@@ -113,6 +115,7 @@ async function scannerReceipt(ctx: QueryCtx, presenceEvent: Doc<"attendancePrese
   const participantPerson = membership ? await ctx.db.get(membership.personId) : null;
   return {
     id: presenceEvent._id,
+    ...(presenceEvent.movementReason ? { movementReason: presenceEvent.movementReason } : {}),
     ...(presenceEvent.outing ? { outing: presenceEvent.outing } : {}),
     outcome: presenceEvent.outcome,
     reasonCode: presenceEvent.reasonCode,

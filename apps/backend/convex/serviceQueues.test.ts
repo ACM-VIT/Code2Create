@@ -1,3 +1,4 @@
+import type { AttendanceMovementReason } from "@code2create/domain";
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import aggregateTest from "@convex-dev/aggregate/test";
 import { convexTest, type TestConvex } from "convex-test";
@@ -127,6 +128,14 @@ async function fixture(capacity = 15, documentsRead?: number) {
     permissionKey: "configuration.manage", scopeType: "event",
     sourceType: "manual", sourceId: "outing-fixture", grantedByPersonId: operator.personId, reason: "Configure fixture outings",
   }));
+  const zoneId = await backend.run(async (ctx) => {
+    const planVersionId = await ctx.db.insert("attendancePlanVersions", {
+      eventId, version: 1, name: "Test plan", vitBarcodeSymbologies: ["code128"],
+      vitBarcodeNormalizationVersion: "trim-v1", offlineQueueMaxScans: 25, offlineQueueMaxAgeSeconds: 300,
+      status: "published", checksum: "test", createdByPersonId: operator.personId, createdAt: now,
+    });
+    return ctx.db.insert("attendanceZones", { eventId, planVersionId, stableKey: "main", name: "Main", createdAt: now });
+  });
   const ops = backend.withIdentity(operator.identity);
   if (capacity > 0) await ops.mutation(api.serviceQueues.configure, { eventSlug, capacity, expectedVersion: 0, clientOperationId: "configure" });
   const makePerson = async (key: string) => {
@@ -141,9 +150,21 @@ async function fixture(capacity = 15, documentsRead?: number) {
       })),
       request: (clientOperationId: string = crypto.randomUUID()) => client.mutation(api.serviceQueues.join, { eventSlug, kind: "outing_permission", clientOperationId }),
       current: async () => (await client.query(api.serviceQueues.current, { eventSlug }))[0]!,
-      scan: (transition: "venue_entry" | "venue_exit", isOfflineReplay = false) => backend.run((ctx) => applyOutingScan(ctx, {
-        eventId, membershipId: person.membershipId, transition, isOfflineReplay, now: Date.now(),
-      })),
+      scan: (transition: "venue_entry" | "venue_exit", isOfflineReplay = false, movementReason: AttendanceMovementReason = "short_break") => backend.run(async (ctx) => {
+        const now = Date.now();
+        const result = await applyOutingScan(ctx, { eventId, membershipId: person.membershipId,
+          transition, movementReason, isOfflineReplay, now });
+        if (result.allowed && result.outing?.status === "out" && transition === "venue_exit") {
+          await ctx.db.insert("attendancePresenceEvents", {
+            eventId, membershipId: person.membershipId, zoneId, sourceKind: "scanner",
+            operatorPersonId: operator.personId, credentialKind: "vit_id_barcode", movementReason,
+            transition, outcome: "accepted", outing: result.outing, capturedAt: now, receivedAt: now,
+            clientOperationId: crypto.randomUUID(), requestFingerprint: "fixture", isOfflineReplay,
+            reasonCode: "venue_exit_recorded",
+          });
+        }
+        return result;
+      }),
     };
   };
   return { backend, eventId, eventSlug, now, ops, makePerson };
@@ -327,6 +348,31 @@ async function overdueCallFixture(phone: string | null = "+919876543210") {
 }
 
 describe("overdue outing calls", () => {
+  test.each([undefined, "meal", "organizer_task", "other", "general"] as const)(
+    "does not call when departure reason is %s", async (movementReason) => {
+      const f = await overdueCallFixture();
+      await f.backend.run(async (ctx) => {
+        const scan = await ctx.db.query("attendancePresenceEvents").first();
+        if (!scan) throw new Error("Missing departure fixture");
+        await ctx.db.patch(scan._id, { movementReason });
+      });
+      await f.advance(); await f.sweep();
+      expect(await f.calls()).toEqual([]);
+    },
+  );
+  test.each(["meal", "organizer_task", "other"] as const)(
+    "%s departures create no timed outing or overdue reminder", async (reason) => {
+      const f = await fixture(0); const person = await f.makePerson("meal");
+      expect(await person.scan("venue_exit", false, reason)).toEqual({ allowed: true, outing: null });
+      const clock = vi.spyOn(Date, "now").mockReturnValue(f.now + 2 * 3_600_000);
+      await f.backend.mutation(internal.serviceQueues.sweepOverdueCalls, { cursor: null });
+      expect(await f.backend.run((ctx) => ctx.db.query("participantServiceQueueEntries").collect())).toEqual([]);
+      expect(await f.backend.run((ctx) => ctx.db.query("outboundCallDeliveries").collect())).toEqual([]);
+      expect(await person.scan("venue_entry", false, reason)).toEqual({ allowed: true, outing: null });
+      clock.mockRestore();
+    },
+  );
+
   test("starts one Sarvam reminder at the exit deadline, never before it", async () => {
     const f = await overdueCallFixture();
     f.clock.mockReturnValue(f.request.returnBy! - 1);

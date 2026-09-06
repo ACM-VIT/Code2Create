@@ -1,5 +1,8 @@
 import { outingReceiptMessage } from "../lib/outing-receipt";
 import {
+  attendanceMovementReasonLabels,
+  attendanceMovementReasons,
+  type AttendanceMovementReason,
   barcodeSymbologies,
   findBarcodeSymbology,
   parseAttendanceQrPayload,
@@ -436,8 +439,16 @@ function ScannerSurface({
   const [busy, setBusy] = useState(false);
   const [replaying, setReplaying] = useState(false);
   const requestedTask = useLocalSearchParams<{ task?: string }>().task;
+  const [venueDirection, setVenueDirection] = useState<"venue_entry" | "venue_exit">("venue_entry");
+  const [movementReason, setMovementReason] = useState<AttendanceMovementReason | null>(
+    assignment.station.mode === "venue_exit" || assignment.station.mode === "zone_exit" ? null : "general",
+  );
+  const [reasonPickerOpen, setReasonPickerOpen] = useState(false);
+  const venueScanner = assignment.station.mode === "roving" && !assignment.station.sessionId;
+  const departureSelected = venueScanner ? venueDirection === "venue_exit"
+    : assignment.station.mode === "venue_exit" || assignment.station.mode === "zone_exit";
   const washroomQueue = useQuery(api.serviceQueues.forStation,
-    assignment.station.mode === "roving" && !assignment.station.sessionId
+    venueScanner && departureSelected && movementReason === "short_break"
       ? { eventSlug, stationId: assignment.station.id } : "skip");
   const [chosenTask, setChosenTask] = useState<ScannerTask | null>(null);
   const task: ScannerTask | null =
@@ -545,6 +556,7 @@ function ScannerSurface({
             deviceInstallationId: assignment.device.id,
             deviceSecret: deviceRecord.deviceSecret,
             credential: operation.credential,
+            ...(operation.movementReason ? { movementReason: operation.movementReason } : {}),
             ...(operation.rovingTransition !== undefined
               ? { rovingTransition: operation.rovingTransition }
               : {}),
@@ -753,9 +765,8 @@ function ScannerSurface({
         `${credentialName(credential.kind)} cannot be used for this scan.`,
       );
     }
-    if (assignment.station.mode === "roving" && !assignment.station.sessionId) {
-      if (definitelyOffline) throw new OperatorError("Connect to the internet to record washroom movement.");
-      await sendPresenceScan(credential, undefined);
+    if (venueScanner) {
+      await sendPresenceScan(credential, venueDirection);
     } else {
       setPendingScan(credential);
     }
@@ -773,8 +784,11 @@ function ScannerSurface({
   const sendPresenceScan = async (credential: ScanCredential, rovingTransition: ScanTransition | undefined) => {
     try {
       const transition = assignment.station.mode === "roving" ? rovingTransition : assignment.station.mode;
-      if (definitelyOffline && (transition === undefined || transition === "venue_exit" || transition === "zone_exit")) {
-        throw new OperatorError("Connect to the internet to check outing permission before departure.");
+      if (movementReason === null || (movementReason === "general" && (transition === "venue_exit" || transition === "zone_exit"))) {
+        throw new OperatorError("Choose why they are leaving, then scan their ID.");
+      }
+      if (definitelyOffline && movementReason === "short_break" && (transition === "venue_exit" || transition === "zone_exit")) {
+        throw new OperatorError("Connect to the internet to check short-break permission before departure.");
       }
       const reserved = await reserveDeviceSequence({
         eventSlug,
@@ -790,6 +804,7 @@ function ScannerSurface({
         stationStableKey: assignment.station.stableKey,
         expectedConfigurationVersion: assignment.station.configurationVersion,
         credential,
+        movementReason,
         ...(rovingTransition !== undefined ? { rovingTransition } : {}),
         clientOperationId,
         deviceSequence: reserved.lastIssuedSequence,
@@ -817,6 +832,7 @@ function ScannerSurface({
           deviceInstallationId: assignment.device.id,
           deviceSecret: reserved.deviceSecret,
           credential,
+          movementReason,
           ...(rovingTransition !== undefined ? { rovingTransition } : {}),
           clientOperationId,
           deviceSequence: reserved.lastIssuedSequence,
@@ -1639,13 +1655,13 @@ function ScannerSurface({
           }}
         />
         <ScanSurface
-          camera={cameraFocused && appIsActive && !manualLookupOpen && !historyOpen ? (
+          camera={cameraFocused && appIsActive && !manualLookupOpen && !historyOpen && !reasonPickerOpen ? (
             <CameraView
               barcodeScannerSettings={{ barcodeTypes }}
               facing="back"
               onMountError={() => setCameraError("The camera could not start. Close other camera apps and try again.")}
               onBarcodeScanned={
-                busy || replaying || receipt || pendingConfirmation || pendingScan
+                busy || replaying || receipt || pendingConfirmation || pendingScan || movementReason === null
                   ? undefined
                   : handleBarcode
               }
@@ -1654,10 +1670,40 @@ function ScannerSurface({
           ) : null}
           controls={
             <ScannerTaskContext
-              detail={assignment.station.mode === "roving" && !assignment.station.sessionId ? "Scan an ID to record departure or return." : "Scan a linked ID or event pass."}
+              detail={movementReason === null ? "Choose a reason, then scan each person's ID."
+                : movementReason === "short_break" && departureSelected ? "Permission required. The 15-minute timer starts when they leave."
+                : departureSelected ? "Record their departure. No short-break timer or capacity limit."
+                : "Scan each person coming in. Returns do not need an outing slot."}
               onChange={chooseAnotherTask}
-              title="Record presence"
+              title={venueScanner ? (departureSelected ? "Going out" : "Coming in") : "Record presence"}
             >
+              {!busy && !receipt && !pendingConfirmation ? (
+                <>
+                  {venueScanner ? <ChipRow
+                    accent={palette.door}
+                    selected={venueDirection}
+                    options={[["venue_entry", "Coming in"], ["venue_exit", "Going out"]]}
+                    onSelect={(direction) => {
+                      if (busyRef.current || replayingRef.current) return;
+                      setVenueDirection(direction);
+                      setScanError(null);
+                      if (direction === "venue_exit" && movementReason === "general") {
+                        setMovementReason(null);
+                        setReasonPickerOpen(true);
+                      }
+                      if (direction === "venue_entry" && movementReason === null) setMovementReason("general");
+                    }}
+                  /> : null}
+                  <Row
+                    label={movementReason ? attendanceMovementReasonLabels[movementReason] : "Choose a reason"}
+                    detail={movementReason ? "Tap to change reason" : "Required before scanning"}
+                    onPress={() => {
+                      if (busyRef.current || replayingRef.current) return;
+                      setReasonPickerOpen(true);
+                    }}
+                  />
+                </>
+              ) : movementReason ? <Meta>{attendanceMovementReasonLabels[movementReason]}</Meta> : null}
               {staffedOperations.records.size > 0 ? (
                 <Meta>
                   Finish the earlier credential action with the exact same participant and card.
@@ -1668,7 +1714,7 @@ function ScannerSurface({
           {...(presenceVerdict ? { verdict: presenceVerdict } : {})}
           result={
             <>
-              {washroomQueue ? <Meta>{washroomQueue.capacity === null ? "Set outing capacity in ops" : `${washroomQueue.occupiedCount}/${washroomQueue.capacity} slots occupied · ${washroomQueue.waitingCount} waiting`}{washroomQueue.next[0] ? ` · Next: ${washroomQueue.next[0].displayName}` : ""}</Meta> : null}
+              {washroomQueue ? <Meta>{washroomQueue.capacity === null ? "Short-break capacity needs setup in Ops." : `${washroomQueue.occupiedCount}/${washroomQueue.capacity} short-break slots occupied · ${washroomQueue.waitingCount} waiting`}{washroomQueue.next[0] ? ` · Next: ${washroomQueue.next[0].displayName}` : ""}</Meta> : null}
               {receipt || scanError ? (
                 <>
                   {receipt?.participant?.teamName ? (
@@ -1736,6 +1782,27 @@ function ScannerSurface({
             </>
           }
         />
+        <Sheet
+          detents={[0.65]}
+          onClose={() => setReasonPickerOpen(false)}
+          title={departureSelected ? "Reason for leaving" : "Reason for coming in"}
+          visible={reasonPickerOpen}
+        >
+          {attendanceMovementReasons.filter((reason) => !departureSelected || reason !== "general").map((reason) => (
+            <Row
+              key={reason}
+              label={attendanceMovementReasonLabels[reason]}
+              detail={reason === "short_break" ? "15-minute permission on departure; release the slot on return."
+                : reason === "general" ? "Confirm they are inside."
+                : "Flexible return. No short-break timer."}
+              onPress={() => {
+                setMovementReason(reason);
+                setReasonPickerOpen(false);
+                setScanError(null);
+              }}
+            />
+          ))}
+        </Sheet>
         <Sheet
           detents={[0.45, 0.92]}
           onClose={() => setHistoryOpen(false)}
@@ -2815,6 +2882,7 @@ function receiptDetail(entry: DeviceReceipt) {
   return [
     entry.participantName && entry.outcome !== "accepted" ? outcomeName(entry.outcome) : null,
     transitionName(entry.transition),
+    entry.movementReason ? attendanceMovementReasonLabels[entry.movementReason] : null,
     entry.outing ? outingReceiptMessage(entry.outing, entry.receivedAt) : null,
     entry.isOfflineReplay ? "replayed" : null,
     new Date(entry.capturedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }),
@@ -2836,7 +2904,7 @@ function reasonName(reason: string) {
     venue_exit_recorded: "Signed out. They can come back later.",
     session_presence_recorded: "Marked present for this session.",
     temporary_exit_recorded: "Stepped out. Scan them again on the way back.",
-    already_inside: "Already inside — no need to scan again.",
+    already_inside: "They’re already marked inside. Let them through.",
     already_outside: "Already signed out.",
     already_present: "Already marked present for this session.",
     already_temporarily_out: "Already marked as stepped out.",

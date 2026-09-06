@@ -1,3 +1,13 @@
+export const attendanceMovementReasons = ["general", "meal", "short_break", "organizer_task", "other"] as const;
+export type AttendanceMovementReason = (typeof attendanceMovementReasons)[number];
+export const attendanceMovementReasonLabels: Record<AttendanceMovementReason, string> = {
+  general: "General entry",
+  meal: "Meal",
+  short_break: "Washroom / short break",
+  organizer_task: "Organizer task",
+  other: "Other",
+};
+
 export const participantClasses = ["vit_student", "external_participant",
 ] as const;
 export type ParticipantClass = (typeof participantClasses)[number];

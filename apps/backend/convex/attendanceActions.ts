@@ -6,7 +6,7 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action, internalAction } from "./_generated/server";
 import { outingScanDecision } from "./lib/outingValues";
-import { attendanceScanTransition, barcodeSymbology } from "./values";
+import { attendanceMovementReason, attendanceScanTransition, barcodeSymbology } from "./values";
 
 type BarcodeSymbology = Infer<typeof barcodeSymbology>;
 type KeySetResult = {
@@ -146,6 +146,7 @@ type VenueCheckInReversalResult = {
 };
 type ScanTransition = "venue_entry" | "venue_exit" | "session_confirm" | "zone_entry" | "zone_exit";
 type ScanReceipt = {
+  movementReason?: Infer<typeof attendanceMovementReason>;
   outing?: Infer<typeof outingScanDecision>;
   presenceEventId: Id<"attendancePresenceEvents">;
   outcome: "accepted" | "duplicate" | "rejected" | "needs_review";
@@ -1715,6 +1716,7 @@ export const revokeExternalBadge = action({
 
 export const recordScan = action({
   args: {
+    movementReason: v.optional(attendanceMovementReason),
     eventSlug: v.string(),
     stationId: v.id("attendanceStations"),
     expectedConfigurationVersion: v.number(),
@@ -1737,6 +1739,7 @@ export const recordScan = action({
   },
   returns: v.object({
     presenceEventId: v.id("attendancePresenceEvents"),
+    movementReason: v.optional(attendanceMovementReason),
     outing: v.optional(outingScanDecision),
     outcome: v.union(
       v.literal("accepted"),
@@ -1786,6 +1789,7 @@ export const recordScan = action({
           });
     return ctx.runMutation(internal.attendanceScan.recordScan, {
       eventSlug: args.eventSlug,
+      ...(args.movementReason !== undefined ? { movementReason: args.movementReason } : {}),
       stationId: args.stationId,
       expectedConfigurationVersion: args.expectedConfigurationVersion,
       deviceInstallationId: args.deviceInstallationId,
