@@ -56,11 +56,30 @@ jobs:
             --name kv-c2c-prod-b88416 \
             --ip-address "${runner_ip}/32" \
             --output none
+          used_priorities="$(
+            az network nsg rule list \
+              --resource-group rg-code2create-production \
+              --nsg-name "${C2C_PRODUCTION_NSG}" \
+              --query '[].priority' \
+              --output tsv
+          )"
+          deploy_priority=""
+          for candidate in {101..109}; do
+            if ! grep --fixed-strings --line-regexp --quiet "${candidate}" <<<"${used_priorities}"; then
+              deploy_priority="${candidate}"
+              break
+            fi
+          done
+          if [[ -z "${deploy_priority}" ]]; then
+            echo "No NSG priority is available in the deployment range 101-109." >&2
+            exit 1
+          fi
+          echo "Using NSG priority ${deploy_priority} for ${C2C_DEPLOY_NSG_RULE}."
           az network nsg rule create \
             --resource-group rg-code2create-production \
             --nsg-name "${C2C_PRODUCTION_NSG}" \
             --name "${C2C_DEPLOY_NSG_RULE}" \
-            --priority 100 \
+            --priority "${deploy_priority}" \
             --direction Inbound \
             --access Allow \
             --protocol Tcp \
