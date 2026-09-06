@@ -44,6 +44,24 @@ describe("attendance scan direction", () => {
       });
     });
 
+    const operator = asOperator(backend, fixture);
+    // The screen subscribes to all three reads immediately after registration.
+    await expect(operator.query(api.serviceQueues.forStation, {
+      eventSlug: fixture.eventSlug, stationId: fixture.stationId,
+    })).resolves.toMatchObject({ capacity: 15, waitingCount: 0 });
+    await expect(operator.query(api.attendanceScanner.current, {
+      eventSlug: fixture.eventSlug, installationId: `fixture-device-${fixture.now}`,
+    })).resolves.toMatchObject({ station: { id: fixture.stationId } });
+    await expect(operator.query(api.attendanceScanner.history, {
+      eventSlug: fixture.eventSlug, installationId: `fixture-device-${fixture.now}`,
+      paginationOpts: { numItems: 25, cursor: null },
+    })).resolves.toMatchObject({ page: [] });
+    await expect(operator.mutation(internal.attendanceSecurity.scannerHeartbeat, {
+      eventSlug: fixture.eventSlug, stationId: fixture.stationId,
+      expectedConfigurationVersion: 1, deviceInstallationId: fixture.deviceInstallationId,
+      deviceSecretHash: fixture.deviceSecretHash, pendingReplayCount: 0,
+    })).resolves.toMatchObject({ serverNow: expect.any(Number) });
+
     const receipt = await asOperator(backend, fixture).mutation(
       internal.attendanceScan.recordScan,
       {
@@ -818,6 +836,9 @@ describe("attendance scan direction", () => {
       });
     });
 
+    await expect(operator.query(api.serviceQueues.forStation, {
+      eventSlug: fixture.eventSlug, stationId: fixture.stationId,
+    })).resolves.toBeNull();
     await expect(
       operator.query(api.access.reviewerCapabilities, { eventSlug: fixture.eventSlug }),
     ).resolves.toMatchObject({ attendance: false });
