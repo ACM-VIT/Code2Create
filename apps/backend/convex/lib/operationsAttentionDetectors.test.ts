@@ -23,8 +23,6 @@ function floor(overrides: Partial<ReviewFloorProjection> = {},
     roundId: "round1",
     roundName: "Review 1",
     roundEndsAt: now + 60 * minute,
-    reviewerReportAt: now - 10 * minute,
-    reviewerNoShowGraceSeconds: 180,
     requiredPanelSize: 3,
     reviewDurationSeconds: 600,
     scoringBufferSeconds: 0,
@@ -41,9 +39,6 @@ function member(overrides: Partial<PanelMemberProjection> = {},
     panelMemberId: "m1",
     personId: "person1",
     displayName: "Asha",
-    clockInStatus: "present",
-    clockInVersion: 3,
-    lastHeartbeatAt: now - 20_000,
     deviceCount: 1,
     pushTokenStatus: "active",
     ...overrides,
@@ -202,60 +197,19 @@ test("no page is proposed while a page chain is already running", () => {
   );
 });
 
-test("a stale heartbeat is reported as a signal, never as proof", () => {
-  const items = reviewFloorItems(
-    floor({
-      panels: [
-        panel({
-          members: [
-            member({ lastHeartbeatAt: now - 7 * minute }),
-            member({ panelMemberId: "m2", personId: "p2", displayName: "Ben" }),
-            member({ panelMemberId: "m3", personId: "p3", displayName: "Cal" }),
-          ],
-          queuedTeams: [
-            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute,
-            },
-          ],
-        }),
-      ],
-      teams: [team()],
-    }),
-  );
-  const risk = only(items, "seat_at_risk");
-  assert.equal(risk.length, 1);
-  assert.equal(risk[0]?.severity, "attention");
-  assert.match(risk[0]?.statement ?? "", /has not checked in for 7m/);
-  assert.match(risk[0]?.statement ?? "", /a signal and not proof they left the table/,
-  );
-  assert.match(risk[0]?.statement ?? "", /Confirm before freeing the seat/);
-  assert.doesNotMatch(risk[0]?.statement ?? "", /venue|went home|has left/i);
-  assert.equal(risk[0]?.proposal, undefined);
-});
-
 test("a seat is only at risk when teams are actually waiting on it", () => {
   const items = reviewFloorItems(
     floor({
-      panels: [panel({ members: [member({ lastHeartbeatAt: now - 7 * minute })] }),
-      ],
-      teams: [team({ state: "completed" })],
-    }),
-  );
-  assert.deepEqual(only(items, "seat_at_risk"), []);
-});
-
-test("a heartbeat inside the window is not a risk", () => {
-  const items = reviewFloorItems(
-    floor({
       panels: [
         panel({
           members: [
-            member({ lastHeartbeatAt: now - 3 * minute }),
+            member({ pushTokenStatus: "invalid", pushTokenInvalidatedAt: now - 10 * minute }),
             member({ panelMemberId: "m2", personId: "p2" }),
             member({ panelMemberId: "m3", personId: "p3" }),
           ],
         }),
       ],
-      teams: [team()],
+      teams: [team({ state: "completed" })],
     }),
   );
   assert.deepEqual(only(items, "seat_at_risk"), []);
@@ -279,98 +233,8 @@ test("a missing member is the empty-seat story, not the at-risk one", () => {
   assert.equal(only(items, "panel_seat_empty").length, 1);
 });
 
-test("a late return names the time the reviewer gave, and proposes a confirmation", () => {
-  const items = reviewFloorItems(
-    floor({
-      panels: [
-        panel({
-          members: [
-            member({
-              clockInStatus: "temporarily_unavailable",
-              expectedReturnAt: now - 12 * minute,
-            }),
-            member({ panelMemberId: "m2", personId: "p2" }),
-            member({ panelMemberId: "m3", personId: "p3" }),
-            member({ panelMemberId: "m4", personId: "p4" }),
-          ],
-          queuedTeams: [
-            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute,
-            },
-          ],
-        }),
-      ],
-      teams: [team()],
-    }),
-  );
-  const risk = only(items, "seat_at_risk")[0];
-  assert.match(risk?.statement ?? "", /12m past the time they gave for coming back/,
-  );
-  assert.equal(risk?.proposal?.command.name, "reviewSubstitutions.markNoShow");
-  assert.deepEqual(risk?.proposal?.command, {
-    name: "reviewSubstitutions.markNoShow",
-    panelMemberId: "m1",
-    expectedPanelVersion: 4,
-    expectedClockInVersion: 3,
-    reason: "Asha is 12m past the return time they recorded.",
-  });
-});
-
-test("a return time only just passed is inside the grace period", () => {
-  const items = reviewFloorItems(
-    floor({
-      panels: [
-        panel({
-          members: [
-            member({ clockInStatus: "temporarily_unavailable", expectedReturnAt: now - minute,
-            }),
-            member({ panelMemberId: "m2", personId: "p2" }),
-            member({ panelMemberId: "m3", personId: "p3" }),
-            member({ panelMemberId: "m4", personId: "p4" }),
-          ],
-          queuedTeams: [
-            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute,
-            },
-          ],
-        }),
-      ],
-      teams: [team()],
-    }),
-  );
-  assert.deepEqual(only(items, "seat_at_risk"), []);
-});
-
-test("the exact published late-return boundary permits the no-show proposal", () => {
-  const items = reviewFloorItems(
-    floor({
-      reviewerNoShowGraceSeconds: 90,
-      panels: [
-        panel({
-          members: [
-            member({
-              clockInStatus: "temporarily_unavailable",
-              expectedReturnAt: now - 90_000,
-              lastHeartbeatAt: now - 10 * minute,
-            }),
-            member({ panelMemberId: "m2", personId: "p2" }),
-            member({ panelMemberId: "m3", personId: "p3" }),
-          ],
-          queuedTeams: [
-            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute,
-            },
-          ],
-        }),
-      ],
-    }),
-  );
-  assert.equal(
-    only(items, "seat_at_risk")[0]?.proposal?.command.name,
-    "reviewSubstitutions.markNoShow",
-  );
-});
-
 test("an unreachable sole device is a risk; a spare device is not", () => {
   const unreachable = member({
-    lastHeartbeatAt: now - minute,
     deviceCount: 1,
     pushTokenStatus: "invalid",
     pushTokenInvalidatedAt: now - 10 * minute,
@@ -399,34 +263,12 @@ test("an unreachable sole device is a risk; a spare device is not", () => {
         teams: [team()],
       }),
     );
-  assert.match(
-    only(build(unreachable), "seat_at_risk")[0]?.statement ?? "",
-    /only registered device stopped accepting pages/,
-  );
+  const risk = only(build(unreachable), "seat_at_risk")[0];
+  assert.match(risk?.statement ?? "", /only registered device stopped accepting pages/);
+  assert.doesNotMatch(risk?.statement ?? "", /clock|heartbeat|checked in/i);
+  assert.equal(risk?.proposal, undefined);
+  assert.equal(risk?.actionLabel, "Open the panel");
   assert.deepEqual(only(build(withSpare), "seat_at_risk"), []);
-});
-
-test("no no-show is proposed while a review timer is running on that panel", () => {
-  const items = reviewFloorItems(
-    floor({
-      panels: [
-        panel({
-          hasRunningReview: true,
-          members: [
-            member({ lastHeartbeatAt: now - 9 * minute }),
-            member({ panelMemberId: "m2", personId: "p2" }),
-            member({ panelMemberId: "m3", personId: "p3" }),
-          ],
-          queuedTeams: [
-            { teamRoundStateId: "s1", version: 2, teamName: "Nightshift", queuedAt: now - minute,
-            },
-          ],
-        }),
-      ],
-      teams: [team()],
-    }),
-  );
-  assert.equal(only(items, "seat_at_risk")[0]?.proposal, undefined);
 });
 
 test("score entry reports elapsed time without reopening the discussion", () => {
@@ -796,7 +638,7 @@ test("a paused round is not forecast at all", () => {
   );
 });
 
-test("an outstanding scorecard names the reviewers and only what their app reported", () => {
+test("an outstanding scorecard names the reviewers and the elapsed time", () => {
   const items = scorecardChaseItems({
     now,
     roundId: "round1",
@@ -807,18 +649,7 @@ test("an outstanding scorecard names the reviewers and only what their app repor
         teamName: "Nightshift",
         panelName: "Panel D",
         completedAt: now - 14 * minute,
-        reviewers: [
-          {
-            displayName: "Asha",
-            clockInStatus: "present",
-            lastHeartbeatAt: now - 2 * minute,
-          },
-          {
-            displayName: "Ben",
-            clockInStatus: "present",
-            lastHeartbeatAt: now - 21 * minute,
-          },
-        ],
+        reviewers: [{ displayName: "Asha" }, { displayName: "Ben" }],
       },
     ],
   });
@@ -826,10 +657,9 @@ test("an outstanding scorecard names the reviewers and only what their app repor
   assert.equal(items[0]?.severity, "watch");
   assert.equal(
     items[0]?.statement,
-    "Asha and Ben have not submitted for Nightshift at Panel D, 14m after that review ended. " +
-      "Asha's app last checked in 2m ago; Ben's app last checked in 21m ago.",
+    "Asha and Ben have not submitted for Nightshift at Panel D, 14m after that review ended.",
   );
-  assert.doesNotMatch(items[0]?.statement ?? "", /venue|left|gone/i);
+  assert.doesNotMatch(items[0]?.statement ?? "", /venue|left|gone|checked in|heartbeat/i);
 });
 
 test("a scorecard written minutes after the table is not chased", () => {
@@ -843,14 +673,14 @@ test("a scorecard written minutes after the table is not chased", () => {
         teamName: "Nightshift",
         panelName: "Panel D",
         completedAt: now - 3 * minute,
-        reviewers: [{ displayName: "Asha", clockInStatus: "present" }],
+        reviewers: [{ displayName: "Asha" }],
       },
     ],
   });
   assert.deepEqual(items, []);
 });
 
-test("a reviewer with no heartbeat at all is described as exactly that", () => {
+test("a scorecard outstanding for most of an hour is critical", () => {
   const items = scorecardChaseItems({
     now,
     roundId: "round1",
@@ -861,15 +691,11 @@ test("a reviewer with no heartbeat at all is described as exactly that", () => {
         teamName: "Nightshift",
         panelName: "Panel D",
         completedAt: now - 50 * minute,
-        reviewers: [{ displayName: "Asha", clockInStatus: "clocked_out" }],
+        reviewers: [{ displayName: "Asha" }],
       },
     ],
   });
   assert.equal(items[0]?.severity, "critical");
-  assert.match(
-    items[0]?.statement ?? "",
-    /Asha has no reviewer app contact recorded\./,
-  );
   assert.match(items[0]?.statement ?? "", /Asha has not submitted/);
 });
 

@@ -48,13 +48,6 @@ crons.interval(
 );
 
 crons.interval(
-  "refresh operations health snapshot",
-  { seconds: 30 },
-  internal.operationsHealth.refresh,
-  {},
-);
-
-crons.interval(
   "evaluate and monitor autonomous operations",
   { seconds: 5 },
   internal.operationsAutonomyActions.tick,

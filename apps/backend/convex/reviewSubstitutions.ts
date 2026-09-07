@@ -658,20 +658,16 @@ export async function vacatePanelSeat(
     round,
     panel,
     member,
-    clockIn,
     actorPersonId,
     reason,
     now,
-    markAbsent,
   }: {
     round: Doc<"reviewRounds">;
     panel: Doc<"reviewPanels">;
     member: Doc<"reviewPanelMembers">;
-    clockIn: Doc<"reviewerClockIns"> | null;
     actorPersonId: Id<"people">;
     reason: string;
     now: number;
-    markAbsent: boolean;
   },
 ) {
   const [pendingSessions, activeSessions, scoringSessions] = await Promise.all([
@@ -760,12 +756,6 @@ export async function vacatePanelSeat(
     revokedByPersonId: actorPersonId,
     reason,
   });
-  if (clockIn && markAbsent) {
-    await ctx.db.patch(clockIn._id, {
-      status: "no_show",
-      version: clockIn.version + 1,
-    });
-  }
   await ctx.db.patch(panel._id, {
     status: "needs_reviewer",
     version: nextPanelVersion,
@@ -780,7 +770,6 @@ export const markNoShow = mutation({
     eventSlug: v.string(),
     panelMemberId: v.id("reviewPanelMembers"),
     expectedPanelVersion: v.number(),
-    expectedClockInVersion: v.number(),
     reason: v.string(),
     clientOperationId: v.string(),
   },
@@ -797,7 +786,6 @@ export const markNoShow = mutation({
     const requestFingerprint = operationFingerprint([
       args.panelMemberId,
       args.expectedPanelVersion,
-      args.expectedClockInVersion,
       reason,
     ]);
     const prior = await findOperation(ctx, {
@@ -828,15 +816,9 @@ export const markNoShow = mutation({
         message: "That reviewer is no longer an active member of this panel.",
       });
     }
-    const [panel, round, clockIn] = await Promise.all([
+    const [panel, round] = await Promise.all([
       ctx.db.get(member.panelId),
       ctx.db.get(member.roundId),
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", member.roundId).eq("reviewerPersonId", member.personId),
-        )
-        .unique(),
     ]);
     if (
       !panel ||
@@ -845,12 +827,11 @@ export const markNoShow = mutation({
       round.eventId !== event._id ||
       panel.status !== "ready" ||
       panel.version !== args.expectedPanelVersion ||
-      !["published", "open"].includes(round.status) ||
-      (clockIn?.version ?? 0) !== args.expectedClockInVersion
+      !["published", "open"].includes(round.status)
     ) {
       throw new ConvexError({
         code: "PANEL_CHANGED",
-        message: "The panel, round, or reviewer arrival state changed. Refresh before continuing.",
+        message: "The panel or round changed. Refresh before continuing.",
       });
     }
     const permission = await noShowScope(ctx, {
@@ -865,14 +846,8 @@ export const markNoShow = mutation({
         message: "This account cannot mark that exact reviewer or round as a no-show.",
       });
     }
-    if (clockIn?.status === "present") {
-      throw new ConvexError({
-        code: "REVIEWER_PRESENT",
-        message: "A reviewer who is present cannot be marked as a no-show.",
-      });
-    }
     const now = Date.now();
-    if (now < reviewerNoShowBoundary(round, clockIn)) {
+    if (now < reviewerNoShowBoundary(round)) {
       throw new ConvexError({
         code: "NO_SHOW_TOO_EARLY",
         message: "The published reviewer no-show grace period has not ended.",
@@ -883,11 +858,9 @@ export const markNoShow = mutation({
         round,
         panel,
         member,
-        clockIn,
         actorPersonId: person._id,
         reason,
         now,
-        markAbsent: true,
       });
     const result = {
       panelId: panel._id,

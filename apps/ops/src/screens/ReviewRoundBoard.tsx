@@ -10,7 +10,6 @@ import {
   reviewRoundStatusLabels,
   reviewRoundReserveStatusLabels,
   reviewSessionStatusLabels,
-  reviewerClockInStatusLabels,
   reviewerPageChainStateLabels,
   reviewerPageStateLabels,
   reviewerPushDeliveryStateLabels,
@@ -19,7 +18,7 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useEffect, useState, type SubmitEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Icon } from "../components/Icon";
@@ -37,7 +36,6 @@ import {
 import { eventSlug } from "../lib/config";
 import { readableError } from "../lib/errors";
 import { useMutationAttempt } from "../lib/operations";
-import { venuePresenceLabel } from "../lib/venue-presence";
 
 type Board = FunctionReturnType<typeof api.reviewOperations.roundBoard>;
 type Staffing = FunctionReturnType<typeof api.reviewOperations.roundStaffing>;
@@ -69,11 +67,6 @@ type TeamExceptionResult =
   | FunctionReturnType<typeof api.reviewExceptions.markMissed>;
 
 export function ReviewRoundBoard() {
-  const [venueNow, setVenueNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setVenueNow(Date.now()), 30_000);
-    return () => clearInterval(timer);
-  }, []);
   const { roundId } = useParams<{ roundId: string }>();
   const [teamView, setTeamView] = useState<TeamView>("desk");
   const [workspace, setWorkspace] = useState<"live" | "planning" | "settings">("live");
@@ -216,14 +209,12 @@ export function ReviewRoundBoard() {
 
       <p className="board-section-label">Panels</p>
       <div className="panel-list">
-        {[...panels].sort(byPanelUrgency).map((panel) => (
+        {[...panels].sort(byPanelName).map((panel) => (
           <PanelRow
             key={panel.id}
             overviewPanel={visibleRound.panels.find((candidate) => candidate.id === panel.id,
             )}
             panel={panel}
-            serverNow={staffing.serverNow}
-            venueNow={venueNow}
             substitutions={substitutions}
             teams={boardTeams}
           />
@@ -238,21 +229,7 @@ export function ReviewRoundBoard() {
               <div key={reserve.reserveId}>
                 <strong>{reserve.displayName}</strong>
                 <span>
-                  {reviewRoundReserveStatusLabels[reserve.status]} ·{" "}
-                  {
-                    reviewerClockInStatusLabels[
-                      staffing.reserves.find((candidate) => candidate.personId === reserve.personId,
-                      )
-                        ?.clockInStatus ?? "not_clocked_in"
-                    ]
-                  }{" "}
-                  · {reserve.pageCount} pages
-                  {(() => {
-                    const venue = staffing.reserves.find(
-                      (candidate) => candidate.personId === reserve.personId,
-                    )?.venue;
-                    return ` · ${venuePresenceLabel(venue?.status ?? "unknown", venue?.sampledAt, venueNow)}${venue?.followUp ? ` · ${venue.followUp}` : ""}`;
-                  })()}
+                  {reviewRoundReserveStatusLabels[reserve.status]} · {reserve.pageCount} pages
                 </span>
               </div>
             ))}
@@ -363,31 +340,18 @@ function byDeskUrgency(left: Team, right: Team) {
   );
 }
 
-function panelShortfall(panel: Panel) {
-  return (
-    panel.reviewers.length -
-    panel.reviewers.filter((reviewer) => reviewer.clockInStatus === "present").length
-  );
-}
-
-function byPanelUrgency(left: Panel, right: Panel) {
-  return (
-    panelShortfall(right) - panelShortfall(left) || left.name.localeCompare(right.name)
-  );
+function byPanelName(left: Panel, right: Panel) {
+  return left.name.localeCompare(right.name);
 }
 
 function PanelRow({
   overviewPanel,
   panel,
-  serverNow,
-  venueNow,
   substitutions,
   teams,
 }: {
   overviewPanel: OverviewPanel | undefined;
   panel: Panel;
-  serverNow: number;
-  venueNow: number;
   substitutions: Substitutions;
   teams: Team[];
 }) {
@@ -395,7 +359,8 @@ function PanelRow({
   const substitutionPanel = substitutions.panels.find(
     (candidate) => candidate.panelId === panel.id,
   );
-  const short = panelShortfall(panel);
+  // A panel is short when a seat has been vacated and not yet refilled.
+  const short = substitutionPanel?.vacancy ? 1 : 0;
   const panelTeams = teams.filter((team) => team.panelId === panel.id);
   const waiting = panelTeams.filter(
     (team) => team.state === "queued" || team.state === "called" || team.state === "at_table",
@@ -456,31 +421,17 @@ function PanelRow({
             <p className="board-section-label">Reviewers</p>
             <ul className="panel-reviewers">
               {panel.reviewers.map((reviewer) => (
-                <li
-                  className={reviewer.clockInStatus === "present" ? "" : "away"}
-                  key={reviewer.personId}
-                >
+                <li key={reviewer.personId}>
                   <span>
                     {reviewer.displayName}
                     {reviewer.isCoordinator ? " · runs this panel" : ""}
                   </span>
-                  {reviewer.clockInStatus === "present" ? null : (
-                    <small>{reviewerState(reviewer, serverNow)}</small>
-                  )}
-                  <small>
-                    {venuePresenceLabel(
-                      reviewer.venue.status,
-                      reviewer.venue.sampledAt,
-                      venueNow,
-                    )}
-                  </small>
-                  {reviewer.venue.followUp ? <small className={reviewer.venue.needsAttention ? "error-note" : "muted"}>{reviewer.venue.followUp}</small> : null}
-                  {reviewer.clockInStatus !== "present" && substitutionPanel ? (
+                  <small>{reviewerState(reviewer)}</small>
+                  {substitutionPanel ? (
                     <ReviewerNoShow
                       member={substitutionPanel.activeMembers.find(
                         (member) => member.personId === reviewer.personId,
                       )}
-                      clockInVersion={reviewer.clockInVersion}
                       panelVersion={substitutionPanel.panelVersion}
                     />
                   ) : null}
@@ -798,11 +749,9 @@ function RoundPauseControl({
 
 function ReviewerNoShow({
   member,
-  clockInVersion,
   panelVersion,
 }: {
   member: SubstituteMember | undefined;
-  clockInVersion: number;
   panelVersion: number;
 }) {
   const markNoShow = useMutation(api.reviewSubstitutions.markNoShow);
@@ -828,7 +777,6 @@ function ReviewerNoShow({
           eventSlug,
           panelMemberId: member.panelMemberId,
           expectedPanelVersion: panelVersion,
-          expectedClockInVersion: clockInVersion,
           reason,
           clientOperationId: crypto.randomUUID(),
         };
@@ -1944,20 +1892,9 @@ function formatWindow(startsAt: number, endsAt: number) {
   return `${formatter.format(startsAt)} – ${formatter.format(endsAt)}`;
 }
 
-function reviewerState(reviewer: Panel["reviewers"][number], serverNow: number,
-) {
-  if (reviewer.clockInStatus === "temporarily_unavailable") {
-    const returnCopy = reviewer.expectedReturnAt
-      ? ` · expected ${new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(reviewer.expectedReturnAt)}`
-      : "";
-    return `Temporarily unavailable${returnCopy}`;
-  }
-  if (reviewer.clockInStatus !== "present") return "Not clocked in";
-  if (reviewer.encryptedDraftReady === false) return "Present · encrypted drafts unavailable";
-  if (!reviewer.lastHeartbeatAt || serverNow - reviewer.lastHeartbeatAt > 90_000) {
-    return "Present · connection stale";
-  }
-  return `Present · build ${reviewer.appBuild ?? "unknown"}`;
+function reviewerState(reviewer: Panel["reviewers"][number]) {
+  if (reviewer.encryptedDraftReady === false) return "Encrypted drafts unavailable";
+  return `Build ${reviewer.appBuild ?? "unknown"}`;
 }
 
 function EndDiscussion({ review }: { review: NonNullable<Team["review"]> }) {

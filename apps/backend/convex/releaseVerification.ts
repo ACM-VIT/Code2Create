@@ -121,10 +121,6 @@ export async function inspectReleaseFixture(ctx: QueryCtx, args: ReleaseFixtureA
     releaseAccount(ctx, event._id, participantAccountEmail),
     releaseAccount(ctx, event._id, operationsAccountEmail),
   ]);
-  const operationsHealth = await ctx.db
-    .query("operationsHealthSnapshots")
-    .withIndex("by_event", (index) => index.eq("eventId", event._id))
-    .unique();
   const missing: string[] = [];
 
   if (!process.env.GOOGLE_CLIENT_ID?.trim() || !process.env.GOOGLE_CLIENT_SECRET?.trim()) {
@@ -132,19 +128,6 @@ export async function inspectReleaseFixture(ctx: QueryCtx, args: ReleaseFixtureA
   }
   if (!participantPolicyReady) missing.push("published_participant_policy");
   if (!communicationsPolicyReady) missing.push("published_communications_policy");
-  if (
-    !operationsHealth ||
-    operationsHealth.state !== "ready" ||
-    operationsHealth.staleAt <= Date.now() ||
-    operationsHealth.eventVersion !== event.version ||
-    operationsHealth.snapshot.event.slug !== event.slug ||
-    operationsHealth.snapshot.event.name !== event.name ||
-    operationsHealth.snapshot.event.timezone !== event.timezone ||
-    operationsHealth.snapshot.event.status !== event.status
-  ) {
-    missing.push("operations_health_snapshot");
-  }
-
   if (!participantAccount) {
     missing.push("participant_account");
   } else {

@@ -1,19 +1,36 @@
 import { LiveNumber } from "../components/LiveNumber";
 import { api } from "@code2create/backend/api";
 import type { FunctionReturnType } from "convex/server";
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
+import { useState } from "react";
 
 import { Icon, type IconName } from "../components/Icon";
 import { OperationsAttention } from "../components/OperationsAttention";
 import { LoadingLabel, SkeletonCard, SkeletonList } from "../components/Skeleton";
 import { eventSlug } from "../lib/config";
 import { formatClockTime, formatCompactDateTime } from "../lib/dateTime";
+import { readableError } from "../lib/errors";
 
 const attentionCoveredSignalKeys = ["panels_needing_reviewer", "overdue_reviews"];
 type HealthOverviewData = FunctionReturnType<typeof api.operationsHealth.overview>;
 
 export function EventMonitor({ canManageAttention }: { canManageAttention: boolean }) {
   const health = useQuery(api.operationsHealth.overview, { eventSlug });
+  const requestRefresh = useMutation(api.operationsHealth.requestRefresh);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      await requestRefresh({ eventSlug });
+    } catch (caught) {
+      setRefreshError(readableError(caught));
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   if (health === undefined) {
     return (
@@ -38,7 +55,7 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
           <p className="eyebrow">{snapshot?.event.name ?? "Live operations"}</p>
           <h1>Event monitor</h1>
         </div>
-        <HealthState health={health} />
+        <HealthState health={health} onRefresh={refresh} refreshing={refreshing} />
       </header>
 
       <OperationsAttention canManageAttention={canManageAttention} compact={false} />
@@ -48,14 +65,15 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
           <h2 id="system-checks-heading">System checks</h2>
           {systemSignals.length > 0 ? <span><LiveNumber value={systemSignals.length} /> open</span> : null}
         </div>
+        {refreshError ? <p className="notice">{refreshError}</p> : null}
         {health.state !== "ready" ? (
           <div className="health-empty">
             <strong>
-              {health.state === "missing" ? "Checks are starting." : "Checks are delayed."}
+              {health.state === "missing" ? "No check has run yet." : "These checks are from earlier."}
             </strong>
             <span>
               {health.state === "missing"
-                ? "The first event-wide check has not completed."
+                ? "Check now to see event-wide issues."
                 : `Last complete check: ${formatCompactDateTime(health.lastGeneratedAt)}.`}
             </span>
           </div>
@@ -93,17 +111,36 @@ export function EventMonitor({ canManageAttention }: { canManageAttention: boole
   );
 }
 
-function HealthState({ health }: { health: HealthOverviewData }) {
+function HealthState({
+  health,
+  onRefresh,
+  refreshing,
+}: {
+  health: HealthOverviewData;
+  onRefresh: () => Promise<void>;
+  refreshing: boolean;
+}) {
+  const checkNow = (
+    <button
+      className="text-button"
+      disabled={refreshing}
+      onClick={() => void onRefresh()}
+      type="button"
+    >
+      {refreshing ? "Checking…" : "Check now"}
+    </button>
+  );
   if (health.state !== "ready") {
     return (
       <div className="health-current watch">
         <span>System health</span>
-        <strong>{health.state === "missing" ? "Starting" : "Delayed"}</strong>
+        <strong>{health.state === "missing" ? "Not checked yet" : "Checked earlier"}</strong>
         <small>
           {health.state === "missing"
-            ? "Waiting for the first check"
-            : `Last complete ${formatClockTime(health.lastGeneratedAt)}`}
+            ? "Run the first check"
+            : `Checked ${formatClockTime(health.lastGeneratedAt)}`}
         </small>
+        {checkNow}
       </div>
     );
   }
@@ -111,7 +148,8 @@ function HealthState({ health }: { health: HealthOverviewData }) {
     <div className={`health-current ${health.snapshot.summary.status}`}>
       <span>System health</span>
       <strong>{statusLabel(health.snapshot.summary.status)}</strong>
-      <small>Updated {formatClockTime(health.snapshot.generatedAt)}</small>
+      <small>Checked {formatClockTime(health.snapshot.generatedAt)}</small>
+      {checkNow}
     </div>
   );
 }

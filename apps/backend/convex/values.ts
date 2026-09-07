@@ -744,21 +744,6 @@ export const reviewPanelStatus = v.union(
 );
 export type ReviewPanelStatus = Infer<typeof reviewPanelStatus>;
 
-export const reviewerClockInStatus = v.union(
-  v.literal("present"),
-  v.literal("temporarily_unavailable"),
-  v.literal("clocked_out"),
-  v.literal("no_show"),
-);
-
-export const reviewerClockInViewStatus = v.union(
-  v.literal("not_clocked_in"),
-  v.literal("present"),
-  v.literal("temporarily_unavailable"),
-  v.literal("clocked_out"),
-  v.literal("no_show"),
-);
-
 export const reviewRoundReserveStatus = v.union(
   v.literal("available"),
   v.literal("paged"),
@@ -973,7 +958,8 @@ export const attentionCommand = v.union(
     name: v.literal("reviewSubstitutions.markNoShow"),
     panelMemberId: v.id("reviewPanelMembers"),
     expectedPanelVersion: v.number(),
-    expectedClockInVersion: v.number(),
+    // Retired with reviewer clock-in; only present on historical stored proposals.
+    expectedClockInVersion: v.optional(v.number()),
     reason: v.string(),
   }),
   v.object({

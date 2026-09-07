@@ -40,7 +40,7 @@ Convex stores the accepted event state.
 
 A client may show an optimistic control for a low-risk action such as a Synesthesia vote. A client must not show these actions as accepted before a server response:
 
-- reviewer clock-in or page acceptance;
+- reviewer page acceptance;
 - participant venue/session presence and VIT-barcode/external-badge binding changes;
 - staff queue placement;
 - table or panel assignment;
@@ -94,7 +94,7 @@ If the reviewer does not acknowledge before the page deadline, the dashboard pag
 
 ### Old build
 
-Clock-in blocks builds below the configured minimum. The reviewer installs the current signed fleet build or uses a prepared spare.
+The device check blocks builds below the configured minimum. The reviewer installs the current signed fleet build or uses a prepared spare.
 
 ### Camera unavailable
 
@@ -116,7 +116,7 @@ Staff revoke a lost external event badge against its current credential version 
 
 ### Notification permission denied
 
-Clock-in warns the reviewer and operations. Event policy decides whether a reviewer may work with in-app polling plus runner/call fallback.
+The device check warns the reviewer and operations. Event policy decides whether a reviewer may work with in-app polling plus runner/call fallback.
 
 ### Battery or hardware failure
 
@@ -287,7 +287,6 @@ A production restore is destructive. The staging rehearsal command does not expo
 - unfilled panel seats;
 - attendance sessions with unknown participants, unsafe zone occupancy, long-away flags, or confirmation backlog;
 - offline/stale scan stations and pending operations near their recovery limit;
-- stale reviewer heartbeat;
 - unacknowledged pages;
 - long ready/queue waits;
 - overdue reviews;

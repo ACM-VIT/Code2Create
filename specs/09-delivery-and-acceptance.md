@@ -82,7 +82,7 @@ Deliver:
 
 - reviewer profile and conflict records;
 - panel plan and criterion coverage;
-- reviewer clock-in;
+- reviewer availability confirmation;
 - push-first page delivery;
 - consented synthesized phone escalation;
 - page acknowledgement;
@@ -270,7 +270,6 @@ Test:
 
 - sign-in and device registration;
 - minimum-build check;
-- clock-in;
 - push receipt;
 - consented call escalation;
 - page acknowledgement and expiry;
@@ -370,7 +369,7 @@ The stored rehearsal must include these cases:
 
 ### External Judge
 
-Rehearsal covers sign-in, clock-in, pages, call consent, review-presence scan, evidence, score draft recovery, submission, conflict reporting, and support. The app uses contextual actions and has no training-completion prerequisite.
+Rehearsal covers sign-in, device check, pages, call consent, review-presence scan, evidence, score draft recovery, submission, conflict reporting, and support. The app uses contextual actions and has no training-completion prerequisite.
 
 ### SC and JC
 

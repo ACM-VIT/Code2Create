@@ -136,8 +136,8 @@ function healthTone(health: FunctionReturnType<typeof api.operationsHealth.overv
 }
 
 function healthLabel(health: FunctionReturnType<typeof api.operationsHealth.overview>) {
-  if (health.state === "missing") return "Starting";
-  if (health.state === "stale") return "Delayed";
+  if (health.state === "missing") return "Not checked yet";
+  if (health.state === "stale") return "Checked earlier";
   if (health.snapshot.summary.status === "healthy") return "Clear";
   if (health.snapshot.summary.status === "watch") return "Watch";
   if (health.snapshot.summary.status === "attention") return "Needs attention";
@@ -146,6 +146,6 @@ function healthLabel(health: FunctionReturnType<typeof api.operationsHealth.over
 
 function healthTime(health: FunctionReturnType<typeof api.operationsHealth.overview>) {
   if (health.state === "missing") return "Open monitor";
-  if (health.state === "stale") return `Last complete ${formatClockTime(health.lastGeneratedAt)}`;
-  return `Updated ${formatClockTime(health.snapshot.generatedAt)}`;
+  if (health.state === "stale") return `Checked ${formatClockTime(health.lastGeneratedAt)}`;
+  return `Checked ${formatClockTime(health.snapshot.generatedAt)}`;
 }

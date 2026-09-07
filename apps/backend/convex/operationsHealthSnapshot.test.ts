@@ -299,6 +299,27 @@ describe("operations-health materialization", () => {
     );
   });
 
+  test("operators refresh on demand and a fresh snapshot is left alone", async () => {
+    const backend = convexTest(schema, modules);
+    backend.registerComponent("betterAuth", betterAuthSchema, betterAuthModules);
+    const fixture = await seedAuthorizedReader(backend);
+    const reader = backend.withIdentity({
+      subject: fixture.authUserId,
+      sessionId: fixture.authSessionId,
+    });
+
+    expect(
+      await reader.mutation(api.operationsHealth.requestRefresh, { eventSlug: fixture.eventSlug }),
+    ).toBe("scheduled");
+    await backend.finishInProgressScheduledFunctions();
+    expect(
+      await reader.query(api.operationsHealth.overview, { eventSlug: fixture.eventSlug }),
+    ).toMatchObject({ state: "ready" });
+    expect(
+      await reader.mutation(api.operationsHealth.requestRefresh, { eventSlug: fixture.eventSlug }),
+    ).toBe("fresh");
+  });
+
   test("the public read exposes missing and stale states and rejects the removed refresh bucket", async () => {
     const backend = convexTest(schema, modules);
     const leaseId = await claimHealthRefreshLease(backend);
@@ -319,7 +340,7 @@ describe("operations-health materialization", () => {
         eventSlug: fixture.eventSlug,
         clientOperationId: "missing-health-request",
       }),
-    ).rejects.toThrow("first operations-health check");
+    ).rejects.toThrow("need a refresh first");
 
     const staleGeneratedAt = Date.now() - 91_000;
     await backend.mutation(internal.operationsHealth.upsertSnapshot, {
@@ -339,7 +360,7 @@ describe("operations-health materialization", () => {
         eventSlug: fixture.eventSlug,
         clientOperationId: "stale-health-request",
       }),
-    ).rejects.toThrow("checks are delayed");
+    ).rejects.toThrow("need a refresh first");
 
     const obsoleteArgs = { eventSlug: fixture.eventSlug, refreshBucket: 1 };
     await expect(reader.query(api.operationsHealth.overview, obsoleteArgs)).rejects.toThrow();

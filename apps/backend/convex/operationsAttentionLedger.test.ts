@@ -605,7 +605,6 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
       status: "open",
       startsAt: now - 60 * minute,
       endsAt: now + 60 * minute,
-      clockInOpensAt: now - 61 * minute,
       reviewerReportAt: now - 60 * minute - 30_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 60 * minute,
@@ -671,7 +670,7 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
         assignedAt: now,
         seatSeniority: key === "coordinator" ? "lead" : "sc",
       });
-      const deviceId = await ctx.db.insert("reviewerDevices", {
+      await ctx.db.insert("reviewerDevices", {
         eventId: fixture.eventId,
         personId: account.personId,
         installationId: `second-${key}-${crypto.randomUUID()}`,
@@ -686,16 +685,6 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
         version: 1,
         registeredAt: now,
         lastSeenAt: now,
-      });
-      await ctx.db.insert("reviewerClockIns", {
-        eventId: fixture.eventId,
-        roundId,
-        reviewerPersonId: account.personId,
-        reviewerDeviceId: deviceId,
-        status: key === "absent" ? "clocked_out" : "present",
-        clockedInAt: now - 30 * minute,
-        lastHeartbeatAt: now,
-        version: 1,
       });
     }
     return { roundId, panelId };
@@ -758,7 +747,6 @@ async function seedFloor(backend: BackendTest) {
       status: "open",
       startsAt: now - 60 * minute,
       endsAt: now + 60 * minute,
-      clockInOpensAt: now - 61 * minute,
       reviewerReportAt: now - 60 * minute - 30_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 60 * minute,
@@ -829,7 +817,7 @@ async function seedFloor(backend: BackendTest) {
           seatSeniority: key === "coordinator" ? "lead" : "sc",
         }),
       );
-      const deviceId = await ctx.db.insert("reviewerDevices", {
+      await ctx.db.insert("reviewerDevices", {
         eventId,
         personId: account.personId,
         installationId: `${key}-${crypto.randomUUID()}`,
@@ -844,16 +832,6 @@ async function seedFloor(backend: BackendTest) {
         version: 1,
         registeredAt: now,
         lastSeenAt: now,
-      });
-      await ctx.db.insert("reviewerClockIns", {
-        eventId,
-        roundId,
-        reviewerPersonId: account.personId,
-        reviewerDeviceId: deviceId,
-        status: key === "absent" ? "clocked_out" : "present",
-        clockedInAt: now - 30 * minute,
-        lastHeartbeatAt: now,
-        version: 1,
       });
     }
 

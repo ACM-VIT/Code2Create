@@ -620,7 +620,6 @@ export const rescheduleRound = internalMutation({
     const shift = args.startsAt - round.startsAt;
     await ctx.db.patch(round._id, {
       startsAt: args.startsAt,
-      clockInOpensAt: round.clockInOpensAt + shift,
       reviewerReportAt: round.reviewerReportAt + shift,
       status: "published",
       openedAt: undefined,

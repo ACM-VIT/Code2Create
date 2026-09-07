@@ -9,10 +9,7 @@ import type {
   OutboundCallEvent,
   OutboundCallEventType,
   OutboundCallRequest,
-  VenueCallResponse,
 } from "@code2create/domain";
-
-import { venueCallResponse } from "./venue-confirmation.js";
 
 import {
   outboundCallRequestSchema,
@@ -109,18 +106,14 @@ function sameRequest(left: OutboundCallRequest, right: OutboundCallRequest) {
     left.deliveryId === right.deliveryId &&
     left.destinationPhoneE164 === right.destinationPhoneE164 &&
     left.script === right.script &&
-    left.callbackUrl === right.callbackUrl &&
-    JSON.stringify(left.venueConfirmation) ===
-      JSON.stringify(right.venueConfirmation)
+    left.callbackUrl === right.callbackUrl
   );
 }
 
 function eventFor(
   session: CallSession,
   eventType: OutboundCallEventType,
-  options: { providerCallId?: string; providerErrorCode?: string;
-    venueResponse?: VenueCallResponse;
-  } = {},
+  options: { providerCallId?: string; providerErrorCode?: string } = {},
 ): OutboundCallEvent {
   return {
     protocolVersion: outboundCallProtocolVersion,
@@ -128,7 +121,6 @@ function eventFor(
     deliveryId: session.request.deliveryId,
     eventType,
     providerAt: Date.now(),
-    ...(options.venueResponse ? { venueResponse: options.venueResponse } : {}),
     ...(options.providerCallId !== undefined ? { providerCallId: options.providerCallId } : {}),
     ...(options.providerErrorCode !== undefined
       ? { providerErrorCode: options.providerErrorCode }
@@ -271,7 +263,6 @@ export class OutboundCallSession {
           destinationPhoneE164: session.request.destinationPhoneE164,
           script: session.request.script,
           requiredProvider: session.request.requiredProvider,
-          venueConfirmation: session.request.venueConfirmation,
         }),
       };
     } catch (error) {
@@ -425,10 +416,6 @@ export class OutboundCallSession {
     if (session === null) {
       return new Response("Not found.", { status: 404 });
     }
-    if (session.request.venueConfirmation)
-      return new Response("Conversation requires the configured agent.", {
-        status: 409,
-      });
     return new Response(twilioVoiceXml(session.request.script), {
       headers: {
         "content-type": "text/xml; charset=utf-8",
@@ -466,7 +453,6 @@ export class OutboundCallSession {
     const providerCallId = form.get("CallSid")?.trim() ?? "";
     const eventType = twilioStatusEvent(form.get("CallStatus") ?? "");
     if (
-      session.request.venueConfirmation !== undefined ||
       providerCallId.length === 0 ||
       providerCallId.length > 128 ||
       eventType === null ||
@@ -533,12 +519,6 @@ export class OutboundCallSession {
       eventType,
       204,
       parsed.data.status === "failed" ? "sarvam_failed" : undefined,
-      session.request.venueConfirmation && parsed.data.status === "connected"
-        ? venueCallResponse(
-            parsed.data.final_agent_variables,
-            parsed.data.interaction_transcript,
-          )
-        : undefined,
     );
   }
 
@@ -549,7 +529,6 @@ export class OutboundCallSession {
     eventType: OutboundCallEventType,
     successStatus: 200 | 204,
     providerErrorCode?: string,
-    venueResponse?: VenueCallResponse,
   ) {
     const current = await this.authorizedSession(request);
     if (!current) return new Response("Not found.", { status: 404 });
@@ -583,7 +562,6 @@ export class OutboundCallSession {
         eventFor(current, eventType, {
           providerCallId,
           ...(providerErrorCode === undefined ? {} : { providerErrorCode }),
-          ...(venueResponse === undefined ? {} : { venueResponse }),
         }),
       ],
       reportedEventTypes: [...current.reportedEventTypes, eventType],

@@ -151,19 +151,6 @@ describe("release verification", () => {
     ]);
   });
 
-  test("requires a current materialized operations overview", async () => {
-    const backend = convexTest(schema, modules);
-    const fixture = await seedReleaseFixture(backend, {
-      operationsRole: null,
-      rehearsalGrant: true,
-      teamReadScope: "team",
-    });
-    await backend.run((ctx) => ctx.db.delete(fixture.operationsHealthSnapshotId));
-
-    const readiness = await inspectFixture(backend, fixture);
-
-    expect(readiness.missing).toEqual(["operations_health_snapshot"]);
-  });
 });
 
 type Fixture = Awaited<ReturnType<typeof seedReleaseFixture>>;
@@ -187,7 +174,6 @@ async function seedReleaseFixture(
   },
 ) {
   const now = Date.UTC(2027, 1, 2, 3, 4, 5);
-  const healthGeneratedAt = Date.now();
   const startsAt = now + 7 * 24 * 60 * 60 * 1_000;
   const endsAt = startsAt + 36 * 60 * 60 * 1_000;
   const eventSlug = "release-fixture";
@@ -206,29 +192,6 @@ async function seedReleaseFixture(
       version: 1,
       createdAt: now,
       updatedAt: now,
-    });
-    const operationsHealthSnapshotId = await ctx.db.insert("operationsHealthSnapshots", {
-      eventId,
-      snapshot: {
-        generatedAt: healthGeneratedAt,
-        event: {
-          slug: eventSlug,
-          name: "Release fixture",
-          timezone: "Asia/Kolkata",
-          status: "registration_open",
-        },
-        summary: {
-          status: "healthy",
-          signalCount: 0,
-          criticalSignalCount: 0,
-          attentionSignalCount: 0,
-          watchSignalCount: 0,
-        },
-        signals: [],
-      },
-      eventVersion: 1,
-      state: "ready",
-      staleAt: healthGeneratedAt + 90_000,
     });
     const participantPersonId = await insertPerson(
       ctx,
@@ -522,7 +485,6 @@ async function seedReleaseFixture(
       eventId,
       eventSlug,
       applicationId,
-      operationsHealthSnapshotId,
       operationsEmail,
       participantEmail,
       participantMembershipId,

@@ -273,7 +273,6 @@ async function seedEvent(backend: BackendTest) {
       status: "open",
       startsAt: now - 60 * 60 * 1_000,
       endsAt: now + 60 * 60 * 1_000,
-      clockInOpensAt: now - 61 * 60 * 1_000,
       reviewerReportAt: now - 60 * 60 * 1_000 - 30_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 60 * 60 * 1_000,

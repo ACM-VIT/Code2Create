@@ -96,33 +96,3 @@ export async function requireConfirmedReviewer(
     });
   }
 }
-
-export async function requireConfirmedClockIn(
-  ctx: QueryCtx | MutationCtx,
-  round: Doc<"reviewRounds">,
-  personId: Id<"people">,
-  now: number,
-) {
-  const confirmation = await ctx.db
-    .query("reviewerRoundConfirmations")
-    .withIndex("by_roundId_and_personId", (q) =>
-      q.eq("roundId", round._id).eq("personId", personId),
-    )
-    .unique();
-  if (
-    confirmation?.status !== "confirmed" ||
-    !confirmation.windows.some(
-      (window) =>
-        window.startsAt <=
-          now + Math.max(0, round.startsAt - round.clockInOpensAt) &&
-        window.endsAt >=
-          Math.max(now, window.startsAt) + round.reviewDurationSeconds * 1000,
-    )
-  ) {
-    throw new ConvexError({
-      code: "REVIEWER_CONFIRMATION_REQUIRED",
-      message:
-        "Confirm your availability in the app for a complete review, then clock in within the published early-arrival window for your shift.",
-    });
-  }
-}

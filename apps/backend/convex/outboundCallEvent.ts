@@ -1,4 +1,3 @@
-import { venueCallResponseSchema } from "./lib/venueCallResponsePayload";
 import {
   outboundCallEventSignatureContext,
   outboundCallEventTypes,
@@ -22,7 +21,6 @@ const eventSchema = z
     providerAt: z.number().int().nonnegative(),
     providerCallId: z.string().min(1).max(128).optional(),
     providerErrorCode: z.string().min(1).max(120).optional(),
-    venueResponse: venueCallResponseSchema.optional(),
   })
   .strict();
 
@@ -61,9 +59,6 @@ export const outboundCallEvent = httpAction(async (ctx, request) => {
     deliveryId: parsed.data.deliveryId,
     eventType: parsed.data.eventType,
     providerAt: parsed.data.providerAt,
-    ...(parsed.data.venueResponse
-      ? { venueResponse: parsed.data.venueResponse }
-      : {}),
     ...(parsed.data.providerCallId !== undefined
       ? { providerCallId: parsed.data.providerCallId }
       : {}),

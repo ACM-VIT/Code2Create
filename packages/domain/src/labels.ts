@@ -69,21 +69,6 @@ export const reviewRoundStatusLabels: Record<ReviewRoundStatus, string> = {
   closed: "Closed",
 };
 
-export type ReviewerClockInViewStatus =
-  | "not_clocked_in"
-  | "present"
-  | "temporarily_unavailable"
-  | "clocked_out"
-  | "no_show";
-
-export const reviewerClockInStatusLabels: Record<ReviewerClockInViewStatus, string> = {
-  not_clocked_in: "Not clocked in",
-  present: "Present",
-  temporarily_unavailable: "Temporarily unavailable",
-  clocked_out: "Clocked out",
-  no_show: "Marked no-show",
-};
-
 export type ReviewRoundReserveStatus = "available" | "paged" | "assigned" | "removed";
 
 export const reviewRoundReserveStatusLabels: Record<ReviewRoundReserveStatus, string> = {

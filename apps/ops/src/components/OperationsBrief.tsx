@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { eventSlug } from "../lib/config";
 import { formatCompactDateTime } from "../lib/dateTime";
-import { readableError } from "../lib/errors";
+import { isConvexErrorCode, readableError } from "../lib/errors";
 import { useOperationRunner } from "../lib/operations";
 import { briefStreamObserverKey } from "../lib/operationsBrief";
 import { Icon, type IconName } from "./Icon";
@@ -23,6 +23,7 @@ export function OperationsBrief({
 }) {
   const brief = useQuery(api.operationsIntelligence.latest, canRead ? { eventSlug } : "skip");
   const requestBrief = useMutation(api.operationsIntelligence.request);
+  const requestHealthRefresh = useMutation(api.operationsHealth.requestRefresh);
   const operations =
     useOperationRunner<FunctionReturnType<typeof api.operationsIntelligence.request>>();
   const [requesting, setRequesting] = useState(false);
@@ -49,6 +50,15 @@ export function OperationsBrief({
       );
     } catch (caught) {
       setError(readableError(caught));
+      if (
+        isConvexErrorCode(caught, "OPERATIONS_HEALTH_NOT_READY") ||
+        isConvexErrorCode(caught, "OPERATIONS_HEALTH_STALE")
+      ) {
+        // The brief is grounded in the event-wide checks, which now refresh only on demand.
+        requestHealthRefresh({ eventSlug }).catch((refreshCaught: unknown) => {
+          setError(readableError(refreshCaught));
+        });
+      }
     } finally {
       setRequesting(false);
     }

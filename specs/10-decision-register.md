@@ -44,10 +44,11 @@ This file records current decisions only. It does not keep obsolete product path
 | P-037 | External participants and VIT students have separate application deadlines. The external deadline is no later than the VIT deadline.                                                                           |
 | P-038 | A team contains only VIT students or only external participants. This rule is not configurable.                                                                                                                |
 | P-039 | Assess reviewer resumes and metadata once in the planning conversation, then apply prepared profiles and provisional panels through existing ops commands. Do not build a resume-analysis service.          |
-| P-040 | App confirmations, current availability, clock-in, conflicts, substitutions, and fair JC rotation remain the authority for live staffing; a prepared panel plan does not promise attendance.                   |
+| P-040 | App confirmations, current availability, conflicts, substitutions, and fair JC rotation remain the authority for live staffing; a prepared panel plan does not promise attendance.                             |
 | P-041 | Event-day roster/device setup and policy publication are scheduled operational work, not missing software. Track implementation, preparation, setup, and rehearsal separately.                                |
 | P-042 | Project preparation covers submitted ideas, answers and progress updates, connected GitHub repositories, and Figma files. Do not request project documents, PDFs or slide decks or build an ingestion pipeline for them. Reviewer resumes remain a separate one-time assessment. |
 | P-043 | Ops configures shift reminder lead time and optional calling. Reviewers have one explicit consent setting for shift reminders and substitute calls. Ops separately controls captured Figma visual analysis; source snapshots and human-only scoring remain authoritative. |
+| P-044 | Retired on 2026-09-08: reviewer clock-in and its availability states, reviewer app heartbeats, reviewer venue-presence tracking with its departure reminders and confirmation calls, the `stale_reviewer_heartbeats` health signal, the 30-second operations-health refresh cron, and, earlier the same night, automatic reviewer replacement and reviewer shift reminders (push and calls). Automation storms starved the self-hosted Convex backend during the live event, and desk-driven staffing through manual no-show and substitute paging is sufficient. Operators refresh the health snapshot on demand from the event monitor; a snapshot older than 90 seconds is stale. |
 
 ## 2. Technical decisions
 
@@ -60,7 +61,7 @@ Every operational choice below is configurable through ops. The listed values ar
 - Limit review discussion to seven minutes while allowing score entry afterwards. Every reviewer must leave a final comment at the end.
 - Use the five criteria for each round in [Evaluation](05-evaluation-system.md), with Round 1 weighted 30% and Round 2 weighted 70%.
 - Keep fixed graded rubric questions separate from optional, ungraded, evidence-based agent questions.
-- Show team queue position, estimated review time, and pace; call the next team and remind reviewers five minutes before their assignment.
+- Show team queue position, estimated review time, and pace; call the next team.
 
 | ID    | Decision                                                                                                                           | Reason                                                                                                                                                                           |
 | ----- | ---------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -164,8 +165,6 @@ Every operational choice below is configurable through ops. The listed values ar
 Do not add a compatibility path for an obsolete product decision.
 
 
-## Venue confirmation and simpler reviewer actions
-
-GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
+## Review brief and simpler reviewer actions
 
 The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Ops can also enable inspection of captured Figma renders with exact frame/checksum references. Binary repository assets, inaccessible resources, preview capture limits and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).

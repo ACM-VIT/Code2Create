@@ -190,7 +190,6 @@ test.each([2, 5])(
         startsAt: now - 1000,
         openedAt: now - 1000,
         endsAt: now + 14400000,
-        clockInOpensAt: now - 1801000,
         reviewerReportAt: now - 601000,
         correctionRequestsCloseAt: now + 14400000,
         noShowGraceSeconds: 300,
@@ -255,7 +254,6 @@ test.each([2, 5])(
         status: "published",
         startsAt,
         version: 3,
-        clockInOpensAt: startsAt - 1800000,
         reviewerReportAt: startsAt - 600000,
       });
     });

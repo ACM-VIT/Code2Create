@@ -10,16 +10,10 @@ export type ReviewerAvailabilityWindow = {
 };
 
 export type ReviewerRoundStaffingPolicy = {
-  clockInOpensAt: number;
   reviewerReportAt: number;
   startsAt: number;
   endsAt: number;
   noShowGraceSeconds: number;
-};
-
-type ReviewerClockInState = {
-  status: "present" | "temporarily_unavailable" | "clocked_out" | "no_show";
-  expectedReturnAt?: number;
 };
 
 export function normalizedReviewerAvailabilityWindows(
@@ -69,25 +63,16 @@ export function reviewerCoversStaffingWindow(
   );
 }
 
-export function reviewerClockInIsOpenAt(
-  round: Pick<ReviewerRoundStaffingPolicy, "clockInOpensAt" | "endsAt">,
-  now: number,
-) {
-  return now >= round.clockInOpensAt && now < round.endsAt;
-}
-
 export function validateReviewerRoundStaffingPolicy(round: ReviewerRoundStaffingPolicy,
 ) {
   const noShowBoundary = round.reviewerReportAt + round.noShowGraceSeconds * 1_000;
   if (
-    !Number.isSafeInteger(round.clockInOpensAt) ||
     !Number.isSafeInteger(round.reviewerReportAt) ||
     !Number.isSafeInteger(round.startsAt) ||
     !Number.isSafeInteger(round.endsAt) ||
     !Number.isSafeInteger(round.noShowGraceSeconds) ||
     round.noShowGraceSeconds < minimumReviewerNoShowGraceSeconds ||
     round.noShowGraceSeconds > maximumReviewerNoShowGraceSeconds ||
-    round.clockInOpensAt > round.reviewerReportAt ||
     round.reviewerReportAt > round.startsAt ||
     round.startsAt >= round.endsAt ||
     !Number.isSafeInteger(noShowBoundary) ||
@@ -96,25 +81,17 @@ export function validateReviewerRoundStaffingPolicy(round: ReviewerRoundStaffing
     throw new ConvexError({
       code: "INVALID_REVIEWER_STAFFING_POLICY",
       message:
-        "Clock-in must open before the reviewer report time, and the no-show grace must end by the round start.",
+        "The reviewer report time must come before the round starts, and the no-show grace must end by the round start.",
     });
   }
   return round;
 }
 
+/** A seat can be declared empty once the report time plus the published grace has passed. */
 export function reviewerNoShowBoundary(
   round: Pick<ReviewerRoundStaffingPolicy, "reviewerReportAt" | "noShowGraceSeconds">,
-  clockIn: ReviewerClockInState | null,
 ) {
-  const startsAt =
-    clockIn?.status === "temporarily_unavailable"
-      ? clockIn.expectedReturnAt
-      : round.reviewerReportAt;
-  if (startsAt === undefined) {
-    throw new Error("A temporarily unavailable reviewer has no expected return time.",
-    );
-  }
-  const boundary = startsAt + round.noShowGraceSeconds * 1_000;
+  const boundary = round.reviewerReportAt + round.noShowGraceSeconds * 1_000;
   if (!Number.isSafeInteger(boundary)) {
     throw new Error("The reviewer no-show boundary is invalid.");
   }

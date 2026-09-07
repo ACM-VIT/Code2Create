@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { QueryCtx } from "./_generated/server";
-import { internalAction, internalMutation, internalQuery, query,
+import { internalAction, internalMutation, internalQuery, mutation, query,
 } from "./_generated/server";
 import { requireEventBySlug } from "./lib/events";
 import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
@@ -20,7 +20,9 @@ import {
   operationsHealthSnapshotState as operationsHealthSnapshotStateValidator,
 } from "./lib/operationsIntelligenceValidators";
 import {
+  findOperationsHealthSnapshot,
   operationsHealthMaximumAgeMs,
+  operationsHealthRefreshIntervalMs,
   operationsHealthSnapshotState,
 } from "./lib/operationsHealthSnapshot";
 import { enqueueOperationsAutonomySignal } from "./lib/operationsAutonomyInbox";
@@ -30,7 +32,6 @@ import { operationsBackgroundLeaseIsHeld } from "./operationsBackground";
 import { reconcileOperationsEpisodes } from "./lib/operationsEpisodes";
 
 const queryLimit = 101;
-const reviewerHeartbeatWindowMs = 2 * 60 * 1_000;
 const scannerHeartbeatWindowMs = 2 * 60 * 1_000;
 const shortJobWindowMs = 5 * 60 * 1_000;
 const exportWindowMs = 15 * 60 * 1_000;
@@ -102,8 +103,7 @@ async function incidentHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt:
 
 async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: number,
 ) {
-  const staleBefore = generatedAt - reviewerHeartbeatWindowMs;
-  const [panels, scoringReviews, staleClockIns, sentPages, openedPages] = await Promise.all([
+  const [panels, scoringReviews, sentPages, openedPages] = await Promise.all([
     ctx.db
       .query("reviewPanels")
       .withIndex("by_event_status_updated", (index) =>
@@ -114,12 +114,6 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
       .query("reviewSessions")
       .withIndex("by_event_status_updated", (index) =>
         index.eq("eventId", eventId).eq("status", "scoring"),
-      )
-      .take(queryLimit),
-    ctx.db
-      .query("reviewerClockIns")
-      .withIndex("by_event_status_heartbeat", (index) =>
-        index.eq("eventId", eventId).eq("status", "present").lt("lastHeartbeatAt", staleBefore),
       )
       .take(queryLimit),
     ctx.db
@@ -135,28 +129,10 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
       )
       .take(queryLimit),
   ]);
-  const clockInRounds = await Promise.all(
-    staleClockIns.map((clockIn) => ctx.db.get(clockIn.roundId)),
-  );
-  const staleHeartbeatTimes: number[] = [];
-  for (let index = 0; index < staleClockIns.length; index += 1) {
-    const clockIn = staleClockIns[index];
-    const round = clockInRounds[index];
-    if (
-      clockIn !== undefined &&
-      round !== null &&
-      round !== undefined &&
-      round.eventId === eventId &&
-      round.status === "open"
-    ) {
-      staleHeartbeatTimes.push(clockIn.lastHeartbeatAt);
-    }
-  }
   return {
     counts: {
       panels_needing_reviewer: boundedCount(panels.map((panel) => panel.updatedAt),
       ),
-      stale_reviewer_heartbeats: boundedCount(staleHeartbeatTimes),
       overdue_reviews: boundedCount(
         scoringReviews.map((review) => review.updatedAt),
       ),
@@ -167,7 +143,6 @@ async function reviewHealth(ctx: QueryCtx, eventId: Id<"events">, generatedAt: n
     coverage: [
       ...coverageMarker(panels, generatedAt),
       ...coverageMarker(scoringReviews, generatedAt),
-      ...coverageMarker(staleClockIns, generatedAt),
       ...coverageMarker(sentPages, generatedAt),
       ...coverageMarker(openedPages, generatedAt),
     ],
@@ -1037,5 +1012,36 @@ export const overview = query({
       scopeType: "event",
     });
     return operationsHealthSnapshotState(ctx, event._id, Date.now());
+  },
+});
+
+/**
+ * Operators refresh the event-wide checks on demand; nothing recomputes them in the
+ * background. A snapshot younger than the refresh interval is left as it is.
+ */
+export const requestRefresh = mutation({
+  args: { eventSlug: v.string() },
+  returns: v.union(v.literal("scheduled"), v.literal("fresh")),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "operations.health.read",
+      scopeType: "event",
+    });
+    const materialized = await findOperationsHealthSnapshot(ctx, event._id);
+    if (
+      materialized &&
+      materialized.state === "ready" &&
+      materialized.eventVersion === event.version &&
+      Date.now() - materialized.snapshot.generatedAt < operationsHealthRefreshIntervalMs
+    ) {
+      return "fresh";
+    }
+    await ctx.scheduler.runAfter(0, internal.operationsHealth.refresh, {});
+    return "scheduled";
   },
 });

@@ -31,7 +31,6 @@ import { prepareQuestionSet } from "./reviewQuestions";
 import { routeReviewTeam } from "./lib/reviewPanelRouting";
 import { notifyReviewTeam } from "./lib/reviewTeamNotices";
 import { grantReviewAssignmentAccess } from "./lib/reviewAccess";
-import { readVenuePresenceView, reviewerVenueView } from "./lib/reviewerVenue";
 import {
   insertTeamRoundState,
   patchTeamRoundState,
@@ -59,13 +58,11 @@ import { normalizedText } from "./lib/strings";
 import {
   reviewPanelStatus,
   reviewRoundStatus,
-  reviewerClockInViewStatus,
   reviewSessionStatus,
   teamRoundState,
 } from "./values";
 
 const liveReviewStatuses = ["awaiting_presence", "active", "scoring"] as const;
-const notClockedInStatus = "not_clocked_in" as const;
 const roundBoardPermissionKeys = [
   "queue.manage",
   "review.prepare",
@@ -676,27 +673,14 @@ export const roundStaffing = query({
             personId: v.id("people"),
             displayName: v.string(),
             isCoordinator: v.boolean(),
-            clockInStatus: reviewerClockInViewStatus,
-            clockInVersion: v.number(),
-            unavailableReason: v.optional(v.string()),
-            expectedReturnAt: v.optional(v.number()),
-            lastHeartbeatAt: v.optional(v.number()),
             appBuild: v.optional(v.number()),
             encryptedDraftReady: v.optional(v.boolean()),
             deviceLastSeenAt: v.optional(v.number()),
-            venue: reviewerVenueView,
           }),
         ),
       }),
     ),
-    reserves: v.array(
-      v.object({
-        personId: v.id("people"),
-        clockInStatus: reviewerClockInViewStatus,
-        clockInVersion: v.number(),
-        venue: reviewerVenueView,
-      }),
-    ),
+    reserves: v.array(v.object({ personId: v.id("people") })),
   }),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -763,14 +747,8 @@ export const roundStaffing = query({
         }
         const reviewers = await Promise.all(
           members.map(async (member) => {
-            const [reviewer, clockIn, device, venue] = await Promise.all([
+            const [reviewer, device] = await Promise.all([
               ctx.db.get(member.personId),
-              ctx.db
-                .query("reviewerClockIns")
-                .withIndex("by_round_person", (index) =>
-                  index.eq("roundId", round._id).eq("reviewerPersonId", member.personId),
-                )
-                .unique(),
               ctx.db
                 .query("reviewerDevices")
                 .withIndex("by_event_person_status_seen", (index) =>
@@ -781,7 +759,6 @@ export const roundStaffing = query({
                 )
                 .order("desc")
                 .first(),
-              readVenuePresenceView(ctx, event._id, member.personId),
             ]);
             if (!reviewer) throw new Error("A review panel member no longer resolves to a person.",
               );
@@ -789,18 +766,6 @@ export const roundStaffing = query({
               personId: reviewer._id,
               displayName: reviewer.displayName,
               isCoordinator: member.isCoordinator,
-              venue,
-              clockInStatus: clockIn?.status ?? notClockedInStatus,
-              clockInVersion: clockIn?.version ?? 0,
-              ...(clockIn?.unavailableReason !== undefined
-                ? { unavailableReason: clockIn.unavailableReason }
-                : {}),
-              ...(clockIn?.expectedReturnAt !== undefined
-                ? { expectedReturnAt: clockIn.expectedReturnAt }
-                : {}),
-              ...(clockIn?.lastHeartbeatAt !== undefined
-                ? { lastHeartbeatAt: clockIn.lastHeartbeatAt }
-                : {}),
               ...(device
                 ? {
                     appBuild: device.appBuild,
@@ -814,22 +779,7 @@ export const roundStaffing = query({
         return { panelId: panel._id, reviewers };
       }),
     );
-    const reserveRows = await Promise.all(
-      reserves.map(async (reserve) => {
-        const clockIn = await ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index.eq("roundId", round._id).eq("reviewerPersonId", reserve.personId),
-          )
-          .unique();
-        return {
-          personId: reserve.personId,
-          clockInStatus: clockIn?.status ?? notClockedInStatus,
-          clockInVersion: clockIn?.version ?? 0,
-          venue: await readVenuePresenceView(ctx, event._id, reserve.personId),
-        };
-      }),
-    );
+    const reserveRows = reserves.map((reserve) => ({ personId: reserve.personId }));
     return { serverNow: Date.now(), panels: panelRows, reserves: reserveRows };
   },
 });

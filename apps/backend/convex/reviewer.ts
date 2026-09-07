@@ -1,4 +1,3 @@
-import { returnToReviewerDuty } from "./lib/reviewerVenueStaffing";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { ConvexError, v, type Infer } from "convex/values";
@@ -27,8 +26,6 @@ import { normalizeNativePushRegistration, pushTokenFingerprint,
 } from "./lib/pushTokens";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
-import { reviewerClockInIsOpenAt } from "./lib/reviewerAvailability";
-import { requireConfirmedClockIn } from "./lib/reviewConfirmation";
 import {
   maximumReviewerAssignmentsPerEvent,
   maximumReviewRoundsPerEvent,
@@ -86,24 +83,17 @@ type PanelView = {
     status: string;
     startsAt: number;
     endsAt: number;
-    clockInOpensAt: number;
     reviewerReportAt: number;
     minimumReviewerBuild: number;
     requiresCamera: boolean;
     requiresNotifications: boolean;
     isPaused: boolean;
   };
-  clockIn: {
-    id: Id<"reviewerClockIns">;
-    status: string;
-    version: number;
-  } | null;
 };
 type ReserveView = {
   id: Id<"reviewRoundReserves">;
   status: "available" | "paged";
   round: PanelView["round"];
-  clockIn: PanelView["clockIn"];
 };
 type ActiveAssignmentContext = {
   assignment: Doc<"reviewAssignments">;
@@ -562,423 +552,6 @@ export const registerDevice = mutation({
   },
 });
 
-export const clockIn = mutation({
-  args: {
-    eventSlug: v.string(),
-    roundId: v.id("reviewRounds"),
-    installationId: v.string(),
-    expectedVersion: v.number(),
-    clientOperationId: v.string(),
-  },
-  returns: v.object({ clockInId: v.id("reviewerClockIns"), version: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const requestFingerprint = operationFingerprint([
-      args.roundId,
-      args.installationId,
-      args.expectedVersion,
-    ]);
-    const prior = await findOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.clock_in",
-      requestFingerprint,
-    });
-    if (prior) {
-      const clockInId = ctx.db.normalizeId("reviewerClockIns", prior.targetId);
-      if (!clockInId) throw new Error("Prior reviewer clock-in is invalid.");
-      return {
-        clockInId,
-        version: storedOperationVersion(prior.resultJson, "reviewer clock-in"),
-      };
-    }
-    const round = await ctx.db.get(args.roundId);
-    if (!round || round.eventId !== event._id || !["published", "open"].includes(round.status)) {
-      throw new ConvexError({
-        code: "ROUND_NOT_AVAILABLE",
-        message: "This review round is unavailable.",
-      });
-    }
-    const now = Date.now();
-    if (!reviewerClockInIsOpenAt(round, now)) {
-      throw new ConvexError({
-        code: "CLOCK_IN_CLOSED",
-        message: "Clock-in is available only from the published opening until the round ends.",
-      });
-    }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "reviewer.clock_in",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    const [device, panelMember, reserve, profile, current] = await Promise.all([
-      requireReviewerDevice(ctx, {
-        eventId: event._id,
-        personId: person._id,
-        installationId: args.installationId,
-      }),
-      ctx.db
-        .query("reviewPanelMembers")
-        .withIndex("by_round_person_status", (index) =>
-          index.eq("roundId", round._id).eq("personId", person._id).eq("status", "active"),
-        )
-        .unique(),
-      ctx.db
-        .query("reviewRoundReserves")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", round._id).eq("personId", person._id),
-        )
-        .unique(),
-      ctx.db
-        .query("reviewerProfiles")
-        .withIndex("by_event_person", (index) =>
-          index.eq("eventId", event._id).eq("personId", person._id),
-        )
-        .unique(),
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", round._id).eq("reviewerPersonId", person._id),
-        )
-        .unique(),
-    ]);
-    if (
-      (!panelMember || panelMember.status !== "active") &&
-      (!reserve || !["available", "paged"].includes(reserve.status))
-    ) {
-      throw new ConvexError({
-        code: "REVIEWER_NOT_ROSTERED",
-        message: "An active panel or reserve assignment is required before clock-in.",
-      });
-    }
-    if (!profile || profile.status !== "active") {
-      throw new ConvexError({
-        code: "REVIEWER_NOT_READY",
-        message: "Ask ops to activate your reviewer profile before clocking in.",
-      });
-    }
-    await requireConfirmedClockIn(ctx, round, person._id, now);
-    if (
-      device.appBuild < round.minimumReviewerBuild ||
-      !device.encryptedDraftReady ||
-      (round.requiresCamera && !device.cameraReady) ||
-      (round.requiresNotifications && device.pushTokenStatus !== "active")
-    ) {
-      throw new ConvexError({
-        code: "DEVICE_CHECK_INCOMPLETE",
-        message: "Update the app and complete the required camera and notification checks.",
-      });
-    }
-    if ((current?.version ?? 0) !== args.expectedVersion) {
-      throw new ConvexError({
-        code: "CLOCK_IN_CHANGED",
-        message: "Clock-in state changed. Refresh before continuing.",
-      });
-    }
-    const fields = {
-      eventId: event._id,
-      roundId: round._id,
-      reviewerPersonId: person._id,
-      reviewerDeviceId: device._id,
-      status: "present" as const,
-      clockedInAt: current?.clockedInAt ?? now,
-      lastHeartbeatAt: now,
-      version: args.expectedVersion + 1,
-    };
-    const clockInId = current ? current._id : await ctx.db.insert("reviewerClockIns", fields);
-    if (current) {
-      await ctx.db.patch(current._id, {
-        ...fields,
-        unavailableReason: undefined,
-        expectedReturnAt: undefined,
-        clockedOutAt: undefined,
-      });
-    }
-    await returnToReviewerDuty(ctx, event._id, person._id, now);
-    await ctx.db.patch(device._id, { lastSeenAt: now, version: device.version + 1,
-    });
-    await recordOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.clock_in",
-      requestFingerprint,
-      targetType: "reviewer_clock_in",
-      targetId: clockInId,
-      resultJson: String(args.expectedVersion + 1),
-      createdAt: now,
-    });
-    await writeAuditEvent(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      permissionKey: "reviewer.clock_in",
-      grantIds,
-      scopeType: "round",
-      scopeId: round._id,
-      action: "reviewer.clocked_in",
-      targetType: "reviewer_clock_in",
-      targetId: clockInId,
-      ...(current
-        ? { previousSummary: JSON.stringify({ status: current.status, version: current.version,
-            }),
-          }
-        : {}),
-      nextSummary: JSON.stringify({ status: "present", version: args.expectedVersion + 1,
-      }),
-      reason: "Reviewer completed device checks and clocked in",
-    });
-    return { clockInId, version: args.expectedVersion + 1 };
-  },
-});
-
-export const setAvailability = mutation({
-  args: {
-    eventSlug: v.string(),
-    roundId: v.id("reviewRounds"),
-    installationId: v.string(),
-    status: v.union(v.literal("present"), v.literal("temporarily_unavailable"),
-      v.literal("clocked_out"),
-    ),
-    reason: v.optional(v.string()),
-    expectedReturnMinutes: v.optional(v.number()),
-    expectedVersion: v.number(),
-    clientOperationId: v.string(),
-  },
-  returns: v.object({
-    clockInId: v.id("reviewerClockIns"),
-    status: v.string(),
-    version: v.number(),
-  }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const requestFingerprint = operationFingerprint([
-      args.roundId,
-      args.installationId,
-      args.status,
-      args.reason ?? null,
-      args.expectedReturnMinutes ?? null,
-      args.expectedVersion,
-    ]);
-    const prior = await findOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.availability.set",
-      requestFingerprint,
-    });
-    if (prior) {
-      const clockInId = ctx.db.normalizeId("reviewerClockIns", prior.targetId);
-      if (!clockInId) throw new Error("Prior reviewer availability result is invalid.");
-      return {
-        clockInId,
-        status: args.status,
-        version: storedOperationVersion(prior.resultJson, "reviewer availability",
-        ),
-      };
-    }
-    const round = await ctx.db.get(args.roundId);
-    if (
-      !round ||
-      round.eventId !== event._id ||
-      !["published", "open", "closing"].includes(round.status)
-    ) {
-      throw new ConvexError({
-        code: "ROUND_NOT_AVAILABLE",
-        message: "This review round is unavailable.",
-      });
-    }
-    const grantIds = await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "reviewer.clock_in",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    const [device, current, assignments] = await Promise.all([
-      requireReviewerDevice(ctx, {
-        eventId: event._id,
-        personId: person._id,
-        installationId: args.installationId,
-      }),
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", round._id).eq("reviewerPersonId", person._id),
-        )
-        .unique(),
-      ctx.db
-        .query("reviewAssignments")
-        .withIndex("by_person_status", (index) =>
-          index.eq("reviewerPersonId", person._id).eq("status", "assigned"),
-        )
-        .collect(),
-    ]);
-    if (!current || current.version !== args.expectedVersion) {
-      throw new ConvexError({
-        code: "CLOCK_IN_CHANGED",
-        message: "Reviewer availability changed. Refresh before continuing.",
-      });
-    }
-    if (!["present", "temporarily_unavailable"].includes(current.status)) {
-      throw new ConvexError({
-        code: "CLOCK_IN_REQUIRES_OPERATIONS",
-        message: "This reviewer clock-in can no longer be changed from the phone.",
-      });
-    }
-    const now = Date.now();
-    let expectedReturnAt: number | undefined;
-    if (args.status === "present") {
-      await requireConfirmedClockIn(ctx, round, person._id, now);
-    }
-    if (args.status !== "present") {
-      for (const assignment of assignments) {
-        const session = await ctx.db.get(assignment.reviewSessionId);
-        if (
-          session &&
-          session.eventId === event._id &&
-          session.roundId === round._id &&
-          ["active", "scoring"].includes(session.status)
-        ) {
-          throw new ConvexError({
-            code: "ACTIVE_REVIEW_ASSIGNED",
-            message:
-              "Finish the current review and its scorecards before leaving.",
-          });
-        }
-      }
-    }
-    if (args.status === "temporarily_unavailable") {
-      if (
-        args.expectedReturnMinutes === undefined ||
-        !Number.isSafeInteger(args.expectedReturnMinutes) ||
-        args.expectedReturnMinutes < 1 ||
-        args.expectedReturnMinutes > 60
-      ) {
-        throw new ConvexError({
-          code: "INVALID_EXPECTED_RETURN",
-          message: "Choose an expected return duration from 1 to 60 minutes.",
-        });
-      }
-      expectedReturnAt = now + args.expectedReturnMinutes * 60_000;
-      if (expectedReturnAt > round.endsAt) {
-        throw new ConvexError({
-          code: "INVALID_EXPECTED_RETURN",
-          message: "Choose a return duration that ends before this round does.",
-        });
-      }
-    }
-    if (args.status === "present")
-      await returnToReviewerDuty(ctx, event._id, person._id, now);
-    const reason =
-      args.status !== "present"
-        ? normalizedText(args.reason ?? "", "Unavailability reason", 3, 300)
-        : undefined;
-    await ctx.db.patch(current._id, {
-      status: args.status,
-      clockedOutAt: args.status === "clocked_out" ? now : undefined,
-      ...(reason ? { unavailableReason: reason } : { unavailableReason: undefined }),
-      ...(args.status === "temporarily_unavailable"
-        ? { expectedReturnAt }
-        : { expectedReturnAt: undefined }),
-      lastHeartbeatAt: now,
-      version: current.version + 1,
-    });
-    await ctx.db.patch(device._id, { lastSeenAt: now });
-    await recordOperation(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      clientOperationId: args.clientOperationId,
-      commandName: "reviewer.availability.set",
-      requestFingerprint,
-      targetType: "reviewer_clock_in",
-      targetId: current._id,
-      resultJson: String(current.version + 1),
-      createdAt: now,
-    });
-    await writeAuditEvent(ctx, {
-      eventId: event._id,
-      actorPersonId: person._id,
-      permissionKey: "reviewer.clock_in",
-      grantIds,
-      scopeType: "round",
-      scopeId: round._id,
-      action: "reviewer.availability_changed",
-      targetType: "reviewer_clock_in",
-      targetId: current._id,
-      previousSummary: JSON.stringify({ status: current.status, version: current.version,
-      }),
-      nextSummary: JSON.stringify({ status: args.status, version: current.version + 1,
-      }),
-      reason: reason ?? "Reviewer returned to the assigned panel",
-    });
-    return { clockInId: current._id, status: args.status, version: current.version + 1,
-    };
-  },
-});
-
-export const heartbeat = mutation({
-  args: {
-    eventSlug: v.string(),
-    roundId: v.id("reviewRounds"),
-    installationId: v.string(),
-  },
-  returns: v.object({ serverNow: v.number(), status: v.string() }),
-  handler: async (ctx, args) => {
-    const event = await requireEventBySlug(ctx, args.eventSlug);
-    const { person } = await requireCurrentPerson(ctx);
-    const subject = await requireEventSubject(ctx, event._id, person._id);
-    const round = await ctx.db.get(args.roundId);
-    if (!round || round.eventId !== event._id) {
-      throw new ConvexError({
-        code: "ROUND_NOT_FOUND",
-        message: "That review round is unavailable.",
-      });
-    }
-    await requirePermission(ctx, {
-      eventId: event._id,
-      eventAccessSubjectId: subject._id,
-      permissionKey: "reviewer.clock_in",
-      scopeType: "round",
-      scopeId: round._id,
-    });
-    const [device, clockIn] = await Promise.all([
-      requireReviewerDevice(ctx, {
-        eventId: event._id,
-        personId: person._id,
-        installationId: args.installationId,
-      }),
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", round._id).eq("reviewerPersonId", person._id),
-        )
-        .unique(),
-    ]);
-    if (!clockIn || !["present", "temporarily_unavailable"].includes(clockIn.status)) {
-      throw new ConvexError({
-        code: "REVIEWER_NOT_CLOCKED_IN",
-        message: "Clock in before sending panel liveness.",
-      });
-    }
-    const now = Date.now();
-    if (now - clockIn.lastHeartbeatAt >= 30_000) {
-      await ctx.db.patch(clockIn._id, { lastHeartbeatAt: now });
-    }
-    if (now - device.lastSeenAt >= 30_000) {
-      await ctx.db.patch(device._id, { lastSeenAt: now });
-    }
-    return { serverNow: now, status: clockIn.status };
-  },
-});
-
 const criterionView = v.object({
   id: v.id("reviewRubricCriteria"),
   stableKey: v.string(),
@@ -1105,15 +678,6 @@ export const dutyStatus = query({
   returns: v.object({
     deviceRegistered: v.boolean(),
     assignment: v.union(v.literal("panel"), v.literal("reserve"), v.null()),
-    clockInStatus: v.union(v.null(), v.string()),
-    heartbeat: v.union(
-      v.null(),
-      v.object({
-        roundId: v.id("reviewRounds"),
-        status: v.union(v.literal("present"), v.literal("temporarily_unavailable"),
-        ),
-      }),
-    ),
     review: v.union(
       v.null(),
       v.object({
@@ -1155,15 +719,6 @@ export const dutyStatus = query({
         : Promise.resolve(false),
     ]);
     const reviewContext = reviewContextReadable ? candidateReviewContext : null;
-    const dutyRound = panelContext?.round ?? reserveContext?.round ?? null;
-    const clockIn = dutyRound
-      ? await ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index.eq("roundId", dutyRound._id).eq("reviewerPersonId", person._id),
-          )
-          .unique()
-      : null;
     let review = null;
     if (reviewContext) {
       const [scorecard, presence] = await Promise.all([
@@ -1198,18 +753,9 @@ export const dutyStatus = query({
         criterionCount: reviewContext.assignment.assignedCriterionIds.length,
       };
     }
-    const heartbeatStatus =
-      clockIn?.status === "present" || clockIn?.status === "temporarily_unavailable"
-        ? clockIn.status
-        : null;
     return {
       deviceRegistered: device !== null,
       assignment: panelContext ? "panel" as const : reserveContext ? "reserve" as const : null,
-      clockInStatus: clockIn?.status ?? null,
-      heartbeat:
-        device && dutyRound && heartbeatStatus
-          ? { roundId: dutyRound._id, status: heartbeatStatus }
-          : null,
       review,
     };
   },
@@ -1249,21 +795,12 @@ export const now = query({
           status: v.string(),
           startsAt: v.number(),
           endsAt: v.number(),
-          clockInOpensAt: v.number(),
           reviewerReportAt: v.number(),
           minimumReviewerBuild: v.number(),
           requiresCamera: v.boolean(),
           requiresNotifications: v.boolean(),
           isPaused: v.boolean(),
         }),
-        clockIn: v.union(
-          v.null(),
-          v.object({
-            id: v.id("reviewerClockIns"),
-            status: v.string(),
-            version: v.number(),
-          }),
-        ),
       }),
     ),
     reserve: v.union(
@@ -1277,21 +814,12 @@ export const now = query({
           status: v.string(),
           startsAt: v.number(),
           endsAt: v.number(),
-          clockInOpensAt: v.number(),
           reviewerReportAt: v.number(),
           minimumReviewerBuild: v.number(),
           requiresCamera: v.boolean(),
           requiresNotifications: v.boolean(),
           isPaused: v.boolean(),
         }),
-        clockIn: v.union(
-          v.null(),
-          v.object({
-            id: v.id("reviewerClockIns"),
-            status: v.string(),
-            version: v.number(),
-          }),
-        ),
       }),
     ),
     review: v.union(
@@ -1395,15 +923,7 @@ export const now = query({
     );
     let panelView: PanelView | null = null;
     if (panelContext) {
-      const [clockIn, roundPause] = await Promise.all([
-        ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index.eq("roundId", panelContext.round._id).eq("reviewerPersonId", person._id),
-          )
-          .unique(),
-        activeRoundPause(ctx, panelContext.round._id),
-      ]);
+      const roundPause = await activeRoundPause(ctx, panelContext.round._id);
       panelView = {
         id: panelContext.panel._id,
         name: panelContext.panel.name,
@@ -1414,17 +934,12 @@ export const now = query({
           status: panelContext.round.status,
           startsAt: panelContext.round.startsAt,
           endsAt: panelContext.round.endsAt,
-          clockInOpensAt: panelContext.round.clockInOpensAt,
           reviewerReportAt: panelContext.round.reviewerReportAt,
           minimumReviewerBuild: panelContext.round.minimumReviewerBuild,
           requiresCamera: panelContext.round.requiresCamera,
           requiresNotifications: panelContext.round.requiresNotifications,
           isPaused: roundPause !== null,
         },
-        clockIn: clockIn
-          ? { id: clockIn._id, status: clockIn.status, version: clockIn.version,
-            }
-          : null,
       };
     }
 
@@ -1475,15 +990,7 @@ export const now = query({
     );
     let reserveView: ReserveView | null = null;
     if (reserveContext && !panelContext) {
-      const [clockIn, roundPause] = await Promise.all([
-        ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index.eq("roundId", reserveContext.round._id).eq("reviewerPersonId", person._id),
-          )
-          .unique(),
-        activeRoundPause(ctx, reserveContext.round._id),
-      ]);
+      const roundPause = await activeRoundPause(ctx, reserveContext.round._id);
       reserveView = {
         id: reserveContext.reserveId,
         status: reserveContext.reserveStatus,
@@ -1493,17 +1000,12 @@ export const now = query({
           status: reserveContext.round.status,
           startsAt: reserveContext.round.startsAt,
           endsAt: reserveContext.round.endsAt,
-          clockInOpensAt: reserveContext.round.clockInOpensAt,
           reviewerReportAt: reserveContext.round.reviewerReportAt,
           minimumReviewerBuild: reserveContext.round.minimumReviewerBuild,
           requiresCamera: reserveContext.round.requiresCamera,
           requiresNotifications: reserveContext.round.requiresNotifications,
           isPaused: roundPause !== null,
         },
-        clockIn: clockIn
-          ? { id: clockIn._id, status: clockIn.status, version: clockIn.version,
-            }
-          : null,
       };
     }
 

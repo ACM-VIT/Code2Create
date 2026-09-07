@@ -1288,7 +1288,6 @@ async function seedCorrectionFixture(backend: BackendTest) {
       status: "open",
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
-      clockInOpensAt: now - 120_000,
       reviewerReportAt: now - 90_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 3_600_000,

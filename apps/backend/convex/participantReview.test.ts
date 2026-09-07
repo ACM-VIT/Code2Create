@@ -1233,7 +1233,6 @@ async function seedQueueFixture(
       status: "open",
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
-      clockInOpensAt: now - 120_000,
       reviewerReportAt: now - 90_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 3_600_000,
@@ -1589,7 +1588,7 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
       status: "active",
       assignedAt: now,
     });
-    const deviceId = await ctx.db.insert("reviewerDevices", {
+    await ctx.db.insert("reviewerDevices", {
       eventId: fixture.eventId,
       personId: reviewerPersonId,
       installationId: "queue-phone",
@@ -1604,16 +1603,6 @@ async function prepareAutomaticQueue(backend: BackendTest, fixture: Fixture) {
       version: 1,
       registeredAt: now,
       lastSeenAt: now,
-    });
-    await ctx.db.insert("reviewerClockIns", {
-      eventId: fixture.eventId,
-      roundId: fixture.roundId,
-      reviewerPersonId,
-      reviewerDeviceId: deviceId,
-      status: "present",
-      clockedInAt: now,
-      lastHeartbeatAt: now,
-      version: 1,
     });
     await ctx.db.insert("reviewerRoundConfirmations", {
       eventId: fixture.eventId,

@@ -260,20 +260,6 @@ export const setMembership = mutation({
         revokedByPersonId: actor._id,
         reason,
       });
-      const clockIn = await ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (q) =>
-          q.eq("roundId", round._id).eq("reviewerPersonId", args.personId),
-        )
-        .unique();
-      if (clockIn && clockIn.status !== "clocked_out")
-        await ctx.db.patch(clockIn._id, {
-          status: "clocked_out",
-          clockedOutAt: now,
-          expectedReturnAt: undefined,
-          unavailableReason: undefined,
-          version: clockIn.version + 1,
-        });
     }
     await recordOperation(ctx, {
       ...operation,

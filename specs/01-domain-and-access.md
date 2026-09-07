@@ -276,7 +276,7 @@ Submitting cannot edit the roster. Responding to an offer cannot manage it. Read
 
 ### Judging grants
 
-A panel or review assignment materializes only the permissions needed for that judge and review: clock-in, page response, assigned proposal context, the frozen evidence checkpoint, released previous findings and commitments, presence, and the caller's own scorecard. The permissions are scoped to the round, panel, review session, and person. A synthesized fallback call inherits the exact `review.substitute.page` grants frozen on the page chain. It never uses the reviewer's page-response grant. Current reviewer call consent is also required. Consent never creates a permission.
+A panel or review assignment materializes only the permissions needed for that judge and review: page response, assigned proposal context, the frozen evidence checkpoint, released previous findings and commitments, presence, and the caller's own scorecard. The permissions are scoped to the round, panel, review session, and person. A synthesized fallback call inherits the exact `review.substitute.page` grants frozen on the page chain. It never uses the reviewer's page-response grant. Current reviewer call consent is also required. Consent never creates a permission.
 
 The ordinary assignment bundle does not include peer score values, unrelated teams, hidden participant data, staff audit history, or another judge’s scorecard. Although External Judge is the normal role label, the same exact grants can be issued manually to another role when required.
 
@@ -293,7 +293,7 @@ Operations screens are assembled from granular read permissions. `event.lifecycl
 - Web sessions use secure, HTTP-only, same-site cookies.
 - The Expo Better Auth client stores session cookies in `expo-secure-store`.
 - The Expo app registers one device record with platform, build number, camera capability, notification token, last-seen time, and revocation state.
-- Reviewer clock-in and attendance scanning reject a revoked device or an app below the configured minimum build.
+- The reviewer app and attendance scanning reject a revoked device or an app below the configured minimum build.
 - A scanner must also have an active station assignment whose event, mode, zone, direction, and validity match the command.
 - Any later override, after-deadline correction, migration, direct permission batch, or raw export uses the same 15-minute fresh-session boundary unless the published security policy makes it stricter. On the web, an older session opens the hosted Google verification popup on the current page. The client retries the exact operation ID only after Convex confirms the new session is fresh.
 

@@ -131,7 +131,7 @@ The current rows cover empty panel seats, overdue reviews, incomplete reviewer p
 
 ### Event monitor
 
-**Event monitor** contains the 20 highest-priority permitted named-attention rows and the aggregate system checks. It states when more rows remain; the queue refills in realtime as current work clears. Named rows come first. Aggregate checks cover faults without one named subject, such as provider limits, webhook state, and delivery ambiguity. A system check is omitted when a named row already reports the same problem. The operations brief may use these aggregate signals, but it is not rendered on this page.
+**Event monitor** contains the 20 highest-priority permitted named-attention rows and the aggregate system checks. It states when more rows remain; the queue refills in realtime as current work clears. Named rows come first. Aggregate checks cover faults without one named subject, such as provider limits, webhook state, and delivery ambiguity. They come from the health snapshot, which an operator refreshes from this page; the page shows when the snapshot was generated and marks it stale after 90 seconds. A system check is omitted when a named row already reports the same problem. The operations brief may use these aggregate signals, but it is not rendered on this page.
 
 The overview permission returns aggregate operational state only. It does not imply incident, participant, application, team, repository, Figma file, round, score, or music-detail access. A signal links to a focused workspace only when the person can open that workspace. The corrective command remains inside that focused workspace and performs its own permission check.
 
@@ -140,7 +140,7 @@ The current projection covers:
 - open critical and non-critical incidents plus active review-round pauses;
 - stalled or failed intake interpretation and admission-analysis work, plus stalled or recently unavailable novelty previews, with failure counts limited to the recent operating window;
 - current attendance preparation/finalization jobs, authenticated scanner liveness, and phones reporting encrypted scans awaiting replay during the live event;
-- panels needing a reviewer, stale reviewer heartbeats on open rounds, overdue reviews, and expired substitute pages;
+- panels needing a reviewer, overdue reviews, and expired substitute pages;
 - the latest participant-email attempt, distinguishing terminal delivery failure, unknown provider outcome, and processing stall;
 - current GitHub/Figma access, sync lease, rate-limit, required-topic, and webhook state;
 - the active closing round's current export rather than superseded export history; and
@@ -148,7 +148,7 @@ The current projection covers:
 
 Signals contain only severity, area, count, oldest observed time, accountable owner, and a short next action. They never return incident text, participant identity or destination, team/project text, provider error codes, resource names, tokens, object keys, or judging values. A separately granted focused workspace is required to inspect or act on the affected records.
 
-Every source query uses an event/status index and a fixed bound. A source that reaches the bound adds a visible coverage warning instead of pretending the aggregate is complete. One server-owned action computes the event snapshot every 30 seconds and writes it through one indexed, idempotent upsert. Clients subscribe only to that materialized row; they never send time buckets or rerun the source queries per identity. A missing or more-than-90-second-old snapshot is shown as starting or delayed, with no live-computation fallback. Zero-count rows are omitted and the remaining rows sort critical, needs-attention, then watch.
+Every source query uses an event/status index and a fixed bound. A source that reaches the bound adds a visible coverage warning instead of pretending the aggregate is complete. One server-owned action computes the event snapshot when an operator requests a refresh from Event monitor and writes it through one indexed, idempotent upsert. Nothing recomputes it on a timer. Clients subscribe only to that materialized row; they never send time buckets or rerun the source queries per identity. A missing snapshot is shown as not yet refreshed, a snapshot older than 90 seconds is shown as stale, and neither falls back to live computation. Zero-count rows are omitted and the remaining rows sort critical, needs-attention, then watch.
 
 Health is based on current ownership, not an ever-growing error log. A manual participant-email retry marks its failed source attempt `superseded` in the same transaction that creates the new attempt. Attendance and round-export checks follow the IDs held by the currently preparing/closing parent. Integration checks exclude revoked/archived bindings, model fallback counts age out of the recent window, and Synesthesia checks only the active published window.
 
@@ -366,7 +366,7 @@ A round-wide incident pause is a separate active/resolved record attached to an 
 
 The control page shows:
 
-- configured clock-in opening, reviewer report time, no-show grace, round start/end, and correction-request deadline;
+- configured reviewer report time, no-show grace, round start/end, and correction-request deadline;
 - panel-plan version;
 - rubric version;
 - timer policy;
@@ -387,7 +387,7 @@ Commands:
 
 Opening a round validates all required configuration. Closing validates review and score completeness. A generic confirmation dialog is not enough; the page lists the exact blockers or consequences.
 
-Round publication also validates every assigned and reserve reviewer against that person's explicit availability. One canonical availability interval must cover the full staffing window from clock-in opening through round end. The published staffing times, no-show grace, and correction-request deadline are immutable round policy and are included in the configuration checksum.
+Round publication also validates every assigned and reserve reviewer against that person's explicit availability. One canonical availability interval must cover the full staffing window from the reviewer report time through round end. The published staffing times, no-show grace, and correction-request deadline are immutable round policy and are included in the configuration checksum.
 
 `closing` freezes judging writes and generates the round export. The page shows the frozen team dispositions, selected-review counts, generation state, revision, failure, file sizes, and short checksums. A failed export leaves a visible blocker and an independently permissioned retry action.
 
@@ -469,7 +469,6 @@ The panel board shows one row per panel:
 - lead;
 - planned and current reviewers;
 - criterion coverage;
-- clock-in and last-seen state;
 - current page;
 - active team and timer;
 - queue length;
@@ -483,14 +482,14 @@ Available actions:
 - inspect eligible substitutes and ranking factors;
 - page the next candidate;
 - cancel a page;
-- mark temporary unavailability or confirmed no-show;
+- mark a confirmed no-show;
 - accept an operator-confirmed phone/runner response only under the approved fallback policy;
 - move a reviewer between panels;
 - pause or retire a panel.
 
 The UI never claims a substitute is assigned because a push was delivered.
 
-Clock-in opens at the published boundary according to server time and is rejected outside the reviewer's declared availability. A no-show action is unavailable until `reviewerReportAt + noShowGraceSeconds`, or the corresponding return boundary for a temporarily unavailable reviewer. A present reviewer cannot be marked no-show. Clock-in and no-show re-read the same versioned presence and panel records in one transaction, so a boundary race has one coherent winner.
+A no-show action is unavailable until `reviewerReportAt + noShowGraceSeconds` according to server time. No-show and substitute acceptance re-read the same versioned panel records in one transaction, so a boundary race has one coherent winner.
 
 ## 10. Queue board
 

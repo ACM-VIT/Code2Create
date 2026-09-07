@@ -52,7 +52,6 @@ The **Now** screen can show only one primary action:
 
 - Sign in
 - Complete device check
-- Clock in
 - Respond to page
 - Go to team
 - Scan team
@@ -73,7 +72,7 @@ Colour identifies the kind of action rather than decorating it, and each action 
 | Respond to page                   | Urgent. The panel is waiting for this person |
 | Go to team, Scan team             | Move or scan. This is a physical step        |
 | Continue review, Submit scorecard | The work itself                              |
-| Complete device check, Clock in   | Setup, before judging can begin              |
+| Complete device check             | Setup, before judging can begin              |
 | No current assignment             | Resting. No action is required               |
 
 Small text under the action shows the team name and round. History or Profile contains other detail.
@@ -86,7 +85,7 @@ Google sign-in opens the system browser and returns through a production app dee
 
 After sign-in, the app calls `reviewer.bootstrap`. The response either contains the reviewer’s event grant and current work or a refusal reason.
 
-Before clock-in, the app checks:
+Before judging can begin, the app checks:
 
 - production or approved staging build;
 - minimum build number;
@@ -99,22 +98,18 @@ Before clock-in, the app checks:
 
 The device record stores no Google password or raw OAuth token.
 
-## 5. Clock-in
+## 5. Availability confirmation
 
-Before the round, an availability card opens at the scheduled confirmation time, normally 22:00–23:00 IST the evening before the review. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage may clock in for a review. Early arrival uses the interval between the published clock-in opening and round start, applied to each confirmed shift, and never opens before the round's published clock-in time. Reminder timing does not gate clock-in. The confirmed shift must still have enough remaining time for a complete review.
+Before the round, an availability card opens at the scheduled confirmation time, normally 22:00–23:00 IST the evening before the review. It offers all of the round's time windows, a whole-round selection, and an explicit unavailable response. There is no three-selection limit. Form-export hours are never prefilled as promises. Operations sees pending, confirmed, and unavailable responses separately. Only qualified reviewers with confirmed coverage are seated for a review, and the confirmed shift must still have enough remaining time for a complete review.
 
-The clock-in screen shows:
+There is no clock-in and no availability toggle. The app does not report whether the reviewer is at the venue; the desk staffs seats from the panel board and pages a substitute when a reviewer has not arrived. After the device check, the app subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review. Between reviews it shows:
 
 - event and review window;
-- published clock-in opening and reviewer report time;
+- published reviewer report time;
 - assigned panel and venue zone, when published;
 - availability end time;
 - declared criterion coverage;
 - active reviewer profile and any declared conflict.
-
-Clock-in is one server write. The server, not the phone clock, enforces the published opening and round end and rechecks round-confirmed coverage for a complete review. The app keeps the control unavailable before the published opening and treats the server refusal as authoritative. It then subscribes to `reviewer.now`, which contains the reviewer’s current panel, page, assignment, and review.
-
-The reviewer can mark **Temporarily unavailable** with a reason and expected return time. Operations sees it immediately and decides whether to replace the seat.
 
 ## 6. Page response
 
@@ -289,7 +284,6 @@ Allowed during a brief outage:
 
 Blocked while offline:
 
-- clock-in;
 - page acceptance;
 - new QR presence;
 - starting a review;
@@ -306,8 +300,7 @@ Push is used for:
 - substitute pages;
 - imminent assignment;
 - panel moved or paused;
-- scorecard/correction action requested;
-- clock-out reminder.
+- scorecard/correction action requested.
 
 The payload contains a page or event ID and a route, not private project text or scores.
 
@@ -358,10 +351,8 @@ On a device handover, operations revokes the old device, registers the spare, an
 - A round pause removes the start control on every connected reviewer device without interrupting an already-active review or its draft.
 
 
-## Venue confirmation and simpler reviewer actions
-
-GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
+## Review brief and simpler reviewer actions
 
 The review brief is optional. Eligible repository text and the team's submitted idea inform ungraded follow-up questions. Figma stays a link for the reviewer. Suggested questions cannot change the published rubric or add graded criteria. Binary assets, inaccessible repositories, and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).
 
-Between reviews, the app shows the assigned panel or an on-call reserve state. Breaks and clock-out are available from duty controls. The break sheet dismisses before those controls disappear. An accepted substitute page opens Reviews; an expired page can be dismissed even when the live query is offline. The team code confirms arrival before the coordinator starts. Paging settings, duty changes, and availability editors are absent while a review is assigned.
+Between reviews, the app shows the assigned panel or an on-call reserve state. An accepted substitute page opens Reviews; an expired page can be dismissed even when the live query is offline. The team code confirms arrival before the coordinator starts. Paging settings and availability editors are absent while a review is assigned.

@@ -1,14 +1,5 @@
-import {
-  venueConfirmationCall,
-  venueCallResponseValue,
-  venueResponseEffect,
-} from "./lib/venueCallValidators";
 import { defineSchema, defineTable } from "convex/server";
 import { outingPhase, outingScanDecision } from "./lib/outingValues";
-import {
-  reviewerVenueStatus,
-  venuePolicyFields,
-} from "./lib/reviewerVenuePolicy";
 import { v } from "convex/values";
 import { projectReviewAssessment } from "./lib/reviewPlanningFields";
 
@@ -94,7 +85,6 @@ import {
   reviewProgressionScoreReference,
   reviewRoundStatus,
   reviewStaffingPolicy,
-  reviewerClockInStatus,
   reviewerPageChainState,
   reviewerPageState,
   reviewerPushDeliveryState,
@@ -295,6 +285,22 @@ const projectVersionFields = {
     submittedByMembershipId: v.id("eventMemberships"),
     submittedAt: v.number(),
   };
+
+// Reviewer venue confirmation calls were retired; these match the rows that
+// outboundCallDeliveries and outboundCallProviderEvents still hold.
+const retiredVenueConfirmation = v.object({
+  appId: v.string(),
+  appVersion: v.number(),
+  reviewerName: v.string(),
+  venueName: v.string(),
+  expiresAt: v.number(),
+});
+const retiredVenueResponseSummary = v.object({
+  outcome: v.string(),
+  confirmed: v.boolean(),
+  summary: v.string(),
+  returnInMinutes: v.union(v.number(), v.null()),
+});
 
 export default defineSchema({
   events: defineTable({
@@ -3014,7 +3020,8 @@ export default defineSchema({
     sequence: v.number(),
     status: reviewRoundStatus,
     reviewerReportAt: v.number(),
-    clockInOpensAt: v.number(),
+    // Retired with reviewer clock-in; only present on historical rounds.
+    clockInOpensAt: v.optional(v.number()),
     noShowGraceSeconds: v.number(),
     startsAt: v.number(),
     endsAt: v.number(),
@@ -3097,71 +3104,6 @@ export default defineSchema({
     .index("by_round_state", ["roundId", "state"])
     .index("by_incident_state", ["incidentId", "state"])
     .index("by_event_state_paused", ["eventId", "state", "pausedAt"]),
-
-  reviewerVenuePolicies: defineTable({
-    eventId: v.id("events"),
-    ...venuePolicyFields,
-    version: v.number(),
-    updatedByPersonId: v.id("people"),
-    updatedAt: v.number(),
-  }).index("by_eventId", ["eventId"]),
-
-  reviewerVenuePresence: defineTable({
-    eventId: v.id("events"),
-    personId: v.id("people"),
-    reviewerDeviceId: v.id("reviewerDevices"),
-    policyVersion: v.number(),
-    trackingGeneration: v.number(),
-    trackingStartedAt: v.number(),
-    monitoringEnabled: v.boolean(),
-    status: reviewerVenueStatus,
-    observation: v.union(
-      v.literal("inside"),
-      v.literal("outside"),
-      v.literal("uncertain"),
-    ),
-    sampledAt: v.optional(v.number()),
-    receivedAt: v.optional(v.number()),
-    outsideSince: v.optional(v.number()),
-    departureId: v.optional(v.id("reviewerVenueDepartures")),
-    nextCheckAt: v.optional(v.number()),
-    version: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_eventId_personId", ["eventId", "personId"])
-    .index("by_nextCheckAt", ["nextCheckAt"]),
-
-  reviewerVenueDepartures: defineTable({
-    eventId: v.id("events"),
-    personId: v.id("people"),
-    presenceId: v.id("reviewerVenuePresence"),
-    policyVersion: v.number(),
-    state: v.union(
-      v.literal("open"),
-      v.literal("reported"),
-      v.literal("returned"),
-      v.literal("cancelled"),
-    ),
-    leftAt: v.number(),
-    reportedAt: v.optional(v.number()),
-    reason: v.optional(v.string()),
-    resolvedAt: v.optional(v.number()),
-    notificationState: v.union(
-      v.literal("pending"),
-      v.literal("sending"),
-      v.literal("sent"),
-      v.literal("failed"),
-      v.literal("unavailable"),
-    ),
-    notificationAttempts: v.number(),
-    notificationAttemptId: v.optional(v.string()),
-    notificationClaimUntil: v.optional(v.number()),
-    notificationError: v.optional(v.string()),
-    reminderStartedAt: v.optional(v.number()),
-    notifiedAt: v.optional(v.number()),
-    callDeliveryId: v.optional(v.id("outboundCallDeliveries")),
-    updatedAt: v.number(),
-  }).index("by_eventId_personId_leftAt", ["eventId", "personId", "leftAt"]),
 
   reviewerProfiles: defineTable({
     eventId: v.id("events"),
@@ -3323,25 +3265,6 @@ export default defineSchema({
     .index("by_event_push_fingerprint", ["eventId", "pushTokenFingerprint"])
     .index("by_event_person_status", ["eventId", "personId", "status"])
     .index("by_event_person_status_seen", ["eventId", "personId", "status", "lastSeenAt",
-    ]),
-
-  reviewerClockIns: defineTable({
-    eventId: v.id("events"),
-    roundId: v.id("reviewRounds"),
-    reviewerPersonId: v.id("people"),
-    reviewerDeviceId: v.id("reviewerDevices"),
-    status: reviewerClockInStatus,
-    unavailableReason: v.optional(v.string()),
-    expectedReturnAt: v.optional(v.number()),
-    clockedInAt: v.number(),
-    clockedOutAt: v.optional(v.number()),
-    lastHeartbeatAt: v.number(),
-    version: v.number(),
-  })
-    .index("by_round_person", ["roundId", "reviewerPersonId"])
-    .index("by_round_status", ["roundId", "status"])
-    .index("by_person_status", ["reviewerPersonId", "status"])
-    .index("by_event_status_heartbeat", ["eventId", "status", "lastHeartbeatAt",
     ]),
 
   reviewPanels: defineTable({
@@ -3727,6 +3650,7 @@ export default defineSchema({
     eventId: v.id("events"),
     personId: v.id("people"),
     purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      // Retired venue absence calls; historical rows only.
       v.literal("reviewer_venue_absence"),
     ),
     destinationPhoneE164: v.optional(v.string()),
@@ -3748,18 +3672,21 @@ export default defineSchema({
       v.literal("review_team_notice"),
       v.literal("participant_outing"),
       v.literal("reviewer_shift_reminder"),
+      // Retired venue absence calls; historical rows only.
       v.literal("reviewer_venue_departure"),
     ),
     sourceId: v.string(),
     shiftReminder: v.optional(v.object({ confirmationVersion: v.number(), shiftStartsAt: v.number() })),
     purpose: v.union(v.literal("reviewer_shift_reminder"), v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
+      // Retired venue absence calls; historical rows only.
       v.literal("reviewer_venue_absence"),
     ),
     destinationPhoneE164: v.optional(v.string()),
-    venueConfirmation: v.optional(venueConfirmationCall),
-    venueResponse: v.optional(venueCallResponseValue.omit("transcript")),
+    // Retired venue confirmation fields; historical rows only.
+    venueConfirmation: v.optional(retiredVenueConfirmation),
+    venueResponse: v.optional(retiredVenueResponseSummary),
     responseEventId: v.optional(v.id("outboundCallProviderEvents")),
-    venueResponseEffect: v.optional(venueResponseEffect),
+    venueResponseEffect: v.optional(v.string()),
     responseRecordedAt: v.optional(v.number()),
     script: v.string(),
     locale: v.string(),
@@ -3800,7 +3727,13 @@ export default defineSchema({
     ),
     providerCallId: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),
-    venueResponse: v.optional(venueCallResponseValue),
+    // Retired venue confirmation transcript; historical rows only.
+    venueResponse: v.optional(
+      v.object({
+        ...retiredVenueResponseSummary.fields,
+        transcript: v.array(v.object({ role: v.string(), text: v.string() })),
+      }),
+    ),
     providerAt: v.number(),
     receivedAt: v.number(),
   })

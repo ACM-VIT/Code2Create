@@ -5,7 +5,9 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
+/** Operators refresh on demand; a snapshot younger than this is served as it is. */
 export const operationsHealthRefreshIntervalMs = 30_000;
+/** Readers treat anything older than this as stale. */
 export const operationsHealthMaximumAgeMs = 3 * operationsHealthRefreshIntervalMs;
 
 export type OperationsHealthSnapshotState =

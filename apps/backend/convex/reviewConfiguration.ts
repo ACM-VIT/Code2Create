@@ -589,7 +589,6 @@ export const current = query({
         status: v.string(),
         startsAt: v.number(),
         endsAt: v.number(),
-        clockInOpensAt: v.number(),
         reviewerReportAt: v.number(),
         noShowGraceSeconds: v.number(),
         correctionRequestsCloseAt: v.number(),
@@ -656,7 +655,6 @@ export const current = query({
           status: round.status,
           startsAt: round.startsAt,
           endsAt: round.endsAt,
-          clockInOpensAt: round.clockInOpensAt,
           reviewerReportAt: round.reviewerReportAt,
           noShowGraceSeconds: round.noShowGraceSeconds,
           correctionRequestsCloseAt: round.correctionRequestsCloseAt,
@@ -690,7 +688,6 @@ export const publishRound = mutation({
       sequence: v.number(),
       startsAt: v.number(),
       endsAt: v.number(),
-      clockInOpensAt: v.number(),
       reviewerReportAt: v.number(),
       noShowGraceSeconds: v.number(),
       correctionRequestsCloseAt: v.number(),
@@ -769,14 +766,14 @@ export const publishRound = mutation({
     validateStaffingPolicy(args.round.staffing, args.round.requiredPanelSize);
     if (
       !Number.isSafeInteger(args.confirmationOpensAt) ||
-      args.confirmationOpensAt > args.round.clockInOpensAt ||
+      args.confirmationOpensAt > args.round.reviewerReportAt ||
       !Number.isSafeInteger(args.confirmationClosesAt) ||
       args.confirmationClosesAt <= args.confirmationOpensAt ||
       args.confirmationClosesAt > args.round.endsAt
     ) {
       throw new ConvexError({
         code: "INVALID_CONFIRMATION_TIME",
-        message: "Availability confirmation must open before clock-in.",
+        message: "Availability confirmation must open before the reviewer report time.",
       });
     }
     requireScoreCorrectionPolicy(args.round);
@@ -1114,7 +1111,6 @@ export const publishRound = mutation({
       status: "published",
       startsAt: args.round.startsAt,
       endsAt: args.round.endsAt,
-      clockInOpensAt: args.round.clockInOpensAt,
       reviewerReportAt: args.round.reviewerReportAt,
       noShowGraceSeconds: args.round.noShowGraceSeconds,
       correctionRequestsCloseAt: args.round.correctionRequestsCloseAt,

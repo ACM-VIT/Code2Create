@@ -331,41 +331,6 @@ type NativeAlertPayload = { aps: NativeAlertAps } & Record<
   string | number | NativeAlertAps
 >;
 
-export const deliverVenueReminder = internalAction({
-  args: { departureId: v.id("reviewerVenueDepartures") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const attemptId = randomUUID();
-    const claim = await ctx.runMutation(
-      internal.reviewerVenueEscalation.claimNotification,
-      { ...args, attemptId },
-    );
-    if (!claim) return null;
-    const outcome = await sendReviewerPush({
-      ...claim,
-      collapseKey: `venue-${args.departureId}`,
-      notificationChannel: "reviewer-venue",
-      data: {
-        kind: "reviewer_venue_absence",
-        departureId: args.departureId,
-        url: "/venue",
-        expiresAt: String(claim.expiresAt),
-      },
-    });
-    await ctx.runMutation(internal.reviewerVenueEscalation.recordNotification, {
-      ...args,
-      attemptId,
-      sent: outcome.ok,
-      reviewerDeviceId: claim.reviewerDeviceId,
-      tokenFingerprint: claim.tokenFingerprint,
-      invalidateToken: !outcome.ok && outcome.invalidateToken,
-      retryable: !outcome.ok && outcome.retryable,
-      ...(!outcome.ok ? { errorCode: outcome.errorCode } : {}),
-    });
-    return null;
-  },
-});
-
 type PushOutcome = { ok: true; messageId: string } | PushFailure;
 
 type PushFailure = {

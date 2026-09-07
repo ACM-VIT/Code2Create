@@ -9,7 +9,6 @@ import { useMutation, useQuery } from "convex/react";
 import { useRef, useState, type SubmitEvent } from "react";
 import { Link } from "react-router-dom";
 
-import { ReviewerVenuePanel } from "../components/ReviewerVenuePanel";
 
 import {
   indiaDateTimeToTimestamp,
@@ -53,7 +52,6 @@ type RoundDraft = {
   sequence: string;
   confirmationOpensAt: string;
   confirmationClosesAt: string;
-  clockInOpensAt: string;
   reviewerReportAt: string;
   startsAt: string;
   endsAt: string;
@@ -146,8 +144,7 @@ export function ReviewSetup({
                     {round.reserveCount} reserves
                   </span>
                   <span>
-                    Clock-in {formatMoment(round.clockInOpensAt)} · report{" "}
-                    {formatMoment(round.reviewerReportAt)} · no-show after{" "}
+                    Report {formatMoment(round.reviewerReportAt)} · no-show after{" "}
                     {round.noShowGraceSeconds}s
                   </span>
                   <span>
@@ -173,11 +170,6 @@ export function ReviewSetup({
         <ReviewerProfiles candidates={reviewerCandidates} />
       ) : null}
       {canReadConfiguration ? <ReviewAggregationConfiguration /> : null}
-      <ReviewerVenuePanel
-        canReadConfiguration={canReadConfiguration}
-        canReadProfiles={canReadProfiles}
-        canPublish={canPublish}
-      />
 
       {canReadConfiguration && canReadProfiles ? (
         <details className="workspace-disclosure review-round-builder">
@@ -622,7 +614,6 @@ function RoundPublisher({
     sequence: `${nextSequence}`,
     confirmationOpensAt: "",
     confirmationClosesAt: "",
-    clockInOpensAt: "",
     reviewerReportAt: "",
     startsAt: "",
     endsAt: "",
@@ -869,7 +860,6 @@ function RoundPublisher({
             stableKey: round.stableKey,
             name: round.name,
             sequence: positiveInteger(round.sequence, "Round order"),
-            clockInOpensAt: timestamp(round.clockInOpensAt, "Clock-in opening"),
             reviewerReportAt: timestamp(round.reviewerReportAt, "Reviewer report time",
             ),
             startsAt: timestamp(round.startsAt, "Round start"),
@@ -990,20 +980,6 @@ function RoundPublisher({
             </label>
             <label className="field"><span>Confirm availability until <small>Event local time · IST</small></span>
               <input type="datetime-local" value={round.confirmationClosesAt} onChange={event => { setRound(current => ({ ...current, confirmationClosesAt: event.target.value })); changed(); }} />
-            </label>
-            <label className="field">
-              <span>
-                Clock-in opens <small>Event local time</small>
-              </span>
-              <input
-                type="datetime-local"
-                value={round.clockInOpensAt}
-                onChange={(event) => {
-                  setRound((current) => ({ ...current, clockInOpensAt: event.target.value,
-                  }));
-                  changed();
-                }}
-              />
             </label>
             <label className="field">
               <span>

@@ -147,19 +147,11 @@ export async function routeReviewTeam(
         return null;
       const profiles = await Promise.all(
         members.map(async (member) => {
-          const [profile, clock, conflict] = await Promise.all([
+          const [profile, conflict] = await Promise.all([
             ctx.db
               .query("reviewerProfiles")
               .withIndex("by_event_person", (q) =>
                 q.eq("eventId", round.eventId).eq("personId", member.personId),
-              )
-              .unique(),
-            ctx.db
-              .query("reviewerClockIns")
-              .withIndex("by_round_person", (q) =>
-                q
-                  .eq("roundId", round._id)
-                  .eq("reviewerPersonId", member.personId),
               )
               .unique(),
             hasReviewConflict(ctx, round.eventId, member.personId, team._id),
@@ -167,8 +159,6 @@ export async function routeReviewTeam(
           if (
             !profile ||
             profile.status !== "active" ||
-
-            clock?.status !== "present" ||
             conflict ||
             !(await reviewerConfirmedForReview(
               ctx,

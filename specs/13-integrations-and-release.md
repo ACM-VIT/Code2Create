@@ -463,7 +463,7 @@ At device check:
 - register the complete platform/provider/environment tuple against the installation ID;
 - use FCM/production for Android and APNs/sandbox-or-production for iOS;
 - send a test notification in staging/training;
-- report permission/token failure to clock-in.
+- report permission/token failure to the device check.
 
 A token refresh updates the current installation through the same versioned registration command. If a provider later rejects a token, the failure mutation compares the delivery's token fingerprint with the device again before invalidating it; a delayed result cannot disable a newer token.
 

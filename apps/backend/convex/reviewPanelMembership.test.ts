@@ -111,17 +111,14 @@ describe("automatic panel staffing", () => {
         .withIndex("by_event_person", q => q.eq("eventId", fixture.eventId).eq("personId", fixture.reservePersonId)).unique();
       if (!profile) throw new Error("Reserve profile missing");
       await ctx.db.patch(profile._id, { trainingStatus });
-      const clock = await ctx.db.query("reviewerClockIns")
-        .withIndex("by_round_person", q => q.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.reservePersonId)).unique();
-      if (!clock) throw new Error("Reserve clock missing");
-      return ctx.db.get(clock.reviewerDeviceId);
+      return ctx.db.query("reviewerDevices")
+        .withIndex("by_event_person_status", q => q.eq("eventId", fixture.eventId).eq("personId", fixture.reservePersonId).eq("status", "active")).unique();
     });
     if (!device) throw new Error("Reserve device missing");
     await expect(backend.withIdentity({ subject: authUserId, sessionId }).query(api.reviewer.dutyStatus, {
       eventSlug: fixture.eventSlug, installationId: device.installationId,
     })).resolves.toEqual({
-      deviceRegistered: true, assignment: "reserve", clockInStatus: "present",
-      heartbeat: { roundId: fixture.roundId, status: "present" }, review: null,
+      deviceRegistered: true, assignment: "reserve", review: null,
     });
   });
 
@@ -320,7 +317,7 @@ async function prepareAutomaticStaffing(
       fixture.secondMemberPersonId,
       fixture.reservePersonId,
     ]) {
-      const reviewerDeviceId = await ctx.db.insert("reviewerDevices", {
+      await ctx.db.insert("reviewerDevices", {
         eventId: fixture.eventId,
         personId,
         installationId: crypto.randomUUID(),
@@ -335,16 +332,6 @@ async function prepareAutomaticStaffing(
         version: 1,
         registeredAt: now,
         lastSeenAt: now,
-      });
-      await ctx.db.insert("reviewerClockIns", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        reviewerPersonId: personId,
-        reviewerDeviceId,
-        status: "present",
-        clockedInAt: now,
-        lastHeartbeatAt: now,
-        version: 1,
       });
     }
   });
@@ -832,17 +819,6 @@ describe("editable review rosters", () => {
     expect(afterCount.confirmedThroughEnd).toBe(
       beforeCount.confirmedThroughEnd - 1,
     );
-    const clock = await backend.run((ctx) =>
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (q) =>
-          q
-            .eq("roundId", fixture.roundId)
-            .eq("reviewerPersonId", fixture.reservePersonId),
-        )
-        .unique(),
-    );
-    expect(clock).toMatchObject({ status: "clocked_out", version: 2 });
     await operator.mutation(api.reviewReservePool.setMembership, {
       ...request,
       included: true,
@@ -1481,7 +1457,7 @@ describe("live panel membership", () => {
   test("lets any assigned reviewer complete only after every scorecard is submitted", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const reviewSessionId = await seedLiveReview(backend, fixture);
     const seeded = await backend.run(async (ctx) => {
       const now = Date.now();
@@ -1728,7 +1704,6 @@ describe("live panel membership", () => {
         status: "open",
         startsAt: now - 60_000,
         endsAt: now + 3_600_000,
-        clockInOpensAt: now - 120_000,
         reviewerReportAt: now - 90_000,
         noShowGraceSeconds: 30,
         correctionRequestsCloseAt: now + 3_600_000,
@@ -1860,8 +1835,6 @@ describe("live panel membership", () => {
     ).resolves.toEqual({
       deviceRegistered: false,
       assignment: null,
-      clockInStatus: null,
-      heartbeat: null,
       review: null,
     });
     await expect(
@@ -1873,7 +1846,7 @@ describe("live panel membership", () => {
   test("keeps reviewer setup usable while revoked read grants hide assigned work", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
 
     await backend.run(async (ctx) => {
       const grants = await ctx.db
@@ -1951,8 +1924,6 @@ describe("live panel membership", () => {
     ).resolves.toEqual({
       deviceRegistered: true,
       assignment: null,
-      clockInStatus: null,
-      heartbeat: null,
       review: null,
     });
     await expect(
@@ -2060,210 +2031,6 @@ describe("live panel membership", () => {
     ).rejects.toThrow(`at most ${maximumReviewTeamsPerEvent} teams`);
   });
 
-  test("clock-in opens at the exact published boundary and a rejected attempt writes nothing", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const boundary = Date.now() + 5 * 60_000;
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await setReviewerTiming(backend, fixture.roundId, boundary);
-    const before = await reviewerPolicySnapshot(backend, fixture, reviewer.installationId,
-    );
-    const clock = vi.spyOn(Date, "now");
-    try {
-      clock.mockReturnValue(boundary - 60_001);
-      await expect(
-        reviewer.identity.mutation(api.reviewer.clockIn, {
-          eventSlug: fixture.eventSlug,
-          roundId: fixture.roundId,
-          installationId: reviewer.installationId,
-          expectedVersion: 0,
-          clientOperationId: "clock-in-before-opening",
-        }),
-      ).rejects.toThrow("Clock-in is available only from the published opening",
-      );
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId),
-      ).toEqual(before);
-
-      clock.mockReturnValue(boundary - 60_000);
-      await expect(
-        reviewer.identity.mutation(api.reviewer.clockIn, {
-          eventSlug: fixture.eventSlug,
-          roundId: fixture.roundId,
-          installationId: reviewer.installationId,
-          expectedVersion: 0,
-          clientOperationId: "clock-in-at-opening",
-        }),
-      ).resolves.toMatchObject({ version: 1 });
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test("clock-in rejects a reviewer outside confirmed availability without writes", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const boundary = Date.now() + 5 * 60_000;
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await setReviewerTiming(backend, fixture.roundId, boundary);
-    await backend.run(async (ctx) => {
-      const confirmation = await ctx.db
-        .query("reviewerRoundConfirmations")
-        .withIndex("by_roundId_and_personId", (index) =>
-          index.eq("roundId", fixture.roundId).eq("personId", fixture.memberPersonId),
-        )
-        .unique();
-      if (!confirmation) throw new Error("The reviewer profile is missing.");
-      await ctx.db.patch(confirmation._id, {
-        windows: [{ startsAt: boundary - 3_600_000, endsAt: boundary - 60_001 },
-        ],
-        version: confirmation.version + 1,
-      });
-    });
-    const before = await reviewerPolicySnapshot(backend, fixture, reviewer.installationId,
-    );
-    const clock = vi.spyOn(Date, "now").mockReturnValue(boundary - 60_000);
-    try {
-      await expect(
-        reviewer.identity.mutation(api.reviewer.clockIn, {
-          eventSlug: fixture.eventSlug,
-          roundId: fixture.roundId,
-          installationId: reviewer.installationId,
-          expectedVersion: 0,
-          clientOperationId: "clock-in-outside-availability",
-        }),
-      ).rejects.toThrow("Confirm your availability in the app");
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId),
-      ).toEqual(before);
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test("a reviewer can clock out once with an idempotent audited command", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-
-    await reviewer.identity.mutation(api.reviewer.clockIn, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      expectedVersion: 0,
-      clientOperationId: "clock-in-before-clock-out",
-    });
-    const request = {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      expectedVersion: 1,
-      clientOperationId: "reviewer-clock-out",
-      status: "clocked_out" as const,
-      reason: "Finished reviewing for this round",
-    };
-    const first = await reviewer.identity.mutation(api.reviewer.setAvailability, request);
-    const retry = await reviewer.identity.mutation(api.reviewer.setAvailability, request);
-
-    expect(retry).toEqual(first);
-    expect(first).toMatchObject({ status: "clocked_out", version: 2 });
-    await backend.run(async (ctx) => {
-      const [clockIn, operations, audits] = await Promise.all([
-        ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
-          )
-          .unique(),
-        ctx.db
-          .query("operationResults")
-          .collect()
-          .then((rows) => rows.filter((row) => row.commandName === "reviewer.availability.set")),
-        ctx.db
-          .query("auditEvents")
-          .withIndex("by_event_time", (index) => index.eq("eventId", fixture.eventId))
-          .collect()
-          .then((rows) => rows.filter((row) => row.action === "reviewer.availability_changed")),
-      ]);
-      expect(clockIn).toMatchObject({
-        status: "clocked_out",
-        version: 2,
-        clockedOutAt: expect.any(Number),
-      });
-      expect(operations).toHaveLength(1);
-      expect(audits).toHaveLength(1);
-    });
-
-    const returnRequest = {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      expectedVersion: 2,
-      clientOperationId: "clock-in-after-clock-out",
-    };
-    await backend.run((ctx) => ctx.db.patch(fixture.roundId, { minimumReviewerBuild: 2 }));
-    await expect(reviewer.identity.mutation(api.reviewer.clockIn, returnRequest))
-      .rejects.toThrow("Update the app and complete the required camera and notification checks");
-    await backend.run(async (ctx) => {
-      expect(await ctx.db.get(first.clockInId)).toMatchObject({ status: "clocked_out", version: 2 });
-      const device = await ctx.db.query("reviewerDevices")
-        .withIndex("by_event_installation", (index) => index.eq("eventId", fixture.eventId).eq("installationId", reviewer.installationId))
-        .unique();
-      if (!device) throw new Error("The reviewer's phone is missing.");
-      await ctx.db.patch(device._id, { appBuild: 2 });
-    });
-    const returned = await reviewer.identity.mutation(api.reviewer.clockIn, returnRequest);
-    expect(returned).toMatchObject({ clockInId: first.clockInId, version: 3 });
-    await backend.run(async (ctx) => {
-      expect(await ctx.db.get(first.clockInId)).toMatchObject({ status: "present", version: 3 });
-    });
-  });
-
-  test("clock-out is rejected while the reviewer has a live review", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await reviewer.identity.mutation(api.reviewer.clockIn, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      expectedVersion: 0,
-      clientOperationId: "clock-in-before-active-review",
-    });
-    const reviewSessionId = await seedLiveReview(backend, fixture);
-    await backend.run(async (ctx) => {
-      const member = await ctx.db.get(fixture.memberId);
-      if (!member) throw new Error("The reviewer panel member is missing.");
-      await ctx.db.insert("reviewAssignments", {
-        eventId: fixture.eventId,
-        roundId: fixture.roundId,
-        panelId: fixture.panelId,
-        reviewSessionId,
-        reviewerPersonId: fixture.memberPersonId,
-        eventAccessSubjectId: member.eventAccessSubjectId,
-        assignedCriterionIds: member.assignedCriterionIds,
-        isCoordinator: member.isCoordinator,
-        status: "assigned",
-        assignedAt: Date.now(),
-      });
-    });
-
-    await expect(
-      reviewer.identity.mutation(api.reviewer.setAvailability, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 1,
-        clientOperationId: "clock-out-with-active-review",
-        status: "clocked_out",
-        reason: "Finished reviewing for this round",
-      }),
-    ).rejects.toThrow("Finish the current review and its scorecards before leaving");
-
-    const snapshot = await reviewerPolicySnapshot(backend, fixture, reviewer.installationId);
-    expect(snapshot.clockIns).toEqual([
-      expect.objectContaining({ status: "present", version: 1 }),
-    ]);
-  });
-
   test("no-show is rejected before and accepted at the exact grace boundary", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
@@ -2282,7 +2049,6 @@ describe("live panel membership", () => {
           eventSlug: fixture.eventSlug,
           panelMemberId: fixture.memberId,
           expectedPanelVersion: 1,
-          expectedClockInVersion: 0,
           reason: "Reviewer did not arrive.",
           clientOperationId: "no-show-before-boundary",
         }),
@@ -2296,109 +2062,10 @@ describe("live panel membership", () => {
           eventSlug: fixture.eventSlug,
           panelMemberId: fixture.memberId,
           expectedPanelVersion: 1,
-          expectedClockInVersion: 0,
           reason: "Reviewer did not arrive.",
           clientOperationId: "no-show-at-boundary",
         }),
       ).resolves.toMatchObject({ panelVersion: 2 });
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test("a present reviewer cannot be marked no-show and the failure is atomic", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const boundary = Date.now() + 5 * 60_000;
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await Promise.all([
-      setReviewerTiming(backend, fixture.roundId, boundary),
-      grantNoShow(backend, fixture),
-    ]);
-    const clock = vi.spyOn(Date, "now");
-    try {
-      clock.mockReturnValue(boundary - 60_000);
-      await reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 0,
-        clientOperationId: "present-reviewer-clock-in",
-      });
-      const before = await reviewerPolicySnapshot(backend, fixture, reviewer.installationId,
-      );
-
-      clock.mockReturnValue(boundary);
-      await expect(
-        asOperator(backend, fixture).mutation(api.reviewSubstitutions.markNoShow, {
-          eventSlug: fixture.eventSlug,
-          panelMemberId: fixture.memberId,
-          expectedPanelVersion: 1,
-          expectedClockInVersion: 1,
-          reason: "Desk believed the reviewer was absent.",
-          clientOperationId: "present-reviewer-no-show",
-        },
-        ),
-      ).rejects.toThrow("A reviewer who is present cannot be marked as a no-show",
-      );
-      expect(await reviewerPolicySnapshot(backend, fixture, reviewer.installationId),
-      ).toEqual(before);
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test("simultaneous clock-in and no-show resolve to exactly one versioned state", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const boundary = Date.now() + 5 * 60_000;
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await Promise.all([
-      setReviewerTiming(backend, fixture.roundId, boundary),
-      grantNoShow(backend, fixture),
-    ]);
-    const clock = vi.spyOn(Date, "now").mockReturnValue(boundary);
-    try {
-      const results = await Promise.allSettled([
-        reviewer.identity.mutation(api.reviewer.clockIn, {
-          eventSlug: fixture.eventSlug,
-          roundId: fixture.roundId,
-          installationId: reviewer.installationId,
-          expectedVersion: 0,
-          clientOperationId: "racing-clock-in",
-        }),
-        asOperator(backend, fixture).mutation(api.reviewSubstitutions.markNoShow, {
-          eventSlug: fixture.eventSlug,
-          panelMemberId: fixture.memberId,
-          expectedPanelVersion: 1,
-          expectedClockInVersion: 0,
-          reason: "Reviewer did not arrive.",
-          clientOperationId: "racing-no-show",
-        },
-        ),
-      ]);
-      expect(results.filter((result) => result.status === "fulfilled"),
-      ).toHaveLength(1);
-      await backend.run(async (ctx) => {
-        const [member, panel, clockIn] = await Promise.all([
-          ctx.db.get(fixture.memberId),
-          ctx.db.get(fixture.panelId),
-          ctx.db
-            .query("reviewerClockIns")
-            .withIndex("by_round_person", (index) =>
-              index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
-            )
-            .unique(),
-        ]);
-        if (member?.status === "active") {
-          expect(panel).toMatchObject({ status: "ready", version: 1 });
-          expect(clockIn).toMatchObject({ status: "present", version: 1 });
-        } else {
-          expect(member?.status).toBe("removed");
-          expect(panel).toMatchObject({ status: "needs_reviewer", version: 2 });
-          expect(clockIn).toBeNull();
-        }
-      });
     } finally {
       clock.mockRestore();
     }
@@ -2441,7 +2108,7 @@ describe("organizer review confirmation", () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
     await preparePublicationPolicy(backend, fixture);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const startsAt = Date.now() + 3_600_000;
     const endsAt = startsAt + 4 * 3_600_000;
     const before = await backend.run(async ctx => {
@@ -2465,11 +2132,10 @@ describe("organizer review confirmation", () => {
     return { backend, fixture, reviewer, before, args, operator: asOperator(backend, fixture) };
   }
 
-  test("records late availability under the organizer identity, preserving other responses and clock-in", async () => {
+  test("records late availability under the organizer identity, preserving other responses", async () => {
     const f = await setup();
     const before = await f.backend.run(async ctx => ({
       responses: await ctx.db.query("reviewerRoundConfirmations").collect(),
-      clockIns: await ctx.db.query("reviewerClockIns").collect(),
     }));
     const result = await f.operator.mutation(api.reviewConfirmations.recordForReviewer, f.args);
     expect(result).toEqual({ version: 2 });
@@ -2477,11 +2143,9 @@ describe("organizer review confirmation", () => {
     const after = await f.backend.run(async ctx => ({
       request: f.before.request ? await ctx.db.get(f.before.request._id) : null,
       responses: await ctx.db.query("reviewerRoundConfirmations").collect(),
-      clockIns: await ctx.db.query("reviewerClockIns").collect(),
       audit: await ctx.db.query("auditEvents").withIndex("by_target_time", q => q.eq("targetType", "reviewer_round_confirmation").eq("targetId", f.before.confirmationId)).collect(),
     }));
     expect(after.request).toEqual(f.before.request);
-    expect(after.clockIns).toEqual(before.clockIns);
     expect(after.responses.filter(r => r._id !== f.before.confirmationId)).toEqual(before.responses.filter(r => r._id !== f.before.confirmationId));
     expect(after.responses.find(r => r._id === f.before.confirmationId)).toMatchObject({ status: "confirmed", windows: f.args.windows, version: 2 });
     expect(after.audit).toHaveLength(1);
@@ -2615,234 +2279,18 @@ describe("pre-start roster recovery", () => {
       expect(members.find(m => m.personId === fixture.memberPersonId)).toMatchObject({ assignedCriterionIds: original.assignedCriterionIds, isCoordinator: original.isCoordinator, seatSeniority: original.seatSeniority });
       expect(members.some(m => m.personId === fixture.reservePersonId)).toBe(false);
       expect(await ctx.db.get(original._id)).toMatchObject({ status: "removed" });
-      expect(await ctx.db.query("reviewerClockIns").withIndex("by_round_person", q => q.eq("roundId", fixture.roundId)).collect()).toHaveLength(0);
     });
   });
 });
 
 describe("round availability confirmation", () => {
-  test.each([0, 300, 1800])("clock-in uses the published opening, not the %s-second reminder", async assignmentReminderSeconds => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    const opening = Date.now() + 1000;
-    const startsAt = opening + 30 * 60_000;
-    const endsAt = startsAt + 4 * 60 * 60_000;
-    await backend.run(async ctx => {
-      const round = await ctx.db.get(fixture.roundId);
-      const confirmation = await ctx.db.query("reviewerRoundConfirmations")
-        .withIndex("by_roundId_and_personId", q => q.eq("roundId", fixture.roundId).eq("personId", fixture.memberPersonId)).unique();
-      if (!round || !confirmation) throw new Error("Missing confirmation fixture");
-      await ctx.db.patch(round._id, {
-        clockInOpensAt: opening, startsAt, endsAt,
-        staffing: { ...round.staffing, assignmentReminderSeconds },
-      });
-      await ctx.db.patch(confirmation._id, { status: "confirmed", windows: [{ startsAt, endsAt }] });
-    });
-    const args = {
-      eventSlug: fixture.eventSlug, roundId: fixture.roundId, installationId: reviewer.installationId,
-      expectedVersion: 0, clientOperationId: "published-opening-clock-in",
-    };
-    const clock = vi.spyOn(Date, "now");
-    try {
-      clock.mockReturnValue(opening - 1);
-      await expect(reviewer.identity.mutation(api.reviewer.clockIn, args)).rejects.toThrow("published opening");
-      clock.mockReturnValue(opening);
-      const result = await reviewer.identity.mutation(api.reviewer.clockIn, args);
-      expect(await reviewer.identity.mutation(api.reviewer.clockIn, args)).toEqual(result);
-      expect(await backend.run(ctx => ctx.db.get(result.clockInId))).toMatchObject({ status: "present", clockedInAt: opening });
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test.each([0, -60_000])("opening a scheduled confirmation with a %i ms offset notifies each reviewer once", async (offset) => {
-    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
-    try {
-      const now = Date.now();
-      const backend = seededBackend();
-      const fixture = await seedPanel(backend);
-      await preparePublicationPolicy(backend, fixture);
-      await setReviewerTiming(backend, fixture.roundId, now + 3_600_000);
-      const { requestId, confirmationIds } = await backend.run(async (ctx) => {
-        const request = await ctx.db
-          .query("reviewConfirmationRequests")
-          .withIndex("by_roundId", (q) => q.eq("roundId", fixture.roundId))
-          .unique();
-        if (!request) throw new Error("Confirmation request missing.");
-        await ctx.db.patch(request._id, { state: "scheduled", opensAt: now + 300_000 });
-        const confirmations = await ctx.db
-          .query("reviewerRoundConfirmations")
-          .withIndex("by_roundId_and_personId", (q) => q.eq("roundId", fixture.roundId))
-          .collect();
-        for (const response of confirmations) {
-          await ctx.db.patch(response._id, { status: "pending", windows: [] });
-        }
-        return { requestId: request._id, confirmationIds: confirmations.map((response) => response._id) };
-      });
-      const operator = asOperator(backend, fixture);
-      const args = {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        opensAt: now + offset,
-        closesAt: now + 3_600_000,
-        expectedVersion: 1,
-        reason: "Open availability confirmations immediately.",
-        clientOperationId: "open-confirmations-now",
-      };
-      await expect(operator.mutation(api.reviewConfirmations.reschedule, args)).resolves.toEqual({ version: 2 });
-      await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-      await expect(operator.mutation(api.reviewConfirmations.reschedule, args)).resolves.toEqual({ version: 2 });
-      // The original callback and a retry must not enqueue another prompt.
-      clock.mockReturnValue(now + 300_000);
-      await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-      await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-      const notifications = await backend.run((ctx) => ctx.db.query("reviewConfirmationNotifications").collect());
-      expect(notifications.map((notification) => notification.confirmationId).sort()).toEqual(confirmationIds.sort());
-      expect(notifications.every((notification) => notification.purpose === "availability")).toBe(true);
-      expect(await backend.run((ctx) => ctx.db.get(requestId))).toMatchObject({ state: "open" });
-    } finally {
-      clock.mockRestore();
-    }
-  });
-
-  test("confirmation closes at its own deadline, rejects delayed pushes, and ops can reopen without assuming hours", async () => {
-    const backend = seededBackend();
-    const f = await seedPanel(backend);
-    await preparePublicationPolicy(backend, f);
-    const reviewer = await prepareReviewerClockIn(backend, f);
-    const now = Date.now();
-    const request = await backend.run(async ctx => {
-      const row = await ctx.db.query("reviewConfirmationRequests").withIndex("by_roundId", q => q.eq("roundId", f.roundId)).unique();
-      if (!row) throw new Error("Confirmation missing");
-      await ctx.db.patch(row._id, { closesAt: now, state: "open" });
-      return row;
-    });
-    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
-    try {
-      const args = { eventSlug: f.eventSlug, roundId: f.roundId, windows: [], expectedVersion: 1, clientOperationId: "too-late" };
-      await expect(reviewer.identity.mutation(api.reviewConfirmations.respond, args)).rejects.toThrow("not open");
-      const mine = await reviewer.identity.query(api.reviewConfirmations.mine, { eventSlug: f.eventSlug });
-      expect(mine[0]?.state).toBe("closed");
-      await backend.mutation(internal.reviewConfirmations.closeRequest, { requestId: request._id });
-      await asOperator(backend, f).mutation(api.reviewConfirmations.reschedule, {
-        eventSlug: f.eventSlug, roundId: f.roundId, opensAt: request.opensAt, closesAt: now + 600_000,
-        expectedVersion: 2, reason: "Allow late reserve confirmations", clientOperationId: "reopen-confirmations",
-      });
-      await backend.mutation(internal.reviewConfirmations.closeRequest, { requestId: request._id });
-      expect(await backend.run(ctx => ctx.db.get(request._id))).toMatchObject({ state: "open", closesAt: now + 600_000 });
-      await expect(reviewer.identity.mutation(api.reviewConfirmations.respond, { ...args, clientOperationId: "after-reopening" })).resolves.toEqual({ version: 2 });
-    } finally { clock.mockRestore(); }
-  });
-
-  test("round extensions are versioned, keep confirmed hours, and reject overlap or shortening", async () => {
-    const backend = seededBackend();
-    const f = await seedPanel(backend);
-    await backend.run(ctx => insertPermissionGrant(ctx, {
-      eventId: f.eventId, personId: f.operatorPersonId, eventAccessSubjectId: f.operatorSubjectId,
-      permissionKey: "round.manage", scopeType: "round", scopeId: f.roundId,
-      sourceType: "manual", sourceId: "extend-test", grantedByPersonId: f.operatorPersonId, reason: "Manage round timing",
-    }));
-    const before = await backend.run(async ctx => ({ round: await ctx.db.get(f.roundId), confirmations: await ctx.db.query("reviewerRoundConfirmations").collect() }));
-    if (!before.round) throw new Error("Round missing");
-    const args = { eventSlug: f.eventSlug, roundId: f.roundId, expectedVersion: before.round.version, endsAt: before.round.endsAt + 15 * 60_000, reason: "Allow time for remaining review teams", clientOperationId: "extend" };
-    const operator = asOperator(backend, f);
-    await expect(operator.mutation(api.reviewTiming.extend, { ...args, endsAt: before.round.endsAt, clientOperationId: "shorten" })).rejects.toThrow("later finish");
-    expect(await operator.mutation(api.reviewTiming.extend, args)).toEqual({ version: before.round.version + 1 });
-    expect(await operator.mutation(api.reviewTiming.extend, args)).toEqual({ version: before.round.version + 1 });
-    const after = await backend.run(async ctx => ({ round: await ctx.db.get(f.roundId), confirmations: await ctx.db.query("reviewerRoundConfirmations").collect() }));
-    expect(after.round?.endsAt).toBe(args.endsAt);
-    expect(after.confirmations).toEqual(before.confirmations);
-    await expect(operator.mutation(api.reviewTiming.extend, { ...args, clientOperationId: "stale-extension" })).rejects.toThrow("current published or open");
-    await backend.run(async ctx => {
-      const { _id, _creationTime, ...fields } = before.round!;
-      await ctx.db.insert("reviewRounds", { ...fields, name: "Next session", stableKey: "next", sequence: fields.sequence + 1, startsAt: args.endsAt + 60_000, endsAt: args.endsAt + 3_600_000, status: "published" });
-    });
-    await expect(operator.mutation(api.reviewTiming.extend, { ...args, expectedVersion: before.round.version + 1, endsAt: args.endsAt + 120_000, clientOperationId: "overlap" })).rejects.toThrow("overlaps Next session");
-  });
-
-  test.each(["before", "after"] as const)(
-    "round extension preserves availability notifications %s the first opening",
-    async (extensionTiming) => {
-      const backend = seededBackend();
-      const f = await seedPanel(backend);
-      const { requestId, confirmationIds, round } = await backend.run(async (ctx) => {
-        await insertPermissionGrant(ctx, {
-          eventId: f.eventId,
-          personId: f.operatorPersonId,
-          eventAccessSubjectId: f.operatorSubjectId,
-          permissionKey: "round.manage",
-          scopeType: "round",
-          scopeId: f.roundId,
-          sourceType: "manual",
-          sourceId: "extend-before-notification",
-          grantedByPersonId: f.operatorPersonId,
-          reason: "Manage round timing",
-        });
-        const request = await ctx.db
-          .query("reviewConfirmationRequests")
-          .withIndex("by_roundId", (q) => q.eq("roundId", f.roundId))
-          .unique();
-        const round = await ctx.db.get(f.roundId);
-        if (!request || !round) throw new Error("Round confirmation fixture missing");
-        await ctx.db.patch(request._id, {
-          state: "scheduled",
-          opensAt: Date.now() - 1_000,
-        });
-        const confirmations = await ctx.db
-          .query("reviewerRoundConfirmations")
-          .withIndex("by_roundId_and_personId", (q) => q.eq("roundId", f.roundId))
-          .collect();
-        for (const confirmation of confirmations) {
-          await ctx.db.patch(confirmation._id, { status: "pending", windows: [] });
-        }
-        return {
-          requestId: request._id,
-          confirmationIds: confirmations.map((confirmation) => confirmation._id),
-          round,
-        };
-      });
-      if (extensionTiming === "after") {
-        await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-      }
-      const args = {
-        eventSlug: f.eventSlug,
-        roundId: f.roundId,
-        endsAt: round.endsAt + 15 * 60_000,
-        expectedVersion: round.version,
-        reason: "Allow time for remaining review teams",
-        clientOperationId: "extend-with-pending-opening",
-      };
-      const operator = asOperator(backend, f);
-      await operator.mutation(api.reviewTiming.extend, args);
-      await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-      await operator.mutation(api.reviewTiming.extend, args);
-      await backend.mutation(internal.reviewConfirmations.openRequest, { requestId });
-
-      const notifications = await backend.run((ctx) =>
-        ctx.db.query("reviewConfirmationNotifications").collect(),
-      );
-      expect(confirmationIds).toHaveLength(4);
-      expect(notifications.map((notification) => notification.confirmationId).sort())
-        .toEqual([...confirmationIds].sort());
-      for (const notification of notifications) {
-        expect(notification).toMatchObject({ purpose: "availability", state: "pending" });
-      }
-      expect(await backend.run((ctx) => ctx.db.get(requestId))).toMatchObject({
-        state: "open",
-        closesAt: args.endsAt,
-        version: 3,
-      });
-    },
-  );
-
   test("ops can reschedule before opening without duplicate notifications or stale writes", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
     const now = Date.now();
     await preparePublicationPolicy(backend, fixture);
     await setReviewerTiming(backend, fixture.roundId, now + 3_600_000);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const requestId = await backend.run(async (ctx) => {
       const request = await ctx.db
         .query("reviewConfirmationRequests")
@@ -3040,7 +2488,7 @@ describe("round availability confirmation", () => {
   test("accepts more than three slots, keeps other people independent, and retries idempotently", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const round = await backend.run((ctx) => ctx.db.get(fixture.roundId));
     if (!round) throw new Error("Round missing.");
     const windows = Array.from({ length: 4 }, (_, index) => ({
@@ -3094,366 +2542,10 @@ describe("round availability confirmation", () => {
     });
   });
 
-  test("unavailable and pending reviewers cannot clock in", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    await reviewer.identity.mutation(api.reviewConfirmations.respond, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      windows: [],
-      expectedVersion: 1,
-      clientOperationId: "decline-round",
-    });
-    await expect(
-      reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 0,
-        clientOperationId: "declined-clock-in",
-      }),
-    ).rejects.toThrow("Confirm your availability");
-    await backend.run(async (ctx) => {
-      const response = await ctx.db
-        .query("reviewerRoundConfirmations")
-        .withIndex("by_roundId_and_personId", (q) =>
-          q
-            .eq("roundId", fixture.roundId)
-            .eq("personId", fixture.memberPersonId),
-        )
-        .unique();
-      if (!response) throw new Error("Confirmation missing.");
-      await ctx.db.patch(response._id, { status: "pending" });
-    });
-    await expect(
-      reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 0,
-        clientOperationId: "pending-clock-in",
-      }),
-    ).rejects.toThrow("Confirm your availability");
-  });
-
-  test.each(["active", "scoring"] as const)(
-    "a reviewer cannot end their shift during %s",
-    async (status) => {
-      const backend = seededBackend();
-      const fixture = await seedPanel(backend);
-      const reviewer = await prepareReviewerClockIn(backend, fixture);
-      const clockIn = await reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 0,
-        clientOperationId: "shift-clock-in",
-      });
-      const sessionId = await seedLiveReview(backend, fixture);
-      await backend.run(async (ctx) => {
-        await ctx.db.patch(sessionId, { status });
-        const member = await ctx.db.get(fixture.memberId);
-        if (!member) throw new Error("Missing member");
-        await ctx.db.insert("reviewAssignments", {
-          eventId: fixture.eventId,
-          roundId: fixture.roundId,
-          panelId: fixture.panelId,
-          reviewSessionId: sessionId,
-          reviewerPersonId: member.personId,
-          eventAccessSubjectId: member.eventAccessSubjectId,
-          assignedCriterionIds: member.assignedCriterionIds,
-          isCoordinator: member.isCoordinator,
-          status: "assigned",
-          assignedAt: Date.now(),
-        });
-      });
-      const command = {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        status: "clocked_out" as const,
-        reason: "Finishing my shift",
-        expectedVersion: clockIn.version,
-        clientOperationId: "shift-clock-out",
-      };
-      await expect(
-        reviewer.identity.mutation(api.reviewer.setAvailability, command),
-      ).rejects.toThrow("Finish the current review");
-      await backend.run((ctx) =>
-        ctx.db.patch(sessionId, {
-          status: "completed",
-          completedAt: Date.now(),
-        }),
-      );
-      const result = await reviewer.identity.mutation(
-        api.reviewer.setAvailability,
-        command,
-      );
-      expect(result.status).toBe("clocked_out");
-      expect(
-        await reviewer.identity.mutation(api.reviewer.setAvailability, command),
-      ).toEqual(result);
-    },
-  );
-
-  test.each(["active", "scoring"] as const)(
-    "venue departure respects the %s review lock, then clocks out exactly once",
-    async (status) => {
-      const backend = seededBackend();
-      const fixture = await seedPanel(backend);
-      const reviewer = await prepareReviewerClockIn(backend, fixture);
-      const clockIn = await reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: 0,
-        clientOperationId: "venue-clock-in",
-      });
-      const sessionId = await seedLiveReview(backend, fixture);
-      await backend.run(async (ctx) => {
-        await ctx.db.patch(fixture.eventId, { status: "live" });
-        await insertPermissionGrant(ctx, {
-          eventId: fixture.eventId,
-          personId: fixture.memberPersonId,
-          eventAccessSubjectId: fixture.memberSubjectId,
-          permissionKey: "reviewer.device.register",
-          scopeType: "self",
-          scopeId: fixture.memberSubjectId,
-          sourceType: "manual",
-          sourceId: "venue-test",
-          grantedByPersonId: fixture.operatorPersonId,
-          reason: "Venue lifecycle test",
-        });
-        await ctx.db.insert("reviewerVenuePolicies", {
-          eventId: fixture.eventId,
-          enabled: true,
-          name: "Hall",
-          latitude: 12,
-          longitude: 79,
-          radiusMeters: 200,
-          startsAt: Date.now() - 60000,
-          endsAt: Date.now() + 86400000,
-          absenceGraceMinutes: 5,
-          callDelayMinutes: 10,
-          version: 1,
-          updatedByPersonId: fixture.operatorPersonId,
-          updatedAt: Date.now(),
-        });
-        await ctx.db.patch(sessionId, { status });
-        const member = await ctx.db.get(fixture.memberId);
-        if (!member) throw new Error("Missing member");
-        await ctx.db.insert("reviewAssignments", {
-          eventId: fixture.eventId,
-          roundId: fixture.roundId,
-          panelId: fixture.panelId,
-          reviewSessionId: sessionId,
-          reviewerPersonId: member.personId,
-          eventAccessSubjectId: member.eventAccessSubjectId,
-          assignedCriterionIds: member.assignedCriterionIds,
-          isCoordinator: member.isCoordinator,
-          status: "assigned",
-          assignedAt: Date.now(),
-        });
-      });
-      const command = {
-        eventSlug: fixture.eventSlug,
-        installationId: reviewer.installationId,
-        reason: "End of my shift",
-        clientOperationId: "venue-departure",
-      };
-      await expect(
-        reviewer.identity.mutation(api.reviewerVenue.declareDeparture, command),
-      ).rejects.toThrow("Finish the current review");
-      expect(
-        (await backend.run((ctx) => ctx.db.get(clockIn.clockInId)))?.status,
-      ).toBe("present");
-      await reviewer.identity.mutation(api.reviewerVenue.setMonitoring, {
-        ownerId: reviewer.authUserId,
-        eventSlug: fixture.eventSlug,
-        installationId: reviewer.installationId,
-        enabled: true,
-        clientOperationId: "voice-presence",
-      });
-      const callId = await backend.run(async (ctx) => {
-        const now = Date.now();
-        const presence = await ctx.db
-          .query("reviewerVenuePresence")
-          .withIndex("by_eventId_personId", (q) =>
-            q
-              .eq("eventId", fixture.eventId)
-              .eq("personId", fixture.memberPersonId),
-          )
-          .unique();
-        if (!presence) throw new Error("Missing venue presence");
-        const departureId = await ctx.db.insert("reviewerVenueDepartures", {
-          eventId: fixture.eventId,
-          personId: fixture.memberPersonId,
-          presenceId: presence._id,
-          policyVersion: 1,
-          state: "open",
-          leftAt: now,
-          notificationState: "sent",
-          notificationAttempts: 1,
-          updatedAt: now,
-        });
-        const consentId = await ctx.db.insert("outboundCallConsents", {
-          eventId: fixture.eventId,
-          personId: fixture.memberPersonId,
-          purpose: "reviewer_venue_absence",
-          state: "granted",
-          consentPolicyVersion: "test",
-          scriptPolicyVersion: "test",
-          version: 1,
-          createdAt: now,
-          updatedAt: now,
-        });
-        const callId = await ctx.db.insert("outboundCallDeliveries", {
-          eventId: fixture.eventId,
-          targetPersonId: fixture.memberPersonId,
-          sourceType: "reviewer_venue_departure",
-          sourceId: departureId,
-          purpose: "reviewer_venue_absence",
-          script: "Confirm venue presence",
-          locale: "en-IN",
-          scriptPolicyVersion: "test",
-          consentId,
-          consentVersion: 1,
-          authorizationGrantIds: [],
-          state: "provider_accepted",
-          attemptCount: 1,
-          version: 1,
-          createdAt: now,
-          updatedAt: now,
-          venueConfirmation: {
-            appId: "test",
-            appVersion: 1,
-            reviewerName: "Reviewer",
-            venueName: "Hall",
-            expiresAt: now + 600000,
-          },
-        });
-        await ctx.db.patch(departureId, { callDeliveryId: callId });
-        await ctx.db.patch(presence._id, {
-          status: "left",
-          observation: "outside",
-          sampledAt: now,
-          departureId,
-        });
-        return callId;
-      });
-      await backend.mutation(internal.outboundCallState.recordProviderEvent, {
-        providerEventId: crypto.randomUUID(),
-        deliveryId: callId,
-        eventType: "call.completed",
-        providerAt: Date.now(),
-        providerCallId: "call-1",
-        venueResponse: {
-          outcome: "away",
-          confirmed: true,
-          summary: "Reviewer says they need to leave",
-          returnInMinutes: null,
-          transcript: [{ role: "user", text: "Yes, I need to leave." }],
-        },
-      });
-      expect(
-        (await backend.run((ctx) => ctx.db.get(callId)))?.venueResponseEffect,
-      ).toBe("needs_ops");
-      expect(
-        (await backend.run((ctx) => ctx.db.get(clockIn.clockInId)))?.status,
-      ).toBe("present");
-      await backend.run((ctx) =>
-        ctx.db.patch(sessionId, {
-          status: "completed",
-          completedAt: Date.now(),
-        }),
-      );
-      await reviewer.identity.mutation(
-        api.reviewerVenue.declareDeparture,
-        command,
-      );
-      await reviewer.identity.mutation(
-        api.reviewerVenue.declareDeparture,
-        command,
-      );
-      expect(
-        await backend.run((ctx) => ctx.db.get(clockIn.clockInId)),
-      ).toMatchObject({ status: "clocked_out", version: clockIn.version + 1 });
-      expect(
-        await backend.run((ctx) =>
-          ctx.db.query("reviewerVenueDepartures").collect(),
-        ),
-      ).toHaveLength(1);
-      await reviewer.identity.mutation(api.reviewer.clockIn, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        expectedVersion: clockIn.version + 1,
-        clientOperationId: "return-to-duty",
-      });
-      expect(
-        (await backend.run((ctx) => ctx.db.get(clockIn.clockInId)))?.status,
-      ).toBe("present");
-      expect(
-        (
-          await backend.run((ctx) =>
-            ctx.db.query("reviewerVenueDepartures").collect(),
-          )
-        )[0]?.state,
-      ).toBe("returned");
-    },
-  );
-
-  test("returning from a break rechecks the reviewer's latest confirmed hours", async () => {
-    const backend = seededBackend();
-    const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
-    const clockIn = await reviewer.identity.mutation(api.reviewer.clockIn, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      expectedVersion: 0,
-      clientOperationId: "confirm-return-clock-in",
-    });
-    await reviewer.identity.mutation(api.reviewer.setAvailability, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      installationId: reviewer.installationId,
-      status: "temporarily_unavailable",
-      reason: "Taking a short break.",
-      expectedReturnMinutes: 10,
-      expectedVersion: clockIn.version,
-      clientOperationId: "confirm-return-break",
-    });
-    await reviewer.identity.mutation(api.reviewConfirmations.respond, {
-      eventSlug: fixture.eventSlug,
-      roundId: fixture.roundId,
-      windows: [],
-      expectedVersion: 1,
-      clientOperationId: "confirm-return-decline",
-    });
-    await expect(
-      reviewer.identity.mutation(api.reviewer.setAvailability, {
-        eventSlug: fixture.eventSlug,
-        roundId: fixture.roundId,
-        installationId: reviewer.installationId,
-        status: "present",
-        expectedVersion: 2,
-        clientOperationId: "confirm-return-blocked",
-      }),
-    ).rejects.toThrow("Confirm your availability");
-    expect(
-      await backend.run((ctx) => ctx.db.get(clockIn.clockInId)),
-    ).toMatchObject({
-      status: "temporarily_unavailable",
-      version: 2,
-    });
-  });
-
   test("does not accept an early confirmation or a window outside the round", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const requestId = await backend.run(async (ctx) => {
       const request = await ctx.db
         .query("reviewConfirmationRequests")
@@ -3491,7 +2583,7 @@ describe("round availability confirmation", () => {
   test("notification claims serialize retries and stop after access is revoked", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const notificationId = await backend.run(async (ctx) => {
       const confirmation = await ctx.db
         .query("reviewerRoundConfirmations")
@@ -3581,7 +2673,7 @@ describe("round availability confirmation", () => {
   test("opens the app request once and cancels stale push after a response", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);
-    const reviewer = await prepareReviewerClockIn(backend, fixture);
+    const reviewer = await prepareReviewerDevice(backend, fixture);
     const ids = await backend.run(async (ctx) => {
       const request = await ctx.db
         .query("reviewConfirmationRequests")
@@ -3648,7 +2740,7 @@ function asOperator(backend: BackendTest, fixture: Fixture) {
   });
 }
 
-async function prepareReviewerClockIn(backend: BackendTest, fixture: Fixture) {
+async function prepareReviewerDevice(backend: BackendTest, fixture: Fixture) {
   const now = Date.now();
   const authUserId = await createAuthUser(backend, now);
   const authSessionId = await createAuthSession(backend, authUserId, now);
@@ -3689,7 +2781,6 @@ async function setReviewerTiming(
     const round = await ctx.db.get(roundId);
     if (!round) throw new Error("The reviewer timing fixture round is missing.");
     await ctx.db.patch(round._id, {
-      clockInOpensAt: noShowBoundary - 60_000,
       reviewerReportAt: noShowBoundary - 30_000,
       startsAt: noShowBoundary,
       endsAt: noShowBoundary + 60 * 60_000,
@@ -3750,7 +2841,6 @@ function publicationRequest(
       stableKey: "availability_fixture_round",
       name: "Availability fixture round",
       sequence: 2,
-      clockInOpensAt: startsAt - 60_000,
       reviewerReportAt: startsAt - 30_000,
       startsAt,
       endsAt: startsAt + 3_600_000,
@@ -3840,15 +2930,9 @@ async function reviewerPolicySnapshot(
   installationId: string | null,
 ) {
   return backend.run(async (ctx) => {
-    const [member, panel, clockIns, operationResults, auditEvents, device] = await Promise.all([
+    const [member, panel, operationResults, auditEvents, device] = await Promise.all([
       ctx.db.get(fixture.memberId),
       ctx.db.get(fixture.panelId),
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.memberPersonId),
-        )
-        .collect(),
       ctx.db
         .query("operationResults")
         .collect()
@@ -3872,12 +2956,6 @@ async function reviewerPolicySnapshot(
       member: member && { status: member.status, endedAt: member.endedAt },
       panel: panel && { status: panel.status, version: panel.version, updatedAt: panel.updatedAt,
       },
-      clockIns: clockIns.map((clockIn) => ({
-        id: clockIn._id,
-        status: clockIn.status,
-        version: clockIn.version,
-        lastHeartbeatAt: clockIn.lastHeartbeatAt,
-      })),
       operationResultIds: operationResults.map((result) => result._id),
       auditEventIds: auditEvents.map((event) => event._id),
       device: device && { version: device.version, lastSeenAt: device.lastSeenAt,
@@ -4001,7 +3079,6 @@ async function seedPanel(backend: BackendTest) {
       status: "open",
       startsAt: now - 60_000,
       endsAt: now + 3_600_000,
-      clockInOpensAt: now - 120_000,
       reviewerReportAt: now - 90_000,
       noShowGraceSeconds: 30,
       correctionRequestsCloseAt: now + 3_600_000,

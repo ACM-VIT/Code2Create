@@ -34,7 +34,7 @@ The reviewer form's hour selections are discarded because the form mistakenly ca
 
 Reviewer assessment is a one-time preparation task performed with the event owner in the planning conversation. The owner supplies resumes and metadata matched by email. The prepared output records evidence-backed domain and criterion qualifications, lead suitability, uncertainty, provisional panels, and replacement candidates. The existing roster importer admits the people and their source references; existing reviewer-profile and panel-publication commands apply the assessment and plan. There is no new resume crawler, recurring reviewer-assessment agent, or separate profile-import product. Actual training completion remains separately recorded.
 
-Prepared panels are provisional. App confirmations, current availability, conflicts, clock-in, and qualified replacements continue to govern live staffing and fair JC rotation. See [Event follow-up plan](16-event-follow-up-plan.md) for the preparation handoff and remaining implementation work.
+Prepared panels are provisional. App confirmations, current availability, conflicts, and qualified replacements continue to govern live staffing and fair JC rotation. See [Event follow-up plan](16-event-follow-up-plan.md) for the preparation handoff and remaining implementation work.
 
 Availability belongs to each round. Around 23:00 IST, the app asks each rostered person to confirm every time window they can cover or explicitly decline. Reviewers can revise their response. The server merges touching or overlapping windows, checks round boundaries, and requires enough time for a complete review. A pending response is not availability, and confirmation is not arrival. An organizer with event-wide review-configuration authority may record a rostered reviewer’s confirmed hours with a reason, including after the self-confirmation window closes. The audit identifies the organizer; this does not reopen the window or clock the reviewer in. The same round bounds, active-review restrictions, version checks and shift reminders apply.
 
@@ -56,9 +56,9 @@ The planner shows gaps before a panel can be published. It also estimates how ma
 
 Publishing a plan creates a version. Later edits keep the previous version and record who changed which seat.
 
-Round publication schedules the app confirmation request and includes the complete selected pool as seats or reserves. Initial seats are provisional until people confirm. Reserves can confirm while profile assessment is still in progress; actual clock-in and substitution still require completed qualifications and a registered device. Clock-in, joining a panel, paging a substitute, calling a team, and starting a review recheck the person's confirmed coverage for the next complete review. No profile must promise availability for the whole round.
+Round publication schedules the app confirmation request and includes the complete selected pool as seats or reserves. Initial seats are provisional until people confirm. Reserves can confirm while profile assessment is still in progress; substitution still requires completed qualifications and a registered device. Joining a panel, paging a substitute, calling a team, and starting a review recheck the person's confirmed coverage for the next complete review. No profile must promise availability for the whole round.
 
-Round configuration records clock-in opening, initial report time, and no-show grace. Shift rotation must use each person's confirmed hours, page them five minutes before their assignment, and replace departing or nonresponding people promptly. A later confirmed shift must not be treated as a round-start no-show. The staffing scheduler rechecks confirmed shifts and starts replacement pages when needed; a native reminder precedes a confirmed shift.
+Round configuration records the reviewer report time and no-show grace. Shift rotation must use each person's confirmed hours and replace departing or nonresponding people promptly through the desk's manual no-show and substitute paging. A later confirmed shift must not be treated as a round-start no-show.
 
 ### Changing a seat after publication
 
@@ -82,29 +82,23 @@ A candidate must be ready, fully staffed, authorized for the operator, conflict-
 
 Placement and its eligibility checks happen in one transaction, and an uncertain retry cannot place the team twice. The selected panel is fixed when the team enters `queued`; a later change uses the reasoned move workflow. Staff still decide when a walk-up team enters the review queue.
 
-## 6. Reviewer clock-in
+## 6. Reviewer readiness and no-show
 
-A reviewer clocks in from the reviewer app at the venue.
+There is no reviewer clock-in. The app does not report whether a reviewer is at the venue, and it sends no heartbeat. A reviewer with confirmed coverage is expected at the published reviewer report time; the desk decides from the panel board whether a seat is filled.
 
-The server checks:
+Before a reviewer can hold a seat, accept a page, or start a review, the server checks:
 
 - active roster grant;
-- current event and availability window;
+- current event and confirmed availability window;
 - registered, non-revoked device;
 - minimum app build;
 - notification permission and token;
 - camera permission or documented scanner fallback;
 - no unresolved conflict/training block.
 
-The server uses its own time. Clock-in is accepted at the exact published opening and remains open until, but not including, round end. It rechecks the reviewer's round confirmation before any clock-in, device, operation, or audit write. Returning from a break rechecks that confirmation too.
+The server uses its own time and rechecks the reviewer's round confirmation before any seat, page, operation, or audit write.
 
-Clock-in states are:
-
-`expected → present → temporarily_unavailable → clocked_out`
-
-Operations may mark a no-show at or after `reviewerReportAt + noShowGraceSeconds`. For a reviewer who explicitly stepped away, the same published grace starts at their expected return time. A present reviewer cannot be marked no-show. The no-show command reads the current clock-in and panel versions in the same transaction as removing the seat, so a clock-in racing a no-show cannot leave both states accepted. A rejected command writes nothing. The accepted change records the operator and reason.
-
-The app sends a low-frequency heartbeat while active. A stale heartbeat is an attention signal, not proof that the reviewer left. Operations confirms status before removing a panel seat.
+Operations may mark a no-show at or after `reviewerReportAt + noShowGraceSeconds`. The no-show command reads the current panel version in the same transaction as removing the seat, so a substitute acceptance racing a no-show cannot leave both states accepted. A rejected command writes nothing. The accepted change records the operator and reason. Operations confirms status with the person before removing a panel seat.
 
 ## 7. Missing reviewer and substitute
 
@@ -279,8 +273,6 @@ Any assigned reviewer may confirm completion after every active reviewer has sub
 - Participant and reviewer clients show the generic pause state without receiving the internal incident summary unless they independently hold incident read access.
 
 
-## Venue confirmation and simpler reviewer actions
-
-GPS is advisory. Sustained outside readings prompt an app reminder and, when configured and consented, a conversational check-in call. Ops selects the published voice agent/version and timing; the response and transcript are recorded separately from GPS and call delivery status. A current explicit unavailable answer can end duty and request a substitute between reviews. Active discussion and unfinished scorecards remain locked; unclear answers or requests for help need ops follow-up. No answer never becomes confirmation. Normal clock-in is the return-to-duty action and cancels an older unresolved check.
+## Review brief and simpler reviewer actions
 
 The review brief is optional: complete eligible repository text and stored Figma structure are analysed in resumable batches before synthesis. The default is up to three grounded follow-ups, including none when the fixed rubric is enough. The reviewer sees a concise brief in the existing app style. Ops can also enable inspection of captured Figma renders with exact frame/checksum references. Binary repository assets, inaccessible resources, preview capture limits and runtime verification remain explicit limitations. See [current implementation and rehearsal](15-event-review-readiness.md).

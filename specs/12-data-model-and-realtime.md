@@ -527,7 +527,7 @@ Admission publication treats the human policy and its model as one release. Huma
 
 - `eventId`, stable key, sequence, and name;
 - `status: draft | published | open | closing | closed`;
-- immutable `clockInOpensAt`, `reviewerReportAt`, `noShowGraceSeconds`, scheduled start/end times, and `correctionRequestsCloseAt`;
+- immutable `reviewerReportAt`, `noShowGraceSeconds`, scheduled start/end times, and `correctionRequestsCloseAt`;
 - review duration and ordinary-extension policy;
 - missed-call, queue re-entry, substitute-response, panel-size, scorer, participant-presence, reviewer-build, camera, and notification requirements;
 - pinned rubric-version ID and configuration checksum;
@@ -537,7 +537,7 @@ Admission publication treats the human policy and its model as one release. Huma
 
 A round in `closing` points to exactly one normalized snapshot and active export. A closed round keeps those pointers to a verified export and cannot change without the independent reopen command. Reopen clears only the active pointers; the snapshot, entries, export manifest, exact object versions, and audit history remain.
 
-Publication requires `clockInOpensAt <= reviewerReportAt <= startsAt < endsAt`, bounds the no-show grace, keeps the report-plus-grace boundary at or before round start, and places the correction deadline inclusively within the round. These policy fields participate in the immutable configuration checksum.
+Publication requires `reviewerReportAt <= startsAt < endsAt`, bounds the no-show grace, keeps the report-plus-grace boundary at or before round start, and places the correction deadline inclusively within the round. These policy fields participate in the immutable configuration checksum.
 
 ### `reviewRoundPauses`
 
@@ -1152,7 +1152,7 @@ Training and qualification belong to the profile; availability belongs to the ro
 
 `reviewConfirmationRequests` stores one round's scheduled opening, lifecycle, and version. Publication schedules the opening and closure. Ops can reschedule before reviewers can respond; stale jobs read current state before opening or sending notifications.
 
-`reviewerRoundConfirmations` stores one person's pending, confirmed, or unavailable response per round, with canonical time windows, response time, and optimistic version. Clock-in and assignment eligibility require confirmed coverage for the complete next review.
+`reviewerRoundConfirmations` stores one person's pending, confirmed, or unavailable response per round, with canonical time windows, response time, and optimistic version. Assignment eligibility requires confirmed coverage for the complete next review.
 
 `reviewConfirmationNotifications` records provider delivery separately from the person's response, with bounded attempts, a claim lease, attempt ID, device/token fingerprint, and failure state. Lost access or an already-answered request stops further attempts.
 
@@ -1165,17 +1165,6 @@ Training and qualification belong to the profile; availability belongs to the ro
 - created/resolved actor/time.
 
 The routing query uses only active confirmed conflicts.
-
-### `reviewerClockIns`
-
-- `eventId`, `roundId`, `reviewerPersonId`, `deviceId`
-- `status: expected | present | temporarily_unavailable | clocked_out | no_show`
-- availability end;
-- last heartbeat;
-- reason and actor for operator changes;
-- `version`.
-
-Clock-in accepts the exact published opening boundary using server time, requires current declared availability, and rejects attempts at or after round end. Confirmed no-show requires the report-plus-grace boundary (or a temporarily-unavailable return-plus-grace boundary) and rejects a present reviewer. Both transitions re-read current presence and panel versions transactionally, so concurrent clock-in and no-show commands cannot both commit.
 
 ### `panelPlans`
 
@@ -1355,7 +1344,7 @@ One current server-owned aggregate-health materialization per event.
 - event ID, the exact event version observed during computation, and `ready | stale` state with its deadline;
 - one fully validated bounded redacted health snapshot, including server generation time.
 
-The 30-second cron discovers at most two events and rejects a deployment containing more than one. Its action calls one broad bounded internal query, then one narrow `by_event` upsert mutation. An exact retry is a no-op and an older result cannot replace a newer snapshot. Each accepted generation schedules its own 90-second stale marker; the marker compares the expected generation before changing state, so an old deadline cannot expire a newer snapshot. Event bootstrap schedules the initial refresh. Reads return explicit `missing`, `stale`, or `ready` state and never recompute live.
+An operator refreshes the snapshot on demand from the ops event monitor; no cron recomputes it. The refresh action calls one broad bounded internal query, then one narrow `by_event` upsert mutation. An exact retry is a no-op and an older result cannot replace a newer snapshot. Readers treat a snapshot older than 90 seconds as stale. Reads return explicit `missing`, `stale`, or `ready` state and never recompute live.
 
 ### `operationsAutonomyPolicyVersions`
 
@@ -1886,7 +1875,7 @@ The idempotent command record and audit event retain the actor, exact self-scope
 
 ### `outboundCallDeliveries`
 
-One durable call row records one page escalation, duty reminder, RSVP reminder, or team review notice.
+One durable call row records one page escalation, RSVP reminder, or team review notice. Reviewer venue-absence confirmation calls are retired; their purpose and response literals stay in the schema only so historical rows remain readable, and no new venue call is created.
 
 - event, source type/ID, recipient person, destination, purpose, locale, script, and script-policy version;
 - consent ID/version for reviewer duty calls and the source's authorizing permission-grant IDs;
@@ -2190,8 +2179,6 @@ The rehearsal result stores its source manifest/archive, exact staging target, o
 | `reviewRoundPauses.by_incident_state`                                          | Block incident resolution while any linked round remains paused                                                |
 | `reviewRoundPauses.by_event_state_paused`                                      | Return bounded active/history rows for event operations and monitoring                                         |
 | `reviewerConflicts.by_event_reviewer_team_status`                              | Remove ineligible assignments                                                                                  |
-| `reviewerClockIns.by_round_status`                                             | Panel readiness and substitutes                                                                                |
-| `reviewerClockIns.by_event_status_heartbeat`                                   | Find stale present reviewers by server heartbeat without reading unrelated rounds                              |
 | `panelMembers.by_round_reviewer_status`                                        | Prevent overlapping panel seats                                                                                |
 | `reviewPanels.by_event_status_updated`                                         | Surface bounded panels currently missing a reviewer                                                            |
 | `teamRoundStates.by_round_team`                                                | One team state per round                                                                                       |
@@ -2407,7 +2394,7 @@ Returns application/review coverage, human decisions, AI used/cleared/overridden
 
 ### `reviewer.now`
 
-Returns clock-in state, active panel seat, current page, active session summary, generic round-pause state, save state, and next action. It returns one reviewer’s work only. A pause removes the new-review start action but does not block saving or submitting an already-started review; internal incident text is absent.
+Returns active panel seat, current page, active session summary, generic round-pause state, save state, and next action. It returns one reviewer’s work only. A pause removes the new-review start action but does not block saving or submitting an already-started review; internal incident text is absent.
 
 ### `reviewer.activeContext`
 
@@ -2433,7 +2420,7 @@ Returns at most 20 newest open or monitoring incidents visible through the calle
 
 Requires the independent event-scoped `operations.health.read` grant. It returns the event state, server generation time, a severity summary, and only non-zero bounded signals. Each signal contains its stable key, area, severity, count/`atLeast`, optional oldest time, owner, and next action. It returns no resource ID or underlying incident, participant, team, project, repository, Figma, delivery, model, Synesthesia, or score detail.
 
-One server-owned action reads current operational parents and compound event/state indexes rather than scanning historical logs. It materializes the bounded projection every 30 seconds. The authenticated public query reads only that indexed document and returns explicit `missing`, `stale`, or `ready` state. Reaching a source bound produces a separate coverage-limited signal. The query grants no action; drill-down and remediation use their ordinary separately scoped reads and commands.
+One server-owned action reads current operational parents and compound event/state indexes rather than scanning historical logs. It materializes the bounded projection when an operator requests a refresh from the event monitor, and readers treat a snapshot older than 90 seconds as stale. The authenticated public query reads only that indexed document and returns explicit `missing`, `stale`, or `ready` state. Reaching a source bound produces a separate coverage-limited signal. The query grants no action; drill-down and remediation use their ordinary separately scoped reads and commands.
 
 ### `eventLifecycle.current`
 
@@ -2543,7 +2530,7 @@ Subscriptions update only when records read by the query change. Screens use sta
 | Communications  | read/draft/validate/publish next-steps/Discord/notification policy under four independent event grants, enqueue a policy-pinned participant status notice, record provider result, retry/disable an exact destination, grant/revoke call consent, send push first, claim/cancel a consented call escalation, and record call-provider events                                                                                                                                                                                                                                                                                                                                |
 | Venue           | resolve a VIT ID barcode, static external event pass, or manual fallback; record/read staffed venue check-in, approved identity exception, or reversal under independent person scopes; assign/freeze table; report mismatch                                                                                                                                                                                                                                                                                                                                                                                  |
 | Attendance      | draft/validate/publish plan, schedule/open/extend/close/cancel session, enrol/suspend/rebind VIT ID barcode, issue/revoke external badge, read an own static external pass, link an external physical ID, assign/disable/make available station, record scan, reconcile live transition, request/open/approve/decline finalized-result review, excuse expectation, open/close roll call, purpose-limited export, enter/upload/read/verify numbered paper sheet                                                                                                                                                              |
-| Round/panel     | publish plan, clock in, mark unavailable, page substitute, accept/decline page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Round/panel     | publish plan, mark no-show, page substitute, accept/decline page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Queue/review    | staff route directly into a panel queue, call, hold, resume, move, read current participant availability, record one scoped availability exception, scan reviewer presence, start, extend, complete                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | Score           | save own draft, submit own scorecard, enter/upload/read/verify or reject one signed paper review, request/approve correction, resubmit, void                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | Support         | create/read/reply to own case; event staff log a walk-up case; exact-case or event-wide readers inspect; exact-case or event-wide managers assign/clear owner, add public/internal note, and change state                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -2989,7 +2976,7 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 
 ## Event-review operations additions
 
-`reviewerPoolEntries` preserves imported declarations without accepting the broken form hours. `reviewerRoundConfirmations`, `reviewConfirmationRequests` and `reviewConfirmationNotifications` own versioned actual availability, opening and native shift reminders. Panel profiles/seat assignments carry Board/SC/JC composition, and published rounds carry the staffing policy. Completed assignments drive JC participation fairness.
+`reviewerPoolEntries` preserves imported declarations without accepting the broken form hours. `reviewerRoundConfirmations`, `reviewConfirmationRequests` and `reviewConfirmationNotifications` own versioned actual availability and opening. Panel profiles/seat assignments carry Board/SC/JC composition, and published rounds carry the staffing policy. Completed assignments drive JC participation fairness.
 
 `reviewQueuePolicies` configures routing, next-team call-up, heads-up timing, score-entry allowance and consented voice calls. `reviewQueuePanelChecks` records current blockers, and `reviewTeamNotices` binds every notice to one queue-state version. Reassignment or a hold invalidates an obsolete notice/call.
 
@@ -2998,8 +2985,6 @@ Attendance QR tokens expire quickly. Encrypted scanner queues expire after their
 `reviewAggregationPolicies` versions the closed-round combination (default 30%/70%). Missing or excluded inputs prevent a complete cumulative total instead of becoming zero.
 
 
-## Comprehensive review preparation and venue call responses
+## Comprehensive review preparation
 
 `reviewQuestionCollections` holds resumable per-resource inventory/offset/lease state. Private storage contains complete inventory or normalized Figma manifests. `reviewQuestionParts` stores bounded source batches, original citations, immutable model findings, attempts and reusable content keys. Pairwise synthesis combines all completed batches; the final question set only enters generation after collection and complete chunk accounting. The question set carries coverage and a source-check timestamp independent from work progress. Failed/expired work does not silently become a complete brief.
-
-Venue presence carries tracking generation and its authoritative start time. Both the phone and backend reject pre-generation location fixes. `outboundCallDeliveries` pins the selected conversational agent, response expiry and current departure. Structured answers and transcripts are stored with immutable provider events; deliveries expose the recorded response and its effect (`confirmed`, `clocked_out`, `needs_ops`, `stale`). Convex checks current consent, departure, tracking authority, policy and active/scoring assignments before applying a result. Read access is limited to authorized event reviewer-profile readers. GPS never clocks out a reviewer. Call completion alone never confirms availability. Existing app clock-in cancels an older unresolved venue check.

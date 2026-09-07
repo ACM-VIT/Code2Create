@@ -499,7 +499,7 @@ export const reschedule = mutation({
     }
     if (
       !Number.isSafeInteger(args.opensAt) ||
-      args.opensAt > round.clockInOpensAt ||
+      args.opensAt > round.reviewerReportAt ||
       !Number.isSafeInteger(args.closesAt) ||
       args.closesAt <= Math.max(now, args.opensAt) ||
       args.closesAt > round.endsAt
@@ -507,7 +507,7 @@ export const reschedule = mutation({
       throw new ConvexError({
         code: "INVALID_CONFIRMATION_TIME",
         message:
-          "Confirmation must open by clock-in and close later, within the round. The closing time must be in the future.",
+          "Confirmation must open by the reviewer report time and close later, within the round. The closing time must be in the future.",
       });
     }
     const version = request.version + 1;

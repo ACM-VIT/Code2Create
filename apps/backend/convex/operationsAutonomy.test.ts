@@ -2330,7 +2330,6 @@ async function seedRecommendationGroundingEvidence(backend: BackendTest, fixture
       sequence: 1,
       status: "open",
       reviewerReportAt: fixture.now - 30_000,
-      clockInOpensAt: fixture.now - 60_000,
       noShowGraceSeconds: 30,
       startsAt: fixture.now - 10_000,
       endsAt: fixture.now + 60_000,

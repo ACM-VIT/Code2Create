@@ -18,10 +18,6 @@ The tracked `.env.development` connects this app to the local Convex deployment.
 pnpm --filter @code2create/ops dev
 ```
 
-## Reviewer venue presence
-
-Review setup includes **Reviewer venue presence**. Event-scoped `review.configuration.read`/`review.configuration.publish` grants control venue configuration; `reviewer.profile.read` controls the paginated reviewer roster, including reviewers who have never enabled location. Panel reviewers and reserves also show venue status on the round board. GPS presence is separate from panel clock-in and staffing availability. See the [reviewer venue setup and rollout notes](../reviewer/README.md#reviewer-venue-checks).
-
 ## Checks
 
 ```sh

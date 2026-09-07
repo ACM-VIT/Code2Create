@@ -13,8 +13,6 @@ import type { AttentionSeverity } from "../values.ts";
 
 type Clock = { now: number };
 
-/** Four minutes of silence is an operational signal, not proof of absence. */
-const staleHeartbeatMs = 4 * 60 * 1_000;
 /** A token can be replaced by the app within a minute of being rejected. */
 const invalidTokenGraceMs = 2 * 60 * 1_000;
 /** A seat is briefly empty during an ordinary swap. */
@@ -38,21 +36,10 @@ const scorecardChasePersistenceMs = 5 * 60 * 1_000;
 const scorecardChaseAttentionMs = 15 * 60 * 1_000;
 const scorecardChaseCriticalMs = 45 * 60 * 1_000;
 
-export type ClockInStatus =
-  | "not_clocked_in"
-  | "present"
-  | "temporarily_unavailable"
-  | "clocked_out"
-  | "no_show";
-
 export type PanelMemberProjection = {
   panelMemberId: string;
   personId: string;
   displayName: string;
-  clockInStatus: ClockInStatus;
-  clockInVersion: number;
-  expectedReturnAt?: number;
-  lastHeartbeatAt?: number;
   deviceCount: number;
   pushTokenStatus?: "not_registered" | "active" | "invalid";
   pushTokenInvalidatedAt?: number;
@@ -126,8 +113,6 @@ export type ReviewFloorProjection = Clock & {
   roundId: string;
   roundName: string;
   roundEndsAt: number;
-  reviewerReportAt: number;
-  reviewerNoShowGraceSeconds: number;
   requiredPanelSize: number;
   reviewDurationSeconds: number;
   scoringBufferSeconds: number;
@@ -142,11 +127,7 @@ export type OutstandingScorecardProjection = {
   teamName: string;
   panelName: string;
   completedAt: number;
-  reviewers: readonly {
-    displayName: string;
-    lastHeartbeatAt?: number;
-    clockInStatus: ClockInStatus;
-  }[];
+  reviewers: readonly { displayName: string }[];
 };
 
 export type ScorecardChaseProjection = Clock & {
@@ -228,33 +209,8 @@ export function reviewPanelItems(input: PanelDetectorProjection,
 
     if (queuedCount > 0) {
       for (const member of panel.members) {
-        const risk = seatRisk(member, input.now, input.reviewerNoShowGraceSeconds,
-        );
+        const risk = seatRisk(member, input.now);
         if (!risk) continue;
-        const noShowEligibleAt =
-          member.clockInStatus === "temporarily_unavailable"
-            ? member.expectedReturnAt === undefined
-              ? undefined
-              : member.expectedReturnAt + input.reviewerNoShowGraceSeconds * 1_000
-            : input.reviewerReportAt + input.reviewerNoShowGraceSeconds * 1_000;
-        const proposal: AttentionProposal | undefined =
-          member.clockInStatus !== "present" &&
-          noShowEligibleAt !== undefined &&
-          input.now >= noShowEligibleAt &&
-          panel.status === "ready" &&
-          !panel.hasRunningReview
-            ? proposeCommand(
-                {
-                  name: "reviewSubstitutions.markNoShow",
-                  panelMemberId: member.panelMemberId,
-                  expectedPanelVersion: panel.version,
-                  expectedClockInVersion: member.clockInVersion,
-                  reason: `${member.displayName} ${risk.reasonFragment}`,
-                },
-                { scopeType: "round", scopeId: input.roundId },
-                input.now,
-              )
-            : undefined;
         items.push({
           detectorKey: "seat_at_risk",
           dedupeKey: `seat_at_risk:${panel.panelId}:${member.personId}`,
@@ -263,17 +219,10 @@ export function reviewPanelItems(input: PanelDetectorProjection,
           severity: "attention",
           statement: `${risk.statement} ${panel.name} has ${countPhrase(queuedCount, "team", "teams")} queued. Confirm before freeing the seat.`,
           route,
-          actionLabel: proposal ? "Confirm and free the seat" : "Open the panel",
+          actionLabel: "Open the panel",
           visibility,
           evidenceJson: JSON.stringify({
             personId: member.personId,
-            clockInStatus: member.clockInStatus,
-            ...(member.lastHeartbeatAt === undefined
-              ? {}
-              : { lastHeartbeatAt: member.lastHeartbeatAt }),
-            ...(member.expectedReturnAt === undefined
-              ? {}
-              : { expectedReturnAt: member.expectedReturnAt }),
             ...(member.pushTokenStatus === undefined
               ? {}
               : { pushTokenStatus: member.pushTokenStatus }),
@@ -281,7 +230,6 @@ export function reviewPanelItems(input: PanelDetectorProjection,
             cause: risk.cause,
           }),
           scopes: [`panel:${panel.panelId}`, `person:${member.personId}`],
-          ...(proposal ? { proposal } : {}),
         });
       }
     }
@@ -486,40 +434,10 @@ export function reviewTeamItems(input: TeamDetectorProjection,
   return items;
 }
 
-type SeatRisk = { statement: string; reasonFragment: string; cause: string };
+type SeatRisk = { statement: string; cause: string };
 
-/** Reports observed risk signals without treating clock-in status as proof of presence. */
-function seatRisk(
-  member: PanelMemberProjection,
-  now: number,
-  reviewerNoShowGraceSeconds: number,
-): SeatRisk | null {
-  const clockedIn =
-    member.clockInStatus === "present" || member.clockInStatus === "temporarily_unavailable";
-  if (!clockedIn) return null;
-
-  if (
-    member.clockInStatus === "temporarily_unavailable" &&
-    member.expectedReturnAt !== undefined &&
-    now - member.expectedReturnAt >= reviewerNoShowGraceSeconds * 1_000
-  ) {
-    const late = durationPhrase(now - member.expectedReturnAt);
-    return {
-      statement: `${member.displayName} stepped away and is ${late} past the time they gave for coming back.`,
-      reasonFragment: `is ${late} past the return time they recorded.`,
-      cause: "late_return",
-    };
-  }
-
-  if (member.lastHeartbeatAt !== undefined && now - member.lastHeartbeatAt >= staleHeartbeatMs) {
-    const silent = durationPhrase(now - member.lastHeartbeatAt);
-    return {
-      statement: `${member.displayName}'s reviewer app has not checked in for ${silent}, which is a signal and not proof they left the table.`,
-      reasonFragment: `has had no reviewer app contact for ${silent}.`,
-      cause: "stale_heartbeat",
-    };
-  }
-
+/** Reports a paging risk for a seated reviewer; presence itself is not observed. */
+function seatRisk(member: PanelMemberProjection, now: number): SeatRisk | null {
   if (
     member.deviceCount === 1 &&
     member.pushTokenStatus === "invalid" &&
@@ -528,7 +446,6 @@ function seatRisk(
   ) {
     return {
       statement: `${member.displayName}'s only registered device stopped accepting pages, so a substitute page would not reach them.`,
-      reasonFragment: "has no device that can receive a page.",
       cause: "invalid_push_token",
     };
   }
@@ -677,10 +594,7 @@ function overrunSeverity(overrunMs: number): AttentionSeverity {
   return "watch";
 }
 
-/**
- * Reviewer attendance is unknown, so scorecard alerts report only elapsed time
- * and the last app status.
- */
+/** Reviewer attendance is unknown, so scorecard alerts report only elapsed time. */
 export function scorecardChaseItems(input: ScorecardChaseProjection,
 ): DetectedAttentionItem[] {
   const route = `/reviews/${input.roundId}`;
@@ -696,33 +610,20 @@ export function scorecardChaseItems(input: ScorecardChaseProjection,
     const since = input.now - session.completedAt;
     if (since < scorecardChasePersistenceMs) continue;
     const names = session.reviewers.map((reviewer) => reviewer.displayName);
-    const contact = session.reviewers
-      .map((reviewer) =>
-        reviewer.lastHeartbeatAt === undefined
-          ? `${reviewer.displayName} has no reviewer app contact recorded`
-          : `${reviewer.displayName}'s app last checked in ${durationPhrase(input.now - reviewer.lastHeartbeatAt)} ago`,
-      )
-      .join("; ");
     items.push({
       detectorKey: "scorecard_outstanding",
       dedupeKey: `scorecard_outstanding:${session.reviewSessionId}`,
       subjectType: "review",
       subjectId: session.reviewSessionId,
       severity: chaseSeverity(since),
-      statement: `${joinNames(names)} ${names.length === 1 ? "has" : "have"} not submitted for ${session.teamName} at ${session.panelName}, ${durationPhrase(since)} after that review ended. ${contact}.`,
+      statement: `${joinNames(names)} ${names.length === 1 ? "has" : "have"} not submitted for ${session.teamName} at ${session.panelName}, ${durationPhrase(since)} after that review ended.`,
       route,
       actionLabel: "Open the round",
       visibility,
       evidenceJson: JSON.stringify({
         completedAt: session.completedAt,
         outstandingCount: session.reviewers.length,
-        reviewers: session.reviewers.map((reviewer) => ({
-          displayName: reviewer.displayName,
-          clockInStatus: reviewer.clockInStatus,
-          ...(reviewer.lastHeartbeatAt === undefined
-            ? {}
-            : { lastHeartbeatAt: reviewer.lastHeartbeatAt }),
-        })),
+        reviewers: session.reviewers.map((reviewer) => ({ displayName: reviewer.displayName })),
       }),
       scopes: [`review:${session.reviewSessionId}`],
     });

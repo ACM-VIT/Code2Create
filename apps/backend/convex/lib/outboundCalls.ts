@@ -1,4 +1,3 @@
-import type { VenueConfirmationCall } from "@code2create/domain";
 import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -33,18 +32,15 @@ export async function enqueueOutboundCall(
       | "participant_notification"
       | "admission_offer_reminder"
       | "review_team_notice"
-      | "participant_outing"
-      | "reviewer_venue_departure";
+      | "participant_outing";
     sourceId: string;
     shiftReminder?: { confirmationVersion: number; shiftStartsAt: number };
     purpose:
       | "reviewer_substitute_page"
       | "reviewer_shift_reminder"
-      | "participant_event_update"
-      | "reviewer_venue_absence";
+      | "participant_event_update";
     destinationPhone?: string;
     script: string;
-    venueConfirmation?: VenueConfirmationCall;
     locale: string;
     scriptPolicyVersion: string;
     consent?: {
@@ -92,9 +88,6 @@ export async function enqueueOutboundCall(
     purpose: args.purpose,
     ...(destinationPhoneE164 !== null ? { destinationPhoneE164 } : {}),
     script: args.script,
-    ...(args.venueConfirmation
-      ? { venueConfirmation: args.venueConfirmation }
-      : {}),
     locale: args.locale,
     scriptPolicyVersion: args.scriptPolicyVersion,
     ...(args.consent !== undefined

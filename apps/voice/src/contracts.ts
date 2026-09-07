@@ -4,10 +4,6 @@ import {
 } from "@code2create/domain";
 import type { OutboundCallRequest } from "@code2create/domain";
 import { z } from "zod";
-import {
-  venueConfirmationCallSchema,
-  venueCallResponseSchema,
-} from "./venue-confirmation.js";
 
 const deliveryId = z.string().min(1).max(128);
 const e164Phone = z.string().regex(/^\+[1-9]\d{7,14}$/u);
@@ -23,7 +19,6 @@ export const outboundCallRequestSchema: z.ZodType<OutboundCallRequest> = z
     script: z.string().min(8).max(600),
     callbackUrl,
     requiredProvider: z.literal("sarvam").optional(),
-    venueConfirmation: venueConfirmationCallSchema.optional(),
   })
   .strict();
 
@@ -36,7 +31,6 @@ export const outboundCallEventSchema = z
     providerAt: z.number().int().nonnegative(),
     providerCallId: z.string().min(1).max(128).optional(),
     providerErrorCode: z.string().min(1).max(120).optional(),
-    venueResponse: venueCallResponseSchema.optional(),
   })
   .strict();
 

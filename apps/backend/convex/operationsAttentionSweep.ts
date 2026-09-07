@@ -20,7 +20,6 @@ import {
   reviewTeamItems,
   roundForecastItems,
   scorecardChaseItems,
-  type ClockInStatus,
   type OutstandingScorecardProjection,
   type PanelMemberProjection,
   type PanelProjection,
@@ -128,17 +127,7 @@ const scorecardGap = v.object({
   teamName: v.string(),
   panelName: v.string(),
   completedAt: v.number(),
-  reviewer: v.object({
-    displayName: v.string(),
-    clockInStatus: v.union(
-      v.literal("not_clocked_in"),
-      v.literal("present"),
-      v.literal("temporarily_unavailable"),
-      v.literal("clocked_out"),
-      v.literal("no_show"),
-    ),
-    lastHeartbeatAt: v.optional(v.number()),
-  }),
+  reviewer: v.object({ displayName: v.string() }),
 });
 type ScorecardGap = Infer<typeof scorecardGap>;
 
@@ -433,18 +422,10 @@ export const reviewScorecardGapPage = internalQuery({
       .paginate(args.paginationOpts);
     const gaps: ScorecardGap[] = [];
     for (const scorecard of page.page) {
-      const [session, assignment, reviewer, clockIn] = await Promise.all([
+      const [session, assignment, reviewer] = await Promise.all([
         ctx.db.get(scorecard.reviewSessionId),
         ctx.db.get(scorecard.assignmentId),
         ctx.db.get(scorecard.reviewerPersonId),
-        ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index
-              .eq("roundId", context.round._id)
-              .eq("reviewerPersonId", scorecard.reviewerPersonId),
-          )
-          .unique(),
       ]);
       if (
         session === null ||
@@ -479,11 +460,7 @@ export const reviewScorecardGapPage = internalQuery({
         teamName: team.name,
         panelName: panel.name,
         completedAt,
-        reviewer: {
-          displayName: reviewer.displayName,
-          clockInStatus: clockInStatusOf(clockIn),
-          ...(clockIn === null ? {} : { lastHeartbeatAt: clockIn.lastHeartbeatAt }),
-        },
+        reviewer: { displayName: reviewer.displayName },
       });
     }
     return {
@@ -810,8 +787,6 @@ function floorInput(
     roundId: round._id,
     roundName: round.name,
     roundEndsAt: round.endsAt,
-    reviewerReportAt: round.reviewerReportAt,
-    reviewerNoShowGraceSeconds: round.noShowGraceSeconds,
     requiredPanelSize: round.requiredPanelSize,
     reviewDurationSeconds: round.reviewDurationSeconds,
     isPaused,
@@ -854,13 +829,7 @@ async function readPanelProjection(
   }
   const memberViews: PanelMemberProjection[] = [];
   for (const member of members) {
-    const [clockIn, devices, person] = await Promise.all([
-      ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", context.round._id).eq("reviewerPersonId", member.personId),
-        )
-        .unique(),
+    const [devices, person] = await Promise.all([
       ctx.db
         .query("reviewerDevices")
         .withIndex("by_event_person_status_seen", (index) =>
@@ -879,12 +848,6 @@ async function readPanelProjection(
       panelMemberId: member._id,
       personId: member.personId,
       displayName: person.displayName,
-      clockInStatus: clockInStatusOf(clockIn),
-      clockInVersion: clockIn?.version ?? 0,
-      ...(clockIn?.expectedReturnAt === undefined
-        ? {}
-        : { expectedReturnAt: clockIn.expectedReturnAt }),
-      ...(clockIn === null ? {} : { lastHeartbeatAt: clockIn.lastHeartbeatAt }),
       deviceCount: devices.length === 2 ? 2 : devices.length,
       ...(device === undefined
         ? {}
@@ -1085,11 +1048,6 @@ function teamProjection(
     availabilityWaived,
     review,
   };
-}
-
-function clockInStatusOf(clockIn: Doc<"reviewerClockIns"> | null,
-): ClockInStatus {
-  return clockIn === null ? "not_clocked_in" : clockIn.status;
 }
 
 /** Newest first so the median reflects current floor pace. */
@@ -1356,7 +1314,6 @@ function sameCommand(left: StoredAttentionCommand, right: StoredAttentionCommand
         right.name === left.name &&
         left.panelMemberId === right.panelMemberId &&
         left.expectedPanelVersion === right.expectedPanelVersion &&
-        left.expectedClockInVersion === right.expectedClockInVersion &&
         left.reason === right.reason
       );
     case "reviewOperations.extendReview":

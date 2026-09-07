@@ -237,16 +237,12 @@ export const request = mutation({
     }
     const now = Date.now();
     const health = await operationsHealthSnapshotState(ctx, event._id, now);
-    if (health.state === "missing") {
+    if (health.state !== "ready") {
+      // Checks refresh only on demand; the dashboard starts one when it sees this code.
       throw new ConvexError({
-        code: "OPERATIONS_HEALTH_NOT_READY",
-        message: "The first operations-health check has not completed yet.",
-      });
-    }
-    if (health.state === "stale") {
-      throw new ConvexError({
-        code: "OPERATIONS_HEALTH_STALE",
-        message: "Operations-health checks are delayed. Try again after they recover.",
+        code:
+          health.state === "missing" ? "OPERATIONS_HEALTH_NOT_READY" : "OPERATIONS_HEALTH_STALE",
+        message: "The event-wide checks need a refresh first. Request the brief again in a few seconds.",
       });
     }
     const sourceSnapshot = health.snapshot;

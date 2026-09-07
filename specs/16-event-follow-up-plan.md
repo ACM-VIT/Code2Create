@@ -32,13 +32,13 @@ The owner supplies the metadata CSV and resumes matched by email, plus available
 
 The existing CSV importer accepts `email,name,role` or the original reviewer survey columns. It imports identities/roster access and survey references, not an arbitrary assessed-profile or panel CSV. Apply prepared profiles with `reviewConfiguration.saveProfile` and the reviewed panel plan with `reviewConfiguration.publishRound` through existing authorized ops workflows. Resolve imported emails to the actual event accounts and keep real training completion separate from resume assessment.
 
-The mistaken form hours remain discarded. The app owns availability confirmations, clock-in, accepted pages, arrival, conflict checks, all-seat replacement and fair JC rotation. Initial panels stay provisional until these checks pass. Continuous analysis remains appropriate for team projects because their evidence changes during the event.
+The mistaken form hours remain discarded. The app owns availability confirmations, accepted pages and conflict checks; the desk owns arrival, no-shows, all-seat replacement and fair JC rotation. Initial panels stay provisional until these checks pass. Continuous analysis remains appropriate for team projects because their evidence changes during the event.
 
 ## Implementation status
 
 | ID | Status | Behavior | Completion evidence |
 | --- | --- | --- | --- |
-| E-01 | Implemented | Ops configures the reminder lead time from 0–3600 seconds (default 300; 0 disables) and whether to also call. Push and calls share that lead time. The reviewer app has one consent setting for shift reminders and substitute calls. | Lifecycle tests cover timing changes, one call per shift, late consent after push delivery, clock-in, changed hours, revoked consent/access, disabled calls, closed rounds and expired reminders. A queued call moved later does not consume an attempt early; bringing it forward again immediately reschedules the same unsent call. |
+| E-01 | Retired | Shift reminders (push and calls) were retired on 2026-09-08 (decision P-044) after automation storms during the live event. The reviewer app keeps one consent setting for substitute calls. | Regression tests cover substitute paging and its call escalation only. |
 | E-02 | Simplified on 6 September | Accepted teams save one Figma file link. Reviewers open it using the Figma icon. OAuth, capture and agent inspection are removed. | Tests cover URL validation, team permissions, concurrent edits, retries, clearing the link, review pinning and exclusion from agent inputs. Changing only the link reuses the question set. |
 
 Agent preparation covers submitted ideas, answers and progress updates, and connected GitHub repositories. Figma links are supplied for human review only. Teams will not be asked for project documents, PDFs or slide decks; no ingestion pipeline for those materials is planned. Reviewer resumes remain part of the separate one-time assessment above.
@@ -53,7 +53,7 @@ Do not replace the existing question pipeline or reintroduce file sampling. It i
 | P-02 | Event setup, as planned | Import the pool, apply assessed profiles, record training, select panels/reserves, publish the exact round windows and app-confirmation opening. | Every intended reviewer is included as a seat or reserve and can confirm the hours they can actually cover. No form hour becomes assumed availability. |
 | P-03 | Event setup, as planned | Configure attendance plan/stations, register phones, set minimum participant presence, queue routing/call-up, replacement windows and JC rotation. | Staff can identify the next legal action and see a clear blocker when a panel or team is unready. |
 | P-04 | Before judging opens | Publish the requested 0–4 rubric presets, fixed questions, criterion weights, seven-minute limit, mandatory final comments and 30%/70% aggregation policy. | One sample result independently reproduces both round totals and the combined total; missing rounds remain incomplete. |
-| P-05 | Before using automated preparation/calls | Enable preparation for the published rounds, connect team evidence, collect phone consent, and select the dedicated published conversational venue agent in ops. | Ops shows current source/job coverage and consent/delivery state. Agent selection alone does not count as a successful spoken-response test. |
+| P-05 | Before using automated preparation/calls | Enable preparation for the published rounds, connect team evidence, and collect phone consent. | Ops shows current source/job coverage and consent/delivery state. |
 
 Reviewer profiles and reserves are not promises of attendance. Every assignment must have current confirmed coverage for a complete review. Fair rotation prioritizes eligible JCs with fewer completed reviews; actual availability and event capacity determine whether every JC can participate.
 
@@ -63,7 +63,6 @@ Reviewer profiles and reserves are not promises of attendance. Every assignment 
 | --- | --- | --- | --- |
 | V-01 | Before using the flow live | Exercise one complete staging journey with a team, five reviewers and a reserve: entry, staff placement, next-team heads-up, review QR, start, deadline, five comments/scorecards, completion and the next team. Extend browser coverage around the real participant and ops surfaces. | Accepted state agrees across clients; one completed review and one next-team call-up exist. Current Playwright tests check entry and signed-in screens, not this entire journey. |
 | V-02 | Before using the flow live | Use physical Android/iOS phones for locked-screen pages, acceptance/no-show, replacement arrival timeout, JC rotation, active-review locks, app restart and offline score recovery. | Each failure converges to one accepted state, with no lost score, duplicate seat, silent replacement or unacknowledged page treated as attendance. |
-| V-03 | Before conversational absence handling | Test the dedicated venue agent with available, unavailable, unclear, no-answer and help-needed responses, including a response during active/scoring review. | Ops receives the explicit answer, timestamp and transcript; only a current confirmed absence between reviews can end duty and request substitution. The earlier audible Sarvam announcement did not establish two-way response capture. |
 | V-04 | Before relying on evidence questions | Run preparation on a representative multi-repository project with a Figma link for human review, change its evidence, and inspect the new brief and active-review pinning. Include provider failure and recovery. | Coverage accounts for every eligible source, questions cite actual evidence, updated work produces a new version, and fixed questions remain usable while preparation is unavailable. |
 | V-05 | Before final judging | Rehearse score-entry delay, a correction, an export retry and independent export verification. Check concurrent panel call-up load against actual provider capacity. | Late score entry remains possible without extending discussion, results reproduce from immutable inputs, and delayed calls expire instead of reaching people after their task has passed. |
 
@@ -79,11 +78,11 @@ This review covered the workspace manifests, mounted participant/reviewer/ops pa
 | Participant dashboard | `DashboardLive` → `ReviewTile`, relevance/layout and live-time helpers | Queue rank, heads-up, table, review code and ETA are on the current dashboard. Deleted legacy panels are not missing features. Participant score publication was deliberately removed in the latest merged change. |
 | Native reviewer and scanner app | `apps/reviewer`, attendance/presence/duty/review boundaries | V-01 and V-02; native tests and typechecks cannot establish physical behavior. |
 | Ops, roster and panel setup | `apps/ops`, roster parser, profile and publication commands | P-01 through P-04, with no new resume/import subsystem. |
-| Staffing, queue and timing | Backend staffing, substitutions, confirmations, queue automation and lifecycle tests | Arrival/no-show/rotation rehearsal; configurable shift calls are implemented. |
+| Staffing, queue and timing | Backend staffing, substitutions, confirmations, queue automation and lifecycle tests | Arrival/no-show rehearsal; shift calls are retired (P-044). |
 | Judging and aggregation | Rubric presets, score governance, review aggregation and round exports | P-04 and V-05; retain independent reviewers, required comments and exact weights. |
 | Project evidence | GitHub bindings, refresh jobs, captured evidence, question batches, reviewer browsing and a Figma file link | V-04; no arbitrary four-file sampling. Figma contents are not fetched or analyzed. |
 | Intelligence | `apps/intelligence` signed routes, six agent surfaces, callback boundaries and deterministic tests | Live preparation quality/coverage in V-04; reviewer assessment stays outside the Worker. |
-| Voice and GPS | `apps/voice`, venue responses, native venue state and backend escalation | V-03. Audible delivery and recorded confirmation are separate outcomes. |
+| Voice | `apps/voice`, reviewer page escalation and team call-ups | V-02. Audible delivery and recorded confirmation are separate outcomes. |
 | Support and Discord | Shared support cases, Discord permissions/bridge, backend and bot tests | Include actual operator/support handling in rehearsal; reuse the current service. |
 | Email | `apps/email` lifecycle bridge and backend notifications | Provider delivery is distinct from participant acknowledgment. No new event flow needed here. |
 | Incidents, recovery, health and metrics | Backend/ops incident, attention, rehearsal, export and recovery paths | V-02/V-05 and named event operators; keep queues and existing scores intact during incidents. |
@@ -95,7 +94,7 @@ This review covered the workspace manifests, mounted participant/reviewer/ops pa
 
 ## Follow-up implementation
 
-The reviewer call notice now explicitly includes shift reminders. Existing substitute-only consent does not authorize the expanded notice; reviewers confirm the updated notice once in the app. The app submits the version of the notice compiled into its UI, and the backend rejects outdated approvals. Turning calls off remains available from older apps. GPS confirmation consent remains separate.
+The reviewer call notice covers substitute calls. The app submits the version of the notice compiled into its UI, and the backend rejects outdated approvals. Turning calls off remains available from older apps.
 
 No new resume service, document ingestion, agent-controlled scores, or participant controls were added. The backend and intelligence service use the text-only review-question protocol v3 and must be released together. These follow-up changes have not been deployed during this work.
 

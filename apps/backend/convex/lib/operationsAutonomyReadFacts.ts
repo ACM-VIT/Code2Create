@@ -15,7 +15,7 @@ export function operationsAttentionIntelligenceStatement(
     case "panel_seat_empty":
       return "A review panel has an unfilled required seat.";
     case "seat_at_risk":
-      return "A staffed review seat has an availability, heartbeat, or paging risk that needs confirmation.";
+      return "A staffed review seat has a paging risk that needs confirmation.";
     case "review_overdue":
       return "A review is past its planned end time.";
     case "review_presence_incomplete":

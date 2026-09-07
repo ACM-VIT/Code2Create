@@ -1,7 +1,6 @@
 import {
   reviewerCallConsentPolicyVersion,
   reviewerCallScriptPolicyVersion,
-  venueCallConsentVersion,
 } from "@code2create/domain";
 import { ConvexError, v } from "convex/values";
 
@@ -18,39 +17,11 @@ import {
 } from "./lib/operations";
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { requirePermission } from "./lib/permissions";
-import {
-  venueCallPurpose,
-  venueCallScriptVersion,
-} from "./lib/reviewerVenuePolicy";
 
-
-const reviewerPurpose = v.optional(
-  v.union(
-    v.literal("reviewer_substitute_page"),
-    v.literal("reviewer_venue_absence"),
-  ),
-);
-
-function callPolicies(
-  purpose:
-    | "reviewer_substitute_page"
-    | "reviewer_venue_absence" = "reviewer_substitute_page",
-) {
-  return {
-    reviewerCallPurpose: purpose,
-    reviewerCallConsentPolicyVersion:
-      purpose === venueCallPurpose
-        ? venueCallConsentVersion
-        : reviewerCallConsentPolicyVersion,
-    reviewerCallScriptPolicyVersion:
-      purpose === venueCallPurpose
-        ? venueCallScriptVersion
-        : reviewerCallScriptPolicyVersion,
-  };
-}
+const reviewerCallPurpose = "reviewer_substitute_page" as const;
 
 export const mine = query({
-  args: { eventSlug: v.string(), purpose: reviewerPurpose },
+  args: { eventSlug: v.string() },
   returns: v.object({
     state: v.union(
       v.literal("not_configured"),
@@ -65,11 +36,6 @@ export const mine = query({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
-    const {
-      reviewerCallPurpose,
-      reviewerCallConsentPolicyVersion,
-      reviewerCallScriptPolicyVersion,
-    } = callPolicies(args.purpose);
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);
@@ -121,7 +87,6 @@ export const mine = query({
 export const saveReviewerConsent = mutation({
   args: {
     eventSlug: v.string(),
-    purpose: reviewerPurpose,
     state: v.union(v.literal("granted"), v.literal("revoked")),
     destinationPhone: v.optional(v.string()),
     consentPolicyVersion: v.optional(v.string()),
@@ -134,11 +99,6 @@ export const saveReviewerConsent = mutation({
     version: v.number(),
   }),
   handler: async (ctx, args) => {
-    const {
-      reviewerCallPurpose,
-      reviewerCallConsentPolicyVersion,
-      reviewerCallScriptPolicyVersion,
-    } = callPolicies(args.purpose);
     const event = await requireEventBySlug(ctx, args.eventSlug);
     const { person } = await requireCurrentPerson(ctx);
     const subject = await requireEventSubject(ctx, event._id, person._id);

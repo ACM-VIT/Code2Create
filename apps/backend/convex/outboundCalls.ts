@@ -91,9 +91,6 @@ export const deliver = internalAction({
       destinationPhoneE164: claim.destinationPhoneE164,
       script: claim.script,
       ...(claim.requiredProvider ? { requiredProvider: claim.requiredProvider } : {}),
-      ...(claim.venueConfirmation
-        ? { venueConfirmation: claim.venueConfirmation }
-        : {}),
       callbackUrl,
     };
     const body = JSON.stringify(request);

@@ -196,15 +196,6 @@ const signalDefinitions = {
     owner: "Review desk",
     nextAction: "Page or assign a scoped substitute.",
   },
-  stale_reviewer_heartbeats: {
-    area: "reviews",
-    severity: "watch",
-    singular: "Reviewer heartbeat to confirm",
-    plural: "Reviewer heartbeats to confirm",
-    detail: "A clocked-in reviewer on an open round has not checked in recently.",
-    owner: "Review desk",
-    nextAction: "Confirm the reviewer or device before recording a no-show.",
-  },
   overdue_reviews: {
     area: "reviews",
     severity: "attention",
@@ -224,6 +215,16 @@ const signalDefinitions = {
     detail: "A substitute page passed its deadline without reaching a terminal state.",
     owner: "Review desk",
     nextAction: "Run the next substitute step or close the page chain.",
+  },
+  // Retired on 2026-09-08; nothing emits it, stored rows may still carry it.
+  stale_reviewer_heartbeats: {
+    area: "reviews",
+    severity: "watch",
+    singular: "Reviewer heartbeat to confirm",
+    plural: "Reviewer heartbeats to confirm",
+    detail: "Retired signal from before reviewer heartbeats were removed.",
+    owner: "Review desk",
+    nextAction: "No action; refresh the checks.",
   },
   stale_scanner_stations: {
     area: "attendance",
@@ -402,9 +403,9 @@ export function emptyOperationsHealthCounts(): OperationsHealthCounts {
     emergency_pack_failures: empty(),
     emergency_pack_stalls: empty(),
     panels_needing_reviewer: empty(),
-    stale_reviewer_heartbeats: empty(),
     overdue_reviews: empty(),
     expired_reviewer_pages: empty(),
+    stale_reviewer_heartbeats: empty(),
     stale_scanner_stations: empty(),
     scanner_queues_awaiting_replay: empty(),
     participant_delivery_failures: empty(),

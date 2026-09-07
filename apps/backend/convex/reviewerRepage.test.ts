@@ -138,7 +138,6 @@ describe("reviewer repaging", () => {
           status: "open",
           startsAt: now - 1_000,
           endsAt: now + 1_800_000,
-          clockInOpensAt: now - 61_000,
           reviewerReportAt: now - 31_000,
           noShowGraceSeconds: 30,
           correctionRequestsCloseAt: now + 600_000,

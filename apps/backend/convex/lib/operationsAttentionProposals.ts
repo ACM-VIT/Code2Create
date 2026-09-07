@@ -14,7 +14,6 @@ export type AttentionCommand =
       name: "reviewSubstitutions.markNoShow";
       panelMemberId: string;
       expectedPanelVersion: number;
-      expectedClockInVersion: number;
       reason: string;
     }
   | {

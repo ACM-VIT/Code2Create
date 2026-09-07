@@ -65,9 +65,9 @@ Final submission sends the current team and proposal for review. Team membership
 
 The reviewer app is a dedicated Expo application. The project builds and signs native binaries locally. The event distributes updates from its own Cloudflare Worker and R2 service.
 
-The app provides Google sign-in, device registration, clock-in, pages, notification registration, consented phone-call escalation, review-presence scanning, attendance scanning on provisioned devices, review context, independent scorecards, support, and short connection-loss recovery.
+The app provides Google sign-in, device registration, pages, notification registration, consented phone-call escalation, review-presence scanning, attendance scanning on provisioned devices, review context, independent scorecards, support, and short connection-loss recovery.
 
-Reviewer paging uses a reusable outbound-calling service. The service sends push first. If push is unavailable, it can call immediately. Otherwise, the first unanswered reminder can add one synthesized call; its delay is half the response window, capped at 30 seconds. The reviewer must give active consent. The platform records consent, dispatch, provider results, page responses, cancellation before claim, and the page chain's authorizing grants. Team leads can separately opt into next-team and ready-for-review calls using their saved profile phone. Reviewer shift reminders use an ops-configured lead time (default 300 seconds, 0 disables), with an optional call at the same time for reviewers who confirm the updated review-call notice. Clock-in and changed availability prevent obsolete reminders.
+Reviewer paging uses a reusable outbound-calling service. The service sends push first. If push is unavailable, it can call immediately. Otherwise, the first unanswered reminder can add one synthesized call; its delay is half the response window, capped at 30 seconds. The reviewer must give active consent. The platform records consent, dispatch, provider results, page responses, cancellation before claim, and the page chain's authorizing grants. Team leads can separately opt into next-team and ready-for-review calls using their saved profile phone.
 
 ### Operations dashboard
 
@@ -176,7 +176,7 @@ The production release must satisfy these outcomes:
 - VIT ID barcode and QR scans update one participant identity without duplicate presence intervals.
 - Operations can distinguish venue arrival, session presence, temporary exit, departure, excusal, and unresolved state.
 - An authorized organizer can map a team from the team's dashboard QR.
-- Operations can locate clocked-in reviewers and unfilled panel seats.
+- Operations can see which panel seats are filled and which are not.
 - A missing reviewer creates a visible page and escalation record.
 - Phone escalation requires current consent and a scoped permission.
 - Every started review has the required reviewer-presence record or a permitted, reasoned waiver.
