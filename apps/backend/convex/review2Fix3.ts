@@ -6,6 +6,7 @@ import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProj
 import { ensureRoundConfirmation } from "./lib/reviewRoster";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { revokeSourceGrants } from "./lib/permissions";
+import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
 
 /** One-off Review 2 adjustments on 2026-09-08 (scale, fixed questions, queue balance); delete after use. */
 
@@ -378,6 +379,39 @@ export const setMinimumPresent = internalMutation({
     const previous = round.minimumPresentParticipants;
     await ctx.db.patch(round._id, { minimumPresentParticipants: args.minimum, version: round.version + 1 });
     return { previous, now: args.minimum, version: round.version + 1 };
+  },
+});
+
+/** Teams confirmed by direct patch never got the attendance-availability projection; create it. */
+export const initializeTeamAvailability = internalMutation({
+  args: { teamCodes: v.array(v.string()) },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const events = await ctx.db.query("events").take(2);
+    const event = events[0];
+    if (!event || events.length !== 1) throw new Error("Expected exactly one event.");
+    const done: string[] = [];
+    const missing: string[] = [];
+    for (const raw of args.teamCodes) {
+      const code = raw.trim().toUpperCase();
+      const team = await ctx.db
+        .query("teams")
+        .withIndex("by_event_code", (q) => q.eq("eventId", event._id).eq("publicCode", code))
+        .unique();
+      if (!team) {
+        missing.push(code);
+        continue;
+      }
+      await initializeAttendanceTeamAvailability(ctx, {
+        eventId: event._id,
+        teamId: team._id,
+        activeMemberCount: Math.max(1, team.activeMemberCount),
+        now,
+      });
+      done.push(team.name);
+    }
+    return { done, missing };
   },
 });
 
