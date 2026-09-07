@@ -228,8 +228,9 @@ export const makeReviewable = internalMutation({
         continue;
       }
       const status = ["confirmed", "checked_in", "active"].includes(team.status) ? team.status : "confirmed";
+      // Competitor is the absence of a category; "oc" is the only stored value.
       await ctx.db.patch(team._id, {
-        competitionCategory: "competitor",
+        competitionCategory: undefined,
         status,
         version: team.version + 1,
         updatedAt: now,
