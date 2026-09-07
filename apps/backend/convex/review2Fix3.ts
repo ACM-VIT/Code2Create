@@ -118,3 +118,31 @@ export const rebalanceQueue = internalMutation({
     };
   },
 });
+
+/**
+ * A round that ran outside the system cannot publish elimination decisions
+ * (there is no close snapshot). Marking it all-advance lifts it out of the
+ * later round's progression gate; the desk's queue already decides who is reviewed.
+ */
+export const allAdvanceProgression = internalMutation({
+  args: { roundId: v.id("reviewRounds"), reason: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const policy = await ctx.db
+      .query("reviewProgressions")
+      .withIndex("by_event_round", (q) => q.eq("eventId", round.eventId).eq("roundId", round._id))
+      .unique();
+    if (!policy) throw new Error("The round has no progression policy.");
+    if (policy.mode === "all_advance") return { changed: false, mode: policy.mode };
+    await ctx.db.patch(policy._id, {
+      mode: "all_advance",
+      version: policy.version + 1,
+      updatedAt: Date.now(),
+      reason: args.reason,
+    });
+    return { changed: true, previous: policy.mode, version: policy.version + 1 };
+  },
+});
+
