@@ -564,29 +564,13 @@ async function items(backend: BackendTest, fixture: Fixture) {
 
 async function fillTheSeat(backend: BackendTest, fixture: Fixture) {
   await backend.run(async (ctx) => {
-    const clockIn = await ctx.db
-      .query("reviewerClockIns")
-      .withIndex("by_round_person", (index) =>
-        index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.absentPersonId),
-      )
-      .unique();
-    if (!clockIn) throw new Error("The fixture reviewer has no clock-in.");
-    await ctx.db.patch(clockIn._id, { status: "present", version: clockIn.version + 1,
-    });
+    await ctx.db.patch(fixture.removedPanelMemberId, { status: "active", endedAt: undefined });
   });
 }
 
 async function emptyTheSeat(backend: BackendTest, fixture: Fixture) {
   await backend.run(async (ctx) => {
-    const clockIn = await ctx.db
-      .query("reviewerClockIns")
-      .withIndex("by_round_person", (index) =>
-        index.eq("roundId", fixture.roundId).eq("reviewerPersonId", fixture.absentPersonId),
-      )
-      .unique();
-    if (!clockIn) throw new Error("The fixture reviewer has no clock-in.");
-    await ctx.db.patch(clockIn._id, { status: "clocked_out", version: clockIn.version + 1,
-    });
+    await ctx.db.patch(fixture.removedPanelMemberId, { status: "removed", endedAt: Date.now() });
   });
 }
 
@@ -682,7 +666,8 @@ async function addShortRound(backend: BackendTest, fixture: Fixture) {
         eventAccessSubjectId: account.subjectId,
         assignedCriterionIds: [],
         isCoordinator: key === "coordinator",
-        status: "active",
+        status: key === "absent" ? "removed" : "active",
+        ...(key === "absent" ? { endedAt: now } : {}),
         assignedAt: now,
         seatSeniority: key === "coordinator" ? "lead" : "sc",
       });
@@ -838,7 +823,8 @@ async function seedFloor(backend: BackendTest) {
           eventAccessSubjectId: account.subjectId,
           assignedCriterionIds: [],
           isCoordinator: key === "coordinator",
-          status: "active",
+          status: key === "absent" ? "removed" : "active",
+          ...(key === "absent" ? { endedAt: now } : {}),
           assignedAt: now,
           seatSeniority: key === "coordinator" ? "lead" : "sc",
         }),

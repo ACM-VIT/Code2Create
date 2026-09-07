@@ -78,14 +78,6 @@ export function judgingStatus(
   if (!duty.deviceRegistered) return { status: "Set up phone", active: false };
   if (!duty.review) {
     if (!duty.assignment) return { status: "No review duty", active: false };
-    if (duty.clockInStatus === "clocked_out")
-      return { status: "Clocked out", active: false };
-    if (duty.clockInStatus === "no_show")
-      return { status: "Off duty", active: false };
-    if (duty.clockInStatus === "temporarily_unavailable")
-      return { status: "On break", active: false };
-    if (duty.clockInStatus !== "present")
-      return { status: "Not clocked in", active: false };
     return {
       status: duty.assignment === "reserve" ? "On call" : "Waiting",
       active: false,

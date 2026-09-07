@@ -261,14 +261,12 @@ test("a heartbeat inside the window is not a risk", () => {
   assert.deepEqual(only(items, "seat_at_risk"), []);
 });
 
-test("a reviewer who has clocked out is the empty-seat story, not the at-risk one", () => {
+test("a missing member is the empty-seat story, not the at-risk one", () => {
   const items = reviewFloorItems(
     floor({
       panels: [
         panel({
           members: [
-            member({ clockInStatus: "clocked_out", lastHeartbeatAt: now - 30 * minute,
-            }),
             member({ panelMemberId: "m2", personId: "p2" }),
             member({ panelMemberId: "m3", personId: "p3" }),
           ],

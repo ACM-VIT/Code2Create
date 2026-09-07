@@ -9,17 +9,15 @@ import {
 
 describe("judging duty status", () => {
   test.each([
-    ["present", "On call"],
-    ["temporarily_unavailable", "On break"],
-    ["clocked_out", "Clocked out"],
-    [null, "Not clocked in"],
-  ] as const)("shows a reserve's %s duty state", (clockInStatus, status) => {
+    ["reserve", "On call"],
+    ["panel", "Waiting"],
+  ] as const)("shows %s duty without any clock-in state", (assignment, status) => {
     expect(
       judgingStatus(
         {
           deviceRegistered: true,
-          assignment: "reserve",
-          clockInStatus,
+          assignment,
+          clockInStatus: null,
           heartbeat: null,
           review: null,
         },
@@ -85,22 +83,6 @@ describe("judging duty status", () => {
       status: "",
       active: false,
     });
-  });
-
-  test("shows clock-out as a terminal off-duty state", () => {
-    expect(
-      judgingStatus(
-        {
-          deviceRegistered: true,
-          assignment: "panel",
-          clockInStatus: "clocked_out",
-          heartbeat: null,
-          review: null,
-        },
-        false,
-        true,
-      ),
-    ).toEqual({ status: "Clocked out", active: false });
   });
 
   test("keeps phone registration reachable before a panel is assigned", () => {

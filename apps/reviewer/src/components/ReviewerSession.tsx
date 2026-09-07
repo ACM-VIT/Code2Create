@@ -25,7 +25,6 @@ type ReviewerSession = {
   canCreateSupport: boolean;
   canManageAttention: boolean;
   judgingStatus: DutyStatus;
-  reviewHeartbeatIssue: string | null;
   venue: ReturnType<typeof useReviewerVenue>;
   signOut: () => void;
 };
@@ -154,7 +153,6 @@ export function ReviewerSessionProvider({
         canCreateSupport: access.supportCreate,
         canManageAttention: access.attentionManage,
         judgingStatus: reviewerDuty.judgingStatus,
-        reviewHeartbeatIssue: reviewerDuty.heartbeatIssue,
         venue,
         signOut,
       }}

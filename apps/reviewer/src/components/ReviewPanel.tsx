@@ -30,15 +30,12 @@ import Svg, { Path } from "react-native-svg";
 
 import { PagingSetup } from "@/components/PagingSetup";
 import { ProjectEvidence } from "@/components/ProjectEvidence";
-import { ReviewDutyStatus } from "@/components/ReviewDutyStatus";
 import { ReviewAvailability } from "@/components/ReviewAvailability";
-import { useReviewerSession } from "@/components/ReviewerSession";
 import { JudgingSkeleton } from "@/components/skeletons";
 import { ReviewerSetup } from "@/components/ReviewerSetup";
 import {
   Action,
   ChipRow,
-  DutyRing,
   ErrorSheet,
   Field,
   HeaderButton,
@@ -114,7 +111,6 @@ const scores = [0, 1, 2, 3, 4] as const;
 
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug;
-  const { reviewHeartbeatIssue } = useReviewerSession();
   const platform = reviewerPlatform();
   const {
     permission: cameraPermission,
@@ -138,15 +134,12 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   } | null>(null);
   const [pagingOpen, setPagingOpen] = useState(false);
   const createBusyRef = useRef(false);
-  const clockInAttempt =
-    useMutationAttempt<FunctionReturnType<typeof api.reviewer.clockIn>>();
   const startAttempt =
     useMutationAttempt<
       FunctionReturnType<typeof api.reviewOperations.startReview>
     >();
   const router = useRouter();
   const registerDevice = useMutation(api.reviewer.registerDevice);
-  const clockIn = useMutation(api.reviewer.clockIn);
   const startReview = useMutation(api.reviewOperations.startReview);
   useEffect(() => {
     if (!platform) return;
@@ -211,8 +204,9 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     current?.review && workspace && scorecard
       ? { ...current.review, ...workspace, scorecard }
       : null;
-  const heartbeatStatus =
-    current?.panel?.clockIn?.status ?? current?.reserve?.clockIn?.status;
+  // Errors are scoped to the current duty context so a stale message clears
+  // when the reviewer's assignment or review changes.
+  const heartbeatStatus = current?.review?.id ?? current?.panel?.id ?? current?.reserve?.id;
 
   const setError = (message: string | null) => {
     setErrorState(
@@ -427,31 +421,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     }
   };
 
-  const clockIntoRound = async () => {
-    if (!assignment || busy) return;
-    setBusy("clock_in");
-    setError(null);
-    try {
-      await clockInAttempt.run(
-        `reviewer-clock-in:${assignment.round.id}`,
-        () => {
-          const args = {
-            eventSlug,
-            roundId: assignment.round.id,
-            installationId: deviceRecord.installationId,
-            expectedVersion: assignment.clockIn?.version ?? 0,
-            clientOperationId: randomUUID(),
-          };
-          return () => clockIn(args);
-        },
-      );
-    } catch (caught) {
-      setError(errorMessage(caught, "Clock-in could not be completed."));
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const beginReview = async () => {
     if (!current.review || busy) return;
     setBusy("start");
@@ -501,20 +470,10 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     </>
   );
 
-  const dutyStatus = (
-    <ReviewDutyStatus
-      assignment={assignment}
-      canChangeDuty={
-        assignment?.clockIn?.status === "present" && !current.review
-      }
-      eventSlug={eventSlug}
-      installationId={deviceRecord.installationId}
-    />
-  );
 
   if (panelMode === "empty") {
     return (
-      <Panel dutyStatus={dutyStatus}>
+      <Panel>
         <ReviewAvailability eventSlug={eventSlug} />
         <Nothing>No current review duty</Nothing>
         {pagingSettings}
@@ -523,7 +482,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     );
   }
 
-  const clockedIn = assignment?.clockIn?.status === "present";
   const review = current.review;
   const everyonePresent = review
     ? review.assignment.reviewerPresenceCount ===
@@ -548,14 +506,14 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
     (review.status === "active" || review.status === "scoring")
   ) {
     return (
-      <Panel dutyStatus={dutyStatus}>
+      <Panel>
         <JudgingSkeleton />
       </Panel>
     );
   }
 
   return (
-    <Panel dutyStatus={dutyStatus}>
+    <Panel>
       {/* During live scoring the criterion is the page; the round name yields. */}
       {liveScoring ? null : (
         <Text style={styles.heading}>
@@ -634,14 +592,7 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       {!review ? <ReviewAvailability eventSlug={eventSlug} /> : null}
 
       {deviceIsCurrent && assignment && !review ? (
-        <ClockInControl
-          assignment={assignment}
-          busy={busy}
-          checksMeetRound={checksMeetRound}
-          clockedIn={clockedIn}
-          current={current}
-          onPress={clockIntoRound}
-        />
+        <DutyNotice assignment={assignment} current={current} />
       ) : null}
 
       {review ? (
@@ -726,7 +677,6 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
 
       {review ? null : <CorrectionRequests eventSlug={eventSlug} />}
 
-      {reviewHeartbeatIssue ? <Problem>{reviewHeartbeatIssue}</Problem> : null}
       <ErrorSheet message={visibleError} onClose={() => setError(null)} />
     </Panel>
   );
@@ -1091,77 +1041,22 @@ function ReviewQrScanner({
   );
 }
 
-function ClockInControl({
+function DutyNotice({
   assignment,
-  busy,
-  checksMeetRound,
-  clockedIn,
   current,
-  onPress,
 }: {
   assignment: ReviewerAssignment;
-  busy: BusyAction;
-  checksMeetRound: boolean;
-  clockedIn: boolean;
   current: ReviewerNow;
-  onPress: () => Promise<void>;
 }) {
-  const { eventSlug } = useReviewerSession();
-  const confirmations = useQuery(api.reviewConfirmations.mine, { eventSlug });
-  const estimatedServerNow = useEstimatedServerNow(current.serverNow);
-  const confirmation = confirmations?.find(
-    (candidate) => candidate.roundId === assignment.round.id,
-  );
-  const reviewStartsAt = Math.max(
-    estimatedServerNow,
-    assignment.round.startsAt,
-  );
-  const confirmedForReview =
-    confirmation?.response.status === "confirmed" &&
-    confirmation.response.windows.some(
-      (window) =>
-        window.startsAt <=
-          reviewStartsAt + confirmation.assignmentReminderSeconds * 1000 &&
-        window.endsAt >=
-          Math.max(reviewStartsAt, window.startsAt) +
-            confirmation.reviewDurationSeconds * 1_000,
-    );
-  const clockInOpen =
-    estimatedServerNow >= assignment.round.clockInOpensAt &&
-    estimatedServerNow < assignment.round.endsAt;
   return (
     <View style={styles.waiting}>
-      {!clockedIn ? (
-        <Text style={styles.meta}>
-          Report {formatDeviceTime(assignment.round.reviewerReportAt)} ·
-          clock-in opens {formatDeviceTime(assignment.round.clockInOpensAt)}
-        </Text>
-      ) : null}
-      <DutyRing
-        accent={palette.judging}
-        busy={busy === "clock_in"}
-        {...(clockedIn ? { detail: dutyStateDetail(current) } : {})}
-        disabled={
-          busy !== null ||
-          !checksMeetRound ||
-          !confirmedForReview ||
-          (!clockedIn && !clockInOpen)
-        }
-        label={
-          clockedIn
-            ? "On duty"
-            : assignment.clockIn
-              ? "Return to duty"
-              : "Clock in"
-        }
-        on={clockedIn}
-        onPress={onPress}
-      />
-      {!confirmedForReview ? (
-        <Text style={styles.meta}>
-          Confirm hours covering your next review before clocking in.
-        </Text>
-      ) : null}
+      <Text style={styles.meta}>
+        Report {formatDeviceTime(assignment.round.reviewerReportAt)}
+      </Text>
+      <Text style={styles.value}>{dutyStateDetail(current)}</Text>
+      <Text style={styles.meta}>
+        The desk calls your panel when a team is ready; keep this phone with you.
+      </Text>
     </View>
   );
 }

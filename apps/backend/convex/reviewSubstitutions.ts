@@ -62,7 +62,6 @@ type EligibleReserve = {
   reserve: Doc<"reviewRoundReserves">;
   person: Doc<"people">;
   subject: Doc<"eventAccessSubjects">;
-  clockIn: Doc<"reviewerClockIns">;
   device: Doc<"reviewerDevices">;
   profile: Doc<"reviewerProfiles">;
   participation: Awaited<ReturnType<typeof reviewerParticipation>>;
@@ -246,7 +245,7 @@ export async function eligibleReserve(
   ) {
     return null;
   }
-  const [person, subject, profile, clockIn, overlappingPanel, sentPages, openedPages,
+  const [person, subject, profile, device, overlappingPanel, sentPages, openedPages,
   ] =
     await Promise.all([
       ctx.db.get(args.reserve.personId),
@@ -258,11 +257,15 @@ export async function eligibleReserve(
         )
         .unique(),
       ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", args.round._id).eq("reviewerPersonId", args.reserve.personId),
+        .query("reviewerDevices")
+        .withIndex("by_event_person_status_seen", (index) =>
+          index
+            .eq("eventId", args.round.eventId)
+            .eq("personId", args.reserve.personId)
+            .eq("status", "active"),
         )
-        .unique(),
+        .order("desc")
+        .first(),
       reviewerHasOverlappingPanel(ctx, args.round.eventId, args.reserve.personId, args.round),
       ctx.db
         .query("reviewerPages")
@@ -303,8 +306,6 @@ export async function eligibleReserve(
     profile.status !== "active" ||
 
     !confirmedWindow ||
-    !clockIn ||
-    clockIn.status !== "present" ||
     overlappingPanel
   ) {
     return null;
@@ -327,7 +328,6 @@ export async function eligibleReserve(
   const hasOtherPage = activePages.some((page) => page._id !== args.ignoredPageId,
   );
   if (hasOtherPage) return null;
-  const device = await ctx.db.get(clockIn.reviewerDeviceId);
   if (
     !device ||
     device.eventId !== args.round.eventId ||
@@ -341,8 +341,7 @@ export async function eligibleReserve(
   ) {
     return null;
   }
-  // A locked phone stops foreground heartbeats but can still receive a page.
-  // Confirmed availability and clock-in make a reserve pageable; acceptance
+  // Confirmed availability and a ready phone make a reserve pageable; acceptance
   // before the page expires establishes that they can take the seat now.
   const participation = await reviewerParticipation(
     ctx,
@@ -355,7 +354,7 @@ export async function eligibleReserve(
     const conflict = await hasReviewConflict(ctx, args.round.eventId, person._id, teamId);
     if (conflict) return null;
   }
-  return { reserve: args.reserve, person, subject, clockIn, device,
+  return { reserve: args.reserve, person, subject, device,
     profile,
     participation,
     availableUntil: confirmedWindow.endsAt,

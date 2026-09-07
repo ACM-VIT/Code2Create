@@ -1423,19 +1423,7 @@ export async function callQueuedTeam(
       });
     }
     for (const member of members) {
-      const clockIn = await ctx.db
-        .query("reviewerClockIns")
-        .withIndex("by_round_person", (index) =>
-          index.eq("roundId", round._id).eq("reviewerPersonId", member.personId),
-        )
-        .unique();
-    await requireConfirmedReviewer(ctx, round, member.personId, Date.now());
-    if (!clockIn || clockIn.status !== "present") {
-        throw new ConvexError({
-          code: "PANEL_REVIEWER_NOT_PRESENT",
-          message: "Every assigned reviewer must be clocked in before a team is called.",
-        });
-      }
+      await requireConfirmedReviewer(ctx, round, member.personId, Date.now());
     }
     const [awaitingPanelSessions, activePanelSessions,
     scoringPanelSessions,
@@ -1814,7 +1802,7 @@ export const startReview = mutation({
         assignment.reviewerPersonId,
         now,
       );
-      const [presence, conflict, clockIn] = await Promise.all([
+      const [presence, conflict] = await Promise.all([
         ctx.db
           .query("reviewPresence")
           .withIndex("by_session_reviewer", (index) =>
@@ -1832,22 +1820,7 @@ export const startReview = mutation({
               .eq("status", "active"),
           )
           .first(),
-        ctx.db
-          .query("reviewerClockIns")
-          .withIndex("by_round_person", (index) =>
-            index
-              .eq("roundId", round._id)
-              .eq("reviewerPersonId", assignment.reviewerPersonId),
-          )
-          .unique(),
       ]);
-      if (clockIn?.status !== "present") {
-        throw new ConvexError({
-          code: "PANEL_REVIEWER_NOT_PRESENT",
-          message:
-            "Every assigned reviewer must still be on duty when the review starts.",
-        });
-      }
       if (conflict) {
         throw new ConvexError({
           code: "REVIEWER_CONFLICT_ACTIVE",

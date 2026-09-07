@@ -71,7 +71,6 @@ export const juniorParticipation = query({
         v.literal("on_panel"),
         v.literal("paged"),
         v.literal("waiting"),
-        v.literal("off_duty"),
         v.literal("outside_window"),
         v.literal("unconfirmed"),
         v.literal("profile_inactive"),
@@ -111,7 +110,7 @@ export const juniorParticipation = query({
           )
           .unique();
         if (!profile || profile.seniority !== "jc") return null;
-        const [reviewer, participation, seat, clockIn, reserve] =
+        const [reviewer, participation, seat, reserve] =
           await Promise.all([
             ctx.db.get(confirmation.personId),
             reviewerParticipation(ctx, event._id, confirmation.personId),
@@ -122,14 +121,6 @@ export const juniorParticipation = query({
                   .eq("roundId", round._id)
                   .eq("personId", confirmation.personId)
                   .eq("status", "active"),
-              )
-              .unique(),
-            ctx.db
-              .query("reviewerClockIns")
-              .withIndex("by_round_person", (q) =>
-                q
-                  .eq("roundId", round._id)
-                  .eq("reviewerPersonId", confirmation.personId),
               )
               .unique(),
             ctx.db
@@ -156,9 +147,7 @@ export const juniorParticipation = query({
                     round.substituteResponseSeconds,
                   ))
                 ? ("outside_window" as const)
-                : clockIn?.status !== "present"
-                  ? ("off_duty" as const)
-                  : seat
+                : seat
                     ? ("on_panel" as const)
                     : reserve?.status === "paged"
                       ? ("paged" as const)

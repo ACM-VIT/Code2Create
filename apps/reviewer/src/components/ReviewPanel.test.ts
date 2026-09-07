@@ -42,7 +42,6 @@ vi.mock("@/components/ui", () =>
     [
       "Action",
       "ChipRow",
-      "DutyRing",
       "ErrorSheet",
       "Field",
       "HeaderButton",
@@ -61,7 +60,6 @@ vi.mock("@/components/skeletons", () => ({
 vi.mock("@/components/ReviewerSession", () => ({
   useReviewerSession: () => ({
     eventSlug: "event",
-    reviewHeartbeatIssue: null,
   }),
 }));
 vi.mock("@/components/PagingSetup", () => ({ PagingSetup: "PagingSetup" }));
@@ -185,17 +183,3 @@ test("arrival controls retain distinct identities and reset when the next team a
   ).toBe(false);
 });
 
-test("starting a review dismisses duty settings without replacing the native sheet owner", async () => {
-  if (!mock.current) throw Error("Current duty missing");
-  mock.current = { ...mock.current, review: null };
-  await act(async () => { view = create(render()); });
-  expect(view.root.findByProps({ label: "Paging settings" })).toBeDefined();
-  await act(async () => view.root.findByProps({ label: "Change duty status" }).props.onPress());
-  const sheet = view.root.findByProps({ title: "Step away" });
-  expect(sheet.props.visible).toBe(true);
-  mock.current = { ...mock.current, review };
-  await act(async () => view.update(render()));
-  expect(view.root.findByProps({ title: "Step away" })).toBe(sheet);
-  expect(sheet.props.visible).toBe(false);
-  expect(view.root.findAllByProps({ label: "Paging settings" })).toHaveLength(0);
-});

@@ -176,8 +176,7 @@ export function reviewPanelItems(input: PanelDetectorProjection,
   for (const panel of input.panels) {
     if (panel.status === "draft" || panel.status === "closed") continue;
     const queuedCount = panel.queuedTeams.length;
-    const seated = panel.members.filter((member) => member.clockInStatus === "present",
-    ).length;
+    const seated = panel.members.length;
     const missing = input.requiredPanelSize - seated;
 
     if (
