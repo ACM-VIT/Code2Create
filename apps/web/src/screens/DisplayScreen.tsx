@@ -275,7 +275,7 @@ function PanelWall({
 function PanelCard({ panel }: { panel: PanelView }) {
   const atTable = panel.inReview[0] ?? null;
   const called = panel.called[0] ?? null;
-  const next = panel.upNext.filter((name) => name !== called).slice(0, 2);
+  const next = panel.upNext.find((name) => name !== called) ?? null;
   return (
     <div className="flex min-w-0 flex-col justify-between rounded-[0.8vw] bg-fg/[0.06] px-[1.4vw] py-[1vw]">
       <p className="m-0 text-[1.25vw] text-rose-light">{panel.name}</p>
@@ -285,12 +285,19 @@ function PanelCard({ panel }: { panel: PanelView }) {
           <span className="block text-[1.2vw] text-rose-light">come to the table</span>
         ) : null}
       </p>
-      <div className="flex flex-col gap-[0.2vw] text-[1.25vw] leading-snug">
+      <div className="flex flex-col gap-[0.2vw] leading-snug">
         {atTable && called ? (
-          <p className="m-0 truncate text-rose-light">called · {called}</p>
+          <p className="m-0 truncate text-[1.25vw] text-rose-light">called · {called}</p>
         ) : null}
-        <p className="m-0 truncate text-fg/55">
-          {next.length > 0 ? `next · ${next.join(", ")}` : "queue empty"}
+        <p className="m-0 truncate text-[1.7vw] text-fg/70">
+          {next ? (
+            <>
+              <span className="text-fg/45">next · </span>
+              <span className="text-fg">{next}</span>
+            </>
+          ) : (
+            "queue empty"
+          )}
         </p>
       </div>
     </div>
