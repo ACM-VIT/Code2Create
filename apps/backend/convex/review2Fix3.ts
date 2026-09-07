@@ -367,3 +367,17 @@ export const revokeAssignedReserveGrants = internalMutation({
   },
 });
 
+/** Hall check-in data lags the floor; drop the round's minimum-present rule so calls go through. */
+export const setMinimumPresent = internalMutation({
+  args: { roundId: v.id("reviewRounds"), minimum: v.number() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    if (!Number.isInteger(args.minimum) || args.minimum < 0) throw new Error("Choose a whole number.");
+    const previous = round.minimumPresentParticipants;
+    await ctx.db.patch(round._id, { minimumPresentParticipants: args.minimum, version: round.version + 1 });
+    return { previous, now: args.minimum, version: round.version + 1 };
+  },
+});
+
