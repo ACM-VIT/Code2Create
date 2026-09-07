@@ -281,7 +281,6 @@ import type * as phoneVerifications from "../phoneVerifications.js";
 import type * as projectCheckpoints from "../projectCheckpoints.js";
 import type * as rehearsals from "../rehearsals.js";
 import type * as releaseVerification from "../releaseVerification.js";
-import type * as review2Seed from "../review2Seed.js";
 import type * as reviewAggregation from "../reviewAggregation.js";
 import type * as reviewConfiguration from "../reviewConfiguration.js";
 import type * as reviewConfirmationPush from "../reviewConfirmationPush.js";
@@ -610,7 +609,6 @@ declare const fullApi: ApiFromModules<{
   projectCheckpoints: typeof projectCheckpoints;
   rehearsals: typeof rehearsals;
   releaseVerification: typeof releaseVerification;
-  review2Seed: typeof review2Seed;
   reviewAggregation: typeof reviewAggregation;
   reviewConfiguration: typeof reviewConfiguration;
   reviewConfirmationPush: typeof reviewConfirmationPush;

@@ -279,8 +279,10 @@ export const apply = internalMutation({
       return "accepted";
     }
     if (settlement.status === "failed") {
+      // A newer revision is still owed: keep it pending and dispatch it, so an old
+      // failure never strands the binding in an error state the sweep ignores.
       await ctx.db.patch(binding._id, {
-        syncState: "error",
+        syncState: dirty ? "pending" : "error",
         syncErrorCode: settlement.errorCode,
         syncLeaseId: undefined,
         syncLeaseExpiresAt: undefined,
@@ -288,6 +290,7 @@ export const apply = internalMutation({
         updatedAt: now,
       });
       await recordBindingChange(ctx, binding, now);
+      if (dirty) await scheduleRepositorySync(ctx, binding._id, 0);
       return "accepted";
     }
     const observed = settlement.observation;

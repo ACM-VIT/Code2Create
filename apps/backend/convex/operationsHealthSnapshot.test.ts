@@ -311,7 +311,8 @@ describe("operations-health materialization", () => {
     expect(
       await reader.mutation(api.operationsHealth.requestRefresh, { eventSlug: fixture.eventSlug }),
     ).toBe("scheduled");
-    await backend.finishInProgressScheduledFunctions();
+    // The scheduled refresh is the same action; run it directly so the test stays deterministic.
+    expect(await backend.action(internal.operationsHealth.refresh, {})).toBe("created");
     expect(
       await reader.query(api.operationsHealth.overview, { eventSlug: fixture.eventSlug }),
     ).toMatchObject({ state: "ready" });

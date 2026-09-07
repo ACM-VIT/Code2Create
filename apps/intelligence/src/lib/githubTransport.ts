@@ -31,6 +31,7 @@ async function deliver(
   payload: unknown,
   bindings: CallbackBindings,
   request: typeof fetch,
+  timeoutMs: number,
 ) {
   const body = JSON.stringify(payload);
   const timestamp = String(Date.now());
@@ -56,7 +57,7 @@ async function deliver(
         "x-c2c-signature": signature,
       },
       body,
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(timeoutMs),
     },
   );
   return { status: response.status, value: await readBoundedJsonResponse(response, 8_192) };
@@ -74,6 +75,7 @@ export async function publishRepositorySync(
     payload,
     bindings,
     request,
+    20_000,
   );
   const receipt = v.safeParse(syncReceipt, delivered.value);
   if (delivered.status !== 202 || !receipt.success) {
@@ -94,6 +96,8 @@ export async function forwardGithubWebhook(
     payload,
     bindings,
     request,
+    // GitHub abandons a delivery after ten seconds; fail fast so it can redeliver.
+    8_000,
   );
   const receipt = v.safeParse(webhookReceipt, delivered.value);
   if (delivered.status !== 202 || !receipt.success) {

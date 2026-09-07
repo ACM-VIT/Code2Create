@@ -185,11 +185,20 @@ export async function repositoryInstallationRequester(
   const minted = await appRequester(`/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     body: JSON.stringify({
-      repository_ids: [Number(repositoryId)],
+      repository_ids: [exactRepositoryId(repositoryId)],
       permissions: { contents: "read", metadata: "read" },
     }),
   });
   const parsed = v.safeParse(installationTokenSchema, minted.value);
   if (!parsed.success) throw new GithubResponseInvalidError("installation token");
   return githubRequester(parsed.output.token, request);
+}
+
+/** GitHub expects a JSON number; refuse ids that would round on the wire. */
+function exactRepositoryId(repositoryId: string) {
+  const value = Number(repositoryId);
+  if (!Number.isSafeInteger(value) || String(value) !== repositoryId) {
+    throw new Error("The repository id cannot be represented exactly.");
+  }
+  return value;
 }
