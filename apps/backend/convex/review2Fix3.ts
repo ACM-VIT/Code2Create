@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
-import { patchTeamRoundState } from "./lib/reviewQueueProjection";
+import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProjection";
 
 /** One-off Review 2 adjustments on 2026-09-08 (scale, fixed questions, queue balance); delete after use. */
 
@@ -143,6 +143,66 @@ export const allAdvanceProgression = internalMutation({
       reason: args.reason,
     });
     return { changed: true, previous: policy.mode, version: policy.version + 1 };
+  },
+});
+
+/** Queues one team on a named panel, at the back of that panel's queue. */
+export const enqueueTeam = internalMutation({
+  args: {
+    roundId: v.id("reviewRounds"),
+    teamCode: v.string(),
+    panelStableKey: v.string(),
+    actorEmail: v.string(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const actorPersonId = await requireActor(ctx, round.eventId, args.actorEmail);
+    const team = await ctx.db
+      .query("teams")
+      .withIndex("by_event_code", (q) => q.eq("eventId", round.eventId).eq("publicCode", args.teamCode.trim().toUpperCase()))
+      .unique();
+    if (!team) throw new Error("The team does not exist.");
+    const panel = (
+      await ctx.db
+        .query("reviewPanels")
+        .filter((q) => q.eq(q.field("roundId"), round._id))
+        .collect()
+    ).find((row) => row.stableKey === args.panelStableKey);
+    if (!panel) throw new Error("The panel does not exist.");
+    const state = await ctx.db
+      .query("teamRoundStates")
+      .withIndex("by_round_team", (q) => q.eq("roundId", round._id).eq("teamId", team._id))
+      .unique();
+    if (state && !["unassigned", "skipped", "withdrawn"].includes(state.state)) {
+      return { changed: false, team: team.name, state: state.state, panelId: state.panelId };
+    }
+    const fields = {
+      panelId: panel._id,
+      state: "queued" as const,
+      queuedAt: now,
+      callAttemptCount: 0,
+      updatedByPersonId: actorPersonId,
+      updatedAt: now,
+    };
+    if (state) {
+      await patchTeamRoundState(ctx, state, {
+        ...fields,
+        skipReason: undefined,
+        calledAt: undefined,
+        lastCallAttemptAt: undefined,
+        holdReason: undefined,
+        stateBeforeHold: undefined,
+        heldAt: undefined,
+        missedAt: undefined,
+        version: state.version + 1,
+      });
+    } else {
+      await insertTeamRoundState(ctx, { eventId: round.eventId, roundId: round._id, teamId: team._id, priority: 0, version: 1, ...fields });
+    }
+    return { changed: true, team: team.name, panel: panel.name, previous: state?.state ?? null };
   },
 });
 
