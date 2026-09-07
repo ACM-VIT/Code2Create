@@ -102,7 +102,10 @@ export const state = query({
       .query("events")
       .withIndex("by_slug", (index) => index.eq("slug", args.eventSlug))
       .unique();
-    if (!event || event.status !== "live") return { serverNow, music: null, review: null };
+    if (!event) return { serverNow, music: null, review: null };
+    // An open review round is its own signal; the event's lifecycle status can lag the floor.
+    const review = await reviewCallUps(ctx, event._id);
+    if (event.status !== "live") return { serverNow, music: null, review };
 
     const window = await activeSynesthesiaWindow(ctx, event._id, serverNow);
     let music = null;
@@ -145,6 +148,6 @@ export const state = query({
       };
     }
 
-    return { serverNow, music, review: await reviewCallUps(ctx, event._id) };
+    return { serverNow, music, review };
   },
 });
