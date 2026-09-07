@@ -1,5 +1,4 @@
 import { Stack } from "expo-router";
-import "@/lib/venue-location";
 import { StatusBar } from "expo-status-bar";
 import { StrictMode } from "react";
 import { StyleSheet, Text } from "react-native";

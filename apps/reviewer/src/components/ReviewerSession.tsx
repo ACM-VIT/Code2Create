@@ -13,8 +13,6 @@ import { describeError } from "@/lib/errors";
 import { reviewerSurfaces, type Surface } from "@/lib/reviewer-surfaces";
 import type { ReviewerRuntime } from "@/lib/runtime";
 import { useReviewerDuty } from "@/lib/use-reviewer-duty";
-import { useReviewerVenue } from "@/lib/use-reviewer-venue";
-import { disableVenueTracking } from "@/lib/venue-location";
 
 type ReviewerSession = {
   runtime: ReviewerRuntime;
@@ -25,7 +23,6 @@ type ReviewerSession = {
   canCreateSupport: boolean;
   canManageAttention: boolean;
   judgingStatus: DutyStatus;
-  venue: ReturnType<typeof useReviewerVenue>;
   signOut: () => void;
 };
 
@@ -58,12 +55,6 @@ export function ReviewerSessionProvider({
   const [authError, setAuthError] = useState<string | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const reviewerDuty = useReviewerDuty(eventSlug, access?.reviews ?? false);
-  const venue = useReviewerVenue(
-    eventSlug,
-    isAuthenticated && (access?.reviews ?? false),
-    reviewerDuty.installationId ?? null,
-    session?.user.id ?? null,
-  );
 
   if (sessionPending || authLoading || publicState === undefined)
     return <ReviewerBooting />;
@@ -109,13 +100,7 @@ export function ReviewerSessionProvider({
   }
 
   const signOut = () => {
-    void (async () => {
-      try {
-        await disableVenueTracking();
-      } finally {
-        await runtime.authClient.signOut();
-      }
-    })().catch(() => {
+    void runtime.authClient.signOut().catch(() => {
       setAuthError("Sign out could not finish. Try again.");
     });
   };
@@ -153,7 +138,6 @@ export function ReviewerSessionProvider({
         canCreateSupport: access.supportCreate,
         canManageAttention: access.attentionManage,
         judgingStatus: reviewerDuty.judgingStatus,
-        venue,
         signOut,
       }}
     >

@@ -135,7 +135,6 @@ beforeEach(() => {
       encryptedDraftReady: true,
     },
     panel: {
-      clockIn: { status: "present", version: 1 },
       round: { id: "round", name: "Review 1" },
     },
     reserve: null,
@@ -162,7 +161,7 @@ test("arrival controls retain distinct identities and reset when the next team a
     view.root.findByProps({ label: "Type code instead" }).props.onPress(),
   );
   expect(view.root.findByProps({ label: "Confirm team code" })).toBeDefined();
-  if (!mock.current) throw Error("Current duty missing");
+  if (!mock.current) throw new Error("Current duty missing");
   mock.current = {
     ...mock.current,
     review: { ...review, id: "review-two" as typeof review.id },

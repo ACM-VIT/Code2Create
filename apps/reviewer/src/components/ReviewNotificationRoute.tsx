@@ -11,7 +11,6 @@ const reviewNotification = z.object({
   kind: z.enum([
     "reviewer_availability_confirmation",
     "reviewer_shift_reminder",
-    "reviewer_venue_absence",
   ]),
 });
 
@@ -40,11 +39,7 @@ export function ReviewNotificationRoute() {
         return;
       }
       // Fetch the signed-in reviewer's current requests instead of trusting a push's round state.
-      router.navigate(
-        notification.data.kind === "reviewer_venue_absence"
-          ? "/venue"
-          : "/duty/reviews",
-      );
+      router.navigate("/duty/reviews");
       Notifications.clearLastNotificationResponse();
     };
     const subscription =

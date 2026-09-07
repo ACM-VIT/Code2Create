@@ -11,14 +11,12 @@ describe("judging duty status", () => {
   test.each([
     ["reserve", "On call"],
     ["panel", "Waiting"],
-  ] as const)("shows %s duty without any clock-in state", (assignment, status) => {
+  ] as const)("shows %s duty before a review starts", (assignment, status) => {
     expect(
       judgingStatus(
         {
           deviceRegistered: true,
           assignment,
-          clockInStatus: null,
-          heartbeat: null,
           review: null,
         },
         false,
@@ -33,8 +31,6 @@ describe("judging duty status", () => {
         {
           deviceRegistered: true,
           assignment: null,
-          clockInStatus: null,
-          heartbeat: null,
           review: {
             reviewerPresenceConfirmed: true,
             scoredCount: 2,
@@ -60,8 +56,6 @@ describe("judging duty status", () => {
         {
           deviceRegistered: true,
           assignment: "panel",
-          clockInStatus: "present",
-          heartbeat: null,
           review: {
             reviewerPresenceConfirmed: true,
             scoredCount: 3,

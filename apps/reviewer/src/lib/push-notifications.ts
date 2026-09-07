@@ -190,12 +190,6 @@ function validNativeToken(provider: "fcm" | "apns", token: string) {
 
 async function prepareAndroidChannel() {
   if (Platform.OS !== "android") return;
-  await Notifications.setNotificationChannelAsync("reviewer-venue", {
-    name: "Venue reminders",
-    importance: Notifications.AndroidImportance.HIGH,
-    enableVibrate: true,
-    showBadge: false,
-  });
   await Notifications.setNotificationChannelAsync("reviewer-pages", {
     name: "Reviewer pages",
     // Full-screen lock-screen notifications require maximum importance.

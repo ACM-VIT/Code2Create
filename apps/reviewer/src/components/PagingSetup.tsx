@@ -196,8 +196,7 @@ export function PagingSetup({
           />
           <Text style={styles.callNotice}>
             Code2Create may call before your confirmed shift and when you are
-            needed as a substitute. Calls ask you to open the app to clock in or
-            respond.
+            needed as a substitute. Calls ask you to open the app and respond.
           </Text>
           <TextInput
             autoComplete="tel"

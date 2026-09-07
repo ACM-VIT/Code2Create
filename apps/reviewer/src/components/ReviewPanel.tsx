@@ -104,7 +104,7 @@ type DraftStorageState =
   | { status: "loading" }
   | { status: "ready" }
   | { status: "unavailable"; message: string };
-type BusyAction = "create" | "reset" | "register" | "clock_in" | "start" | null;
+type BusyAction = "create" | "reset" | "register" | "start" | null;
 type CorrectionCategory = "reviewer_error" | "technical_error" | "other";
 
 const scores = [0, 1, 2, 3, 4] as const;
@@ -206,15 +206,15 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
       : null;
   // Errors are scoped to the current duty context so a stale message clears
   // when the reviewer's assignment or review changes.
-  const heartbeatStatus = current?.review?.id ?? current?.panel?.id ?? current?.reserve?.id;
+  const dutyContextId = current?.review?.id ?? current?.panel?.id ?? current?.reserve?.id;
 
   const setError = (message: string | null) => {
     setErrorState(
-      message === null ? null : { message, raisedWhile: heartbeatStatus },
+      message === null ? null : { message, raisedWhile: dutyContextId },
     );
   };
   const visibleError =
-    error && error.raisedWhile === heartbeatStatus ? error.message : null;
+    error && error.raisedWhile === dutyContextId ? error.message : null;
   const presenceNeedsRetry =
     current?.review?.status === "awaiting_presence" &&
     !current.review.assignment.reviewerPresenceConfirmed;
@@ -234,14 +234,14 @@ export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
             caught,
             "The saved presence confirmation could not be cleared.",
           ),
-          raisedWhile: heartbeatStatus,
+          raisedWhile: dutyContextId,
         });
       }
     });
     return () => {
       active = false;
     };
-  }, [canClearPresenceOperation, eventSlug, heartbeatStatus]);
+  }, [canClearPresenceOperation, eventSlug, dutyContextId]);
 
   const resetReviewerSetup = async () => {
     if (busy) return;

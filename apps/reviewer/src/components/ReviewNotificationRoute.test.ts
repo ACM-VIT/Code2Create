@@ -7,7 +7,7 @@ import { ReviewNotificationRoute } from "./ReviewNotificationRoute";
 const native = vi.hoisted(() => ({
   ready: false,
   allowed: true,
-  kind: "reviewer_venue_absence",
+  kind: "reviewer_shift_reminder",
   action: "default",
   navigate: vi.fn(),
   clear: vi.fn(),
@@ -47,7 +47,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   native.ready = false;
   native.allowed = true;
-  native.kind = "reviewer_venue_absence";
+  native.kind = "reviewer_shift_reminder";
   native.action = "default";
 });
 afterEach(async () => {
@@ -65,7 +65,6 @@ test("installs foreground notification handling before navigation is ready", asy
 });
 
 test.each([
-  ["reviewer_venue_absence", "/venue"],
   ["reviewer_availability_confirmation", "/duty/reviews"],
   ["reviewer_shift_reminder", "/duty/reviews"],
 ])("cold-start %s waits for navigation", async (kind, destination) => {

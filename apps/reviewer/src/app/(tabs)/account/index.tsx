@@ -1,7 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { DutyScreen } from "@/components/DutyScreen";
-import { VenueStatusLink } from "@/components/VenueStatusLink";
 import { useReviewerSession } from "@/components/ReviewerSession";
 import { PrimaryAction } from "@/components/ReviewerSessionGate";
 import { palette, radius } from "@/theme";
@@ -15,7 +14,6 @@ export default function AccountScreen() {
         <Text style={styles.email}>{email}</Text>
       </View>
       <View style={styles.rows}>
-        <VenueStatusLink />
         <Row label="Event" value={runtime.configuration.eventSlug} />
         <Row
           label="Duties"
