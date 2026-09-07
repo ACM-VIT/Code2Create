@@ -103,13 +103,14 @@ export function DisplayView({
   const review = display?.review ?? null;
 
   if (review && review.panels.length > 0) {
+    // The round's own end time rules the wall; the phase schedule can lag desk changes.
     return (
       <PanelWall
         event={event}
         review={review}
-        headline={headline}
-        target={target}
-        remaining={remaining}
+        headline={review.roundName}
+        target={review.endsAt}
+        remaining={Math.max(0, review.endsAt - now)}
         now={now}
         music={music}
       />

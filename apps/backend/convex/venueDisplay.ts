@@ -53,6 +53,8 @@ async function reviewCallUps(ctx: QueryCtx, eventId: Id<"events">) {
     .sort((left, right) => left.stableKey.localeCompare(right.stableKey, undefined, { numeric: true }));
   return {
     roundName: round.name,
+    startsAt: round.startsAt,
+    endsAt: round.endsAt,
     panels: await Promise.all(
       panels.map(async (panel) => {
         const [inReview, atTable, called, queued] = await Promise.all([
@@ -94,7 +96,15 @@ export const state = query({
         upNext: v.array(v.string()),
       }),
     ),
-    review: v.union(v.null(), v.object({ roundName: v.string(), panels: v.array(panelCallUps) })),
+    review: v.union(
+      v.null(),
+      v.object({
+        roundName: v.string(),
+        startsAt: v.number(),
+        endsAt: v.number(),
+        panels: v.array(panelCallUps),
+      }),
+    ),
   }),
   handler: async (ctx, args) => {
     const serverNow = Date.now();
