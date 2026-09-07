@@ -907,6 +907,7 @@ export default defineSchema({
     rosterEntryId: v.id("teamRosterEntries"),
     emailNormalized: v.string(),
     vitRegistrationNumber: v.string(),
+    lateJoin: v.optional(v.literal(true)),
     status: v.union(v.literal("approved"), v.literal("completed"), v.literal("revoked")),
     expiresAt: v.number(),
     approvedByPersonId: v.id("people"),

@@ -18,23 +18,43 @@ export async function finalizeAcceptedRosterRecovery(ctx: MutationCtx, args: {
   requestFingerprint: string;
   grantIds: Id<"permissionGrants">[];
   now: number;
+  operatorPersonId?: Id<"people">;
 }) {
   const { event, recovery, membership, person, now } = args;
   const team = await ctx.db.get(recovery.teamId);
   const application = await ctx.db.query("applications")
     .withIndex("by_team", q => q.eq("teamId", recovery.teamId)).unique();
-  if (!team || team.eventId !== event._id || team.status !== "admitted" || !team.membershipLocked ||
-      !application || application.eventId !== event._id || application.state !== "accepted" ||
-      application.decisionStage !== "released" || application.humanDecision !== "accept" ||
+  if (!team || team.eventId !== event._id || !team.membershipLocked ||
+      !application || application.eventId !== event._id ||
+      application.decisionStage !== "released" || application.humanDecision !== "accept") return recoveryUnavailable();
+  if (recovery.lateJoin) {
+    if (application.state !== "confirmed" ||
+        !["confirmed", "checked_in", "active"].includes(team.status)) return recoveryUnavailable();
+  } else if (team.status !== "admitted" || application.state !== "accepted" ||
       application.currentOfferId !== undefined) return recoveryUnavailable();
   const reservations = await ctx.db.query("admissionCapacityReservations")
-    .withIndex("by_application_state", q => q.eq("applicationId", application._id).eq("state", "active")).take(1);
-  if (reservations.length) return recoveryUnavailable();
+    .withIndex("by_application_state", q => q.eq("applicationId", application._id).eq("state", "active")).take(2);
+  if (!recovery.lateJoin && reservations.length) return recoveryUnavailable();
   const project = await ctx.db.get(application.submittedProjectVersionId);
   if (!project || project.teamId !== team._id || team.lockedProjectVersionId !== project._id) return recoveryUnavailable();
   const priorAttempt = await ctx.db.get(project.lockedRosterSnapshotId);
   if (!priorAttempt || priorAttempt.state !== "complete" || priorAttempt.teamId !== team._id ||
       team.submissionAttemptId !== priorAttempt._id) return recoveryUnavailable();
+  const offer = application.currentOfferId ? await ctx.db.get(application.currentOfferId) : null;
+  const reservation = reservations[0];
+  const bucket = recovery.lateJoin ? await ctx.db.query("admissionCapacityBuckets")
+    .withIndex("by_policy", q => q.eq("admissionPolicyVersionId", application.admissionPolicyVersionId)).unique() : null;
+  if (recovery.lateJoin) {
+    if (!offer || offer.state !== "confirmed" || offer.eventId !== event._id ||
+        offer.applicationId !== application._id || offer.teamId !== team._id ||
+        offer.lockedRosterSnapshotId !== priorAttempt._id || offer.participantCount !== project.lockedMemberCount ||
+        reservations.length !== 1 || !reservation || reservation.offerId !== offer._id ||
+        reservation.eventId !== event._id || reservation.admissionPolicyVersionId !== application.admissionPolicyVersionId ||
+        reservation.participantCount !== project.lockedMemberCount || !bucket || bucket.eventId !== event._id) return recoveryUnavailable();
+    if (bucket.reserved + 1 > bucket.capacity) {
+      throw new ConvexError({ code: "ADMISSION_CAPACITY_FULL", message: "No participant capacity remains for this late addition." });
+    }
+  }
   const { policy, normalized } = await loadPublishedParticipantPolicy(ctx, event);
   const profile = await ctx.db.query("participantProfiles")
     .withIndex("by_membership", q => q.eq("membershipId", membership._id)).unique();
@@ -63,7 +83,7 @@ export async function finalizeAcceptedRosterRecovery(ctx: MutationCtx, args: {
   void oldAttemptId; void oldAttemptCreationTime;
   const attemptId = await ctx.db.insert("teamSubmissionAttempts", {
     ...attemptData,
-    requestedByPersonId: person._id, requestedByMembershipId: membership._id,
+    requestedByPersonId: args.operatorPersonId ?? person._id, requestedByMembershipId: membership._id,
     authorizingGrantIds: [...recovery.authorizingGrantIds, ...args.grantIds],
     clientOperationId: `${args.clientOperationId}:approved-roster`, requestFingerprint: args.requestFingerprint,
     sourceTeamVersion: team.version, lockedTeamVersion: team.version,
@@ -98,15 +118,28 @@ export async function finalizeAcceptedRosterRecovery(ctx: MutationCtx, args: {
   await ctx.db.patch(attemptId, { projectVersionId, applicationId: application._id });
   await ctx.db.patch(team._id, { submissionAttemptId: attemptId, lockedProjectVersionId: projectVersionId, updatedAt: now });
   await ctx.db.patch(application._id, { submittedProjectVersionId: projectVersionId, experienceBand: experienceBandFor(members), version: application.version + 1 });
+  if (recovery.lateJoin && offer && reservation && bucket) {
+    await ctx.db.patch(offer._id, { lockedRosterSnapshotId: attemptId, participantCount: activeMembers.length,
+      version: offer.version + 1 });
+    await ctx.db.patch(reservation._id, { participantCount: activeMembers.length });
+    await ctx.db.patch(bucket._id, { reserved: bucket.reserved + 1, version: bucket.version + 1, updatedAt: now });
+    // The new member has not checked in. Do not retain an all-members-arrived milestone.
+    if (team.status === "checked_in") await ctx.db.patch(team._id, { status: "confirmed" });
+  }
   await requireSelectedAdmissionCapacity(ctx, event._id);
   await synchronizeTeamAdmissionIdeaComparison(ctx, { eventId: event._id, teamId: team._id });
-  await ctx.db.patch(membership._id, { onboardingStatus: "selected", updatedAt: now });
+  await ctx.db.patch(membership._id, { onboardingStatus: recovery.lateJoin ? "accepted" : "selected", updatedAt: now });
   await ctx.db.patch(recovery._id, { status: "completed", completedAt: now, completedByMembershipId: membership._id });
-  await writeAuditEvent(ctx, { eventId: event._id, actorPersonId: person._id,
-    permissionKey: "team.join", grantIds: args.grantIds, scopeType: "self", scopeId: membership._id,
+  await writeAuditEvent(ctx, { eventId: event._id, actorPersonId: args.operatorPersonId ?? person._id,
+    permissionKey: args.operatorPersonId ? "team.roster.import" : "team.join", grantIds: args.grantIds,
+    scopeType: args.operatorPersonId ? "event" : "self", scopeId: args.operatorPersonId ? event._id : membership._id,
     action: "participant.roster_recovery.completed", targetType: "participant_roster_recovery", targetId: recovery._id,
-    previousSummary: JSON.stringify({ memberCount: oldMembers.length, projectVersionId: oldProjectId }),
+    previousSummary: JSON.stringify({ memberCount: oldMembers.length, projectVersionId: oldProjectId,
+      offerVersion: offer?.version, reserved: bucket?.reserved, teamStatus: team.status }),
     nextSummary: JSON.stringify({ memberCount: activeMembers.length, projectVersionId, approvalId: recovery._id,
-      applicationState: application.state, admissionDecisionPreserved: true }),
-    reason: "Participant completed onboarding and explicitly accepted their operator-approved imported team assignment" });
+      applicationState: application.state, admissionDecisionPreserved: true,
+      lateJoin: recovery.lateJoin === true, githubSetupWaived: args.operatorPersonId !== undefined,
+      policyConsentPreserved: true, attendanceRecorded: false }),
+    reason: args.operatorPersonId ? recovery.reason :
+      "Participant completed onboarding and explicitly accepted their operator-approved imported team assignment" });
 }

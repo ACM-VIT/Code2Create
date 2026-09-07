@@ -12,7 +12,7 @@ export async function approvedRosterRecovery(
   registrationNumber: string | undefined,
   now: number,
 ) {
-  if (!registrationNumber || event.status !== "registration_closed" || event.startsAt === undefined || now >= event.startsAt) {
+  if (!registrationNumber || event.status !== "registration_closed") {
     return null;
   }
   const recovery = await ctx.db.query("participantRosterRecoveries")
@@ -20,6 +20,8 @@ export async function approvedRosterRecovery(
     .unique();
   if (!recovery || recovery.status !== "approved" || now >= recovery.expiresAt ||
       recovery.vitRegistrationNumber !== registrationNumber) return null;
+  const deadline = recovery.lateJoin ? event.endsAt : event.startsAt;
+  if (deadline === undefined || now >= deadline || recovery.expiresAt > deadline) return null;
   const [entry, team] = await Promise.all([
     ctx.db.get(recovery.rosterEntryId), ctx.db.get(recovery.teamId),
   ]);
@@ -27,11 +29,16 @@ export async function approvedRosterRecovery(
       entry.status !== "pending" || entry.role !== "member" || entry.teamName !== team.name ||
       entry.vitRegistrationNumber !== registrationNumber ||
       (entry.emailNormalized !== undefined && entry.emailNormalized !== recovery.emailNormalized) ||
-      entry.createdAt >= event.applicationsCloseAt || team.status !== "admitted" || !team.membershipLocked) return null;
+      (!recovery.lateJoin && entry.createdAt >= event.applicationsCloseAt) || !team.membershipLocked) return null;
   const application = await ctx.db.query("applications")
     .withIndex("by_team", q => q.eq("teamId", team._id)).unique();
-  if (!application || application.state !== "accepted" || application.currentOfferId !== undefined ||
+  if (!application ||
       application.humanDecision !== "accept" || application.decisionStage !== "released") return null;
+  if (recovery.lateJoin) {
+    if (application.state !== "confirmed" ||
+        !["confirmed", "checked_in", "active"].includes(team.status)) return null;
+  } else if (team.status !== "admitted" || application.state !== "accepted" ||
+      application.currentOfferId !== undefined) return null;
   return { recovery, entry, team, application };
 }
 

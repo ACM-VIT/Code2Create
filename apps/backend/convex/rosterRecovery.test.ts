@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 import { convexTest, type TestConvex } from "convex-test";
+import { makeFunctionReference } from "convex/server";
 import betterAuthSchema from "../node_modules/@convex-dev/better-auth/src/component/schema.ts";
 import { describe, expect, test } from "vitest";
 import { api, components } from "./_generated/api";
@@ -9,7 +10,8 @@ import { defaultParticipantPolicy, normalizeParticipantPolicy, participantPolicy
 import { defaultDeterministicIntakePolicy, intakePolicyChecksum, normalizeIntakePolicy } from "./lib/intakePolicy";
 import { admissionPolicyForConfiguration, admissionPolicyChecksum, defaultAdmissionCriteria,
   defaultAdmissionReasonCodes, normalizeAdmissionConfiguration } from "./lib/admissionPolicy";
-import { insertPermissionGrant } from "./lib/permissions";
+import { currentSourceGrants, insertPermissionGrant } from "./lib/permissions";
+import { addTeamMemberGrants } from "./lib/teamMembership";
 import { createTestSubmissionSnapshot, linkTestSubmissionSnapshot } from "./lib/testSubmissionSnapshot";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
@@ -136,6 +138,219 @@ async function fixture() {
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+async function liveConfirmedFixture() {
+  const f = await fixture();
+  const offerId = await f.backend.run(async ctx => {
+    const now = Date.now();
+    await ctx.db.patch(f.eventId, { startsAt: now - 60_000, endsAt: now + 86_400_000 });
+    await ctx.db.patch(f.teamId, { status: "checked_in" });
+    const offerId = await ctx.db.insert("admissionOffers", { eventId: f.eventId,
+      applicationId: f.applicationId, teamId: f.teamId, lockedRosterSnapshotId: f.attemptId,
+      participantCount: 3, source: "accepted_decision", state: "confirmed", sentAt: now - 120_000,
+      expiresAt: now - 60_000, createdByPersonId: f.adminId, createdByGrantIds: [],
+      decidedByPersonId: f.adminId, decidedAt: now - 90_000, decisionReason: "Existing confirmed RSVP", version: 2 });
+    await ctx.db.patch(f.applicationId, { state: "confirmed", currentOfferId: offerId });
+    await ctx.db.insert("admissionCapacityReservations", { eventId: f.eventId, applicationId: f.applicationId,
+      offerId, admissionPolicyVersionId: (await ctx.db.get(f.applicationId))!.admissionPolicyVersionId,
+      participantCount: 3, state: "active", reservedAt: now - 120_000 });
+    await ctx.db.patch(f.bucketId, { reserved: 3 });
+    return offerId;
+  });
+  return { ...f, offerId };
+}
+
+describe("organizer confirmed-team leadership overrides", () => {
+  const transfer = makeFunctionReference<"mutation">("operatorTeamLeadership:transfer");
+  async function setup() {
+    const f = await liveConfirmedFixture();
+    const extra = await f.backend.run(async ctx => {
+      const event = (await ctx.db.get(f.eventId))!;
+      const members = await ctx.db.query("teamMembers").withIndex("by_team_status", q =>
+        q.eq("teamId", f.teamId).eq("status", "active")).collect();
+      const oldLead = members.find(m => m.role === "lead")!;
+      const newLead = members.find(m => m.role === "member")!;
+      for (const member of members) await addTeamMemberGrants(ctx, { event,
+        membership: (await ctx.db.get(member.membershipId))!, teamId: f.teamId,
+        teamMemberId: member._id, actorPersonId: f.adminId, lead: member.role === "lead" });
+      const roleId = await ctx.db.insert("eventRoles", { eventId: f.eventId, personId: f.adminId,
+        eventAccessSubjectId: f.adminSubjectId, role: "supreme", validFrom: Date.now() - 1,
+        status: "active", sourceType: "manual", sourceId: "leadership-test",
+        assignedByPersonId: f.adminId, createdAt: Date.now(), reason: "Leadership test administrator" });
+      const pendingId = await ctx.db.insert("teamLeadershipTransfers", { eventId: f.eventId, teamId: f.teamId,
+        fromMembershipId: oldLead.membershipId, toMembershipId: newLead.membershipId, expectedTeamVersion: 5,
+        state: "pending", requestedByPersonId: f.adminId, requestedAt: Date.now(), expiresAt: Date.now() + 60_000,
+        clientOperationId: "prior-pending-transfer" });
+      return { oldLead, newLead, roleId, pendingId };
+    });
+    const args = { eventSlug, teamId: f.teamId, toMembershipId: extra.newLead.membershipId,
+      expectedTeamVersion: 5, reason: "Organizer replaces the unresponsive current team leader",
+      clientOperationId: "operator-leadership-test" };
+    return { ...f, ...extra, args };
+  }
+
+  test("atomically changes leadership and grants while preserving confirmation, attendance, capacity and old evidence", async () => {
+    const f = await setup();
+    const before = await f.backend.run(async ctx => ({ team: await ctx.db.get(f.teamId),
+      app: await ctx.db.get(f.applicationId), project: await ctx.db.get(f.projectId),
+      offer: await ctx.db.get(f.offerId), bucket: await ctx.db.get(f.bucketId),
+      reservation: await ctx.db.query("admissionCapacityReservations").unique(),
+      rows: await ctx.db.query("teamSubmissionMembers").withIndex("by_submission_attempt_and_ordinal", q =>
+        q.eq("submissionAttemptId", f.attemptId)).collect() }));
+    const result = await f.admin.client.mutation(transfer, f.args);
+    expect(await f.admin.client.mutation(transfer, f.args)).toEqual(result);
+    await expect(f.admin.client.mutation(transfer, { ...f.args, reason: "A different request with the same identifier" })).rejects.toThrow("already used");
+    await f.backend.run(async ctx => {
+      const team = (await ctx.db.get(f.teamId))!;
+      const project = (await ctx.db.get(team.lockedProjectVersionId!))!;
+      expect(team).toEqual({ ...before.team, leadMembershipId: f.newLead.membershipId, version: 6,
+        updatedAt: expect.any(Number), lockedProjectVersionId: project._id, submissionAttemptId: project.lockedRosterSnapshotId });
+      expect(await ctx.db.get(f.oldLead._id)).toEqual({ ...f.oldLead, role: "member" });
+      expect(await ctx.db.get(f.newLead._id)).toEqual({ ...f.newLead, role: "lead" });
+      expect(await ctx.db.get(f.projectId)).toEqual(before.project);
+      expect(project).toEqual({ ...before.project, _id: result.projectVersionId, _creationTime: expect.any(Number),
+        version: before.project!.version + 1, lockedLeadMembershipId: f.newLead.membershipId,
+        lockedRosterSnapshotId: team.submissionAttemptId,
+        rosterRevision: { sourceProjectVersionId: f.projectId, changedByMembershipId: f.newLead.membershipId, changedAt: expect.any(Number) } });
+      expect(await ctx.db.get(f.applicationId)).toEqual({ ...before.app, submittedProjectVersionId: project._id, version: 11 });
+      expect(await ctx.db.get(f.offerId)).toEqual({ ...before.offer, lockedRosterSnapshotId: team.submissionAttemptId, version: 3 });
+      expect(await ctx.db.get(f.bucketId)).toEqual(before.bucket);
+      expect(await ctx.db.query("admissionCapacityReservations").unique()).toEqual(before.reservation);
+      const oldRows = await ctx.db.query("teamSubmissionMembers").withIndex("by_submission_attempt_and_ordinal", q =>
+        q.eq("submissionAttemptId", f.attemptId)).collect();
+      expect(oldRows).toEqual(before.rows);
+      const newRows = await ctx.db.query("teamSubmissionMembers").withIndex("by_submission_attempt_and_ordinal", q =>
+        q.eq("submissionAttemptId", team.submissionAttemptId!)).collect();
+      expect(newRows.filter(r => r.role === "lead").map(r => r.membershipId)).toEqual([f.newLead.membershipId]);
+      expect(newRows.map(r => r.membershipId)).toEqual(oldRows.map(r => r.membershipId));
+      expect(await currentSourceGrants(ctx, { eventId: f.eventId, sourceType: "team_lead", sourceId: `${f.teamId}:${f.oldLead.membershipId}` })).toHaveLength(0);
+      expect(await currentSourceGrants(ctx, { eventId: f.eventId, sourceType: "team_lead", sourceId: `${f.teamId}:${f.newLead.membershipId}` })).toHaveLength(6);
+      expect(await currentSourceGrants(ctx, { eventId: f.eventId, sourceType: "team_membership", sourceId: f.oldLead._id })).toHaveLength(8);
+      expect(await ctx.db.get(f.pendingId)).toMatchObject({ state: "cancelled", decidedByPersonId: f.adminId });
+      expect(await ctx.db.query("venueCheckIns").take(1)).toEqual([]);
+      expect(await ctx.db.query("participantNotificationDeliveries").take(1)).toEqual([]);
+      const audit = (await ctx.db.query("auditEvents").collect()).find(a => a.action === "team.operator_lead_transferred");
+      expect(audit).toMatchObject({ actorPersonId: f.adminId, reason: f.args.reason });
+      expect(JSON.parse(audit!.nextSummary)).toMatchObject({ participantAcceptanceRecorded: false, attendanceAndCapacityUnchanged: true });
+    });
+  });
+
+  test.each(["role", "expired-role", "revoked-permission", "stale-team", "event-ended", "suspended", "ineligible", "not-member", "snapshot", "offer"] as const)(
+    "rejects %s without changing leadership or permissions", async kind => {
+      const f = await setup();
+      await f.backend.run(async ctx => {
+        if (kind === "role") await ctx.db.patch(f.roleId, { role: "board" });
+        if (kind === "expired-role") await ctx.db.patch(f.roleId, { validUntil: Date.now() - 1 });
+        if (kind === "revoked-permission") {
+          const grants = await currentSourceGrants(ctx, { eventId: f.eventId, sourceType: "manual", sourceId: f.adminSubjectId });
+          for (const grant of grants.filter(g => g.permissionKey === "application.decide")) await ctx.db.patch(grant._id, { status: "revoked" });
+        }
+        if (kind === "event-ended") await ctx.db.patch(f.eventId, { endsAt: Date.now() - 1 });
+        const m = (await ctx.db.get(f.newLead.membershipId))!;
+        if (kind === "suspended") await ctx.db.patch(m.eventAccessSubjectId, { status: "suspended" });
+        if (kind === "ineligible") await ctx.db.patch(m._id, { eligibilityStatus: "rejected" });
+        if (kind === "not-member") await ctx.db.patch(f.newLead._id, { status: "left" });
+        if (kind === "snapshot") await ctx.db.patch(f.projectId, { lockedLeadMembershipId: f.newLead.membershipId });
+        if (kind === "offer") await ctx.db.patch(f.offerId, { state: "declined" });
+      });
+      await expect(f.admin.client.mutation(transfer, { ...f.args, expectedTeamVersion: kind === "stale-team" ? 4 : 5 })).rejects.toThrow();
+      await f.backend.run(async ctx => {
+        expect(await ctx.db.get(f.teamId)).toMatchObject({ leadMembershipId: f.oldLead.membershipId, version: 5 });
+        expect(await ctx.db.get(f.oldLead._id)).toMatchObject({ role: "lead" });
+        expect(await currentSourceGrants(ctx, { eventId: f.eventId, sourceType: "team_lead", sourceId: `${f.teamId}:${f.oldLead.membershipId}` })).toHaveLength(6);
+        expect(await ctx.db.query("projectVersions").collect()).toHaveLength(1);
+      });
+    },
+  );
+});
+
+describe("targeted in-event roster additions", () => {
+  test("operator adds a verified, consented participant without inventing a GitHub completion or changing results", async () => {
+    const f = await liveConfirmedFixture();
+    await f.backend.run(ctx => ctx.db.patch(f.entryIds[0]!, { createdAt: Date.now() }));
+    const recoveryId = await f.admin.client.mutation(api.rosterRecovery.approve, { ...approval(f), lateJoin: true });
+    const membershipId = await ready(f);
+    await f.backend.run(async ctx => {
+      const completion = await ctx.db.query("githubStarCompletions").withIndex("by_event_membership", q =>
+        q.eq("eventId", f.eventId).eq("membershipId", membershipId)).unique();
+      if (!completion) throw new Error("Missing fixture completion");
+      await ctx.db.delete(completion._id);
+    });
+    const before = await f.backend.run(async ctx => ({ app: await ctx.db.get(f.applicationId),
+      project: await ctx.db.get(f.projectId), offer: await ctx.db.get(f.offerId) }));
+    const args = { recoveryId, expectedTeamVersion: 5 };
+    await expect(f.students[0]!.client.mutation(api.rosterRecovery.completeLateJoin, args)).rejects.toThrow();
+    const result = await f.admin.client.mutation(api.rosterRecovery.completeLateJoin, args);
+    expect(result).toEqual({ membershipId, teamId: f.teamId });
+    expect(await f.admin.client.mutation(api.rosterRecovery.completeLateJoin, args)).toEqual(result);
+    await f.backend.run(async ctx => {
+      const team = await ctx.db.get(f.teamId);
+      const project = await ctx.db.get(team!.lockedProjectVersionId!);
+      expect(team).toMatchObject({ status: "confirmed", activeMemberCount: 4, version: 6 });
+      expect(project).toMatchObject({ lockedMemberCount: 4, initialIdea: before.project!.initialIdea });
+      expect(await ctx.db.get(f.projectId)).toEqual(before.project);
+      expect(await ctx.db.get(f.applicationId)).toEqual({ ...before.app,
+        submittedProjectVersionId: project!._id, version: before.app!.version + 1 });
+      expect(await ctx.db.get(f.offerId)).toEqual({ ...before.offer, participantCount: 4,
+        lockedRosterSnapshotId: project!.lockedRosterSnapshotId, version: 3 });
+      expect(await ctx.db.get(f.bucketId)).toMatchObject({ reserved: 4 });
+      expect(await ctx.db.query("admissionCapacityReservations").unique()).toMatchObject({ participantCount: 4 });
+      expect(await ctx.db.get(membershipId)).toMatchObject({ onboardingStatus: "accepted" });
+      expect(await ctx.db.query("githubStarCompletions").take(1)).toEqual([]);
+      expect(await ctx.db.query("venueCheckIns").take(1)).toEqual([]);
+      expect(await ctx.db.query("participantNotificationDeliveries").take(1)).toEqual([]);
+      const audits = await ctx.db.query("auditEvents").collect();
+      expect(audits.some(a => a.action === "participant.roster_recovery.completed" &&
+        a.actorPersonId === f.adminId && a.authorizingPermissionKey === "team.roster.import")).toBe(true);
+    });
+  });
+
+  test("a pending identity can sign in and accept only its approved team after the deadline", async () => {
+    const f = await liveConfirmedFixture();
+    const recoveryId = await f.admin.client.mutation(api.rosterRecovery.approve, { ...approval(f), lateJoin: true });
+    await expect(f.admin.client.mutation(api.rosterRecovery.completeLateJoin,
+      { recoveryId, expectedTeamVersion: 5 })).rejects.toThrow("first sign in");
+    await expect(f.students[1]!.client.mutation(api.participants.provision,
+      { eventSlug, participantClass: "vit_student" })).rejects.toThrow("Applications are closed");
+    await f.students[0]!.client.mutation(api.participants.provision, { eventSlug, participantClass: "vit_student" });
+    await expect(f.admin.client.mutation(api.rosterRecovery.completeLateJoin,
+      { recoveryId, expectedTeamVersion: 5 })).rejects.toThrow("profile and accept");
+    await ready(f);
+    await expect(f.students[0]!.client.mutation(api.teams.create,
+      { eventSlug, name: "Unauthorized other team", clientOperationId: "late-new-team-rejected" })).rejects.toThrow("Applications are closed");
+    await accept(f);
+    expect(await f.backend.run(ctx => ctx.db.get(f.teamId))).toMatchObject({ activeMemberCount: 4, status: "confirmed" });
+  });
+
+  test.each(["expired", "revoked", "stale-team", "capacity", "snapshot", "registration", "suspended", "full"] as const)(
+    "late completion rolls back on %s", async kind => {
+      const f = await liveConfirmedFixture();
+      const recoveryId = await f.admin.client.mutation(api.rosterRecovery.approve, { ...approval(f), lateJoin: true });
+      const membershipId = await ready(f);
+      await f.backend.run(async ctx => {
+        if (kind === "expired") await ctx.db.patch(recoveryId, { expiresAt: Date.now() - 1 });
+        if (kind === "revoked") await ctx.db.patch(recoveryId, { status: "revoked" });
+        if (kind === "capacity") await ctx.db.patch(f.bucketId, { capacity: 3 });
+        if (kind === "snapshot") await ctx.db.patch(f.projectId, { lockedMemberCount: 4 });
+        if (kind === "registration") await ctx.db.patch(recoveryId, { vitRegistrationNumber: "26BCE9999" });
+        if (kind === "suspended") {
+          const m = await ctx.db.get(membershipId);
+          await ctx.db.patch(m!.eventAccessSubjectId, { status: "suspended" });
+        }
+        if (kind === "full") await ctx.db.patch(f.teamId, { activeMemberCount: 5, activeVitMemberCount: 5 });
+      });
+      await expect(f.admin.client.mutation(api.rosterRecovery.completeLateJoin,
+        { recoveryId, expectedTeamVersion: kind === "stale-team" ? 4 : 5 })).rejects.toThrow();
+      await f.backend.run(async ctx => {
+        expect(await ctx.db.query("teamMembers").withIndex("by_event_membership_status", q =>
+          q.eq("eventId", f.eventId).eq("membershipId", membershipId).eq("status", "active")).unique()).toBeNull();
+        expect(await ctx.db.get(f.entryIds[0]!)).toMatchObject({ status: "pending", version: 1 });
+        expect(await ctx.db.get(f.offerId)).toMatchObject({ participantCount: 3, version: 2 });
+        expect(await ctx.db.query("projectVersions").collect()).toHaveLength(1);
+      });
+    },
+  );
+});
 
 test.each(["success", "capacity", "mixed-class", "event-started"] as const)("operator roster move: %s", async kind => {
   const f = await fixture();

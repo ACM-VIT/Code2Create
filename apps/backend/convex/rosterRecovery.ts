@@ -10,6 +10,10 @@ import { approvedRosterRecovery, recoveryUnavailable } from "./lib/rosterRecover
 import { normalizeEmail, normalizedText } from "./lib/strings";
 import { isApprovedVitStudentIdentity, parseVitStudentGoogleDisplayName,
   vitIdentityReferenceYear } from "./lib/vitStudentIdentity";
+import { finalizeAcceptedRosterRecovery } from "./lib/acceptedRosterRecovery";
+import { insertActiveTeamMember } from "./lib/teamRoster";
+import { addTeamMemberGrants } from "./lib/teamMembership";
+import { operationFingerprint } from "./lib/operations";
 
 export const current = query({
   args: { eventSlug: v.string(), now: v.number() },
@@ -30,7 +34,8 @@ export const current = query({
 /** Operator approval does not manufacture a profile, consent, star, or team acceptance. */
 export const approve = mutation({
   args: { eventSlug: v.string(), teamId: v.id("teams"), rosterEntryId: v.id("teamRosterEntries"),
-    email: v.string(), vitRegistrationNumber: v.string(), expiresAt: v.number(), reason: v.string() },
+    email: v.string(), vitRegistrationNumber: v.string(), expiresAt: v.number(), reason: v.string(),
+    lateJoin: v.optional(v.literal(true)) },
   returns: v.id("participantRosterRecoveries"),
   handler: async (ctx, args) => {
     const event = await requireEventBySlug(ctx, args.eventSlug);
@@ -47,8 +52,9 @@ export const approve = mutation({
     const emailNormalized = normalizeEmail(args.email);
     if (!/^[^\s@]+@vitstudent\.ac\.in$/u.test(emailNormalized)) return recoveryUnavailable();
     const now = Date.now();
-    if (event.startsAt === undefined || !Number.isFinite(args.expiresAt) || args.expiresAt <= now || args.expiresAt > event.startsAt) {
-      throw new ConvexError({ code: "INVALID_RECOVERY_EXPIRY", message: "Recovery must expire before the event starts." });
+    const deadline = args.lateJoin ? event.endsAt : event.startsAt;
+    if (deadline === undefined || !Number.isSafeInteger(args.expiresAt) || args.expiresAt <= now || args.expiresAt > deadline) {
+      throw new ConvexError({ code: "INVALID_RECOVERY_EXPIRY", message: "Recovery must expire within its approved event window." });
     }
     const reason = normalizedText(args.reason, "Recovery reason", 10, 500);
     const existing = await ctx.db.query("participantRosterRecoveries")
@@ -56,7 +62,7 @@ export const approve = mutation({
     if (existing) {
       if (existing.teamId !== args.teamId || existing.rosterEntryId !== args.rosterEntryId ||
           existing.vitRegistrationNumber !== args.vitRegistrationNumber || existing.reason !== reason ||
-          existing.expiresAt !== args.expiresAt || existing.status === "revoked") return recoveryUnavailable();
+          existing.expiresAt !== args.expiresAt || existing.lateJoin !== args.lateJoin || existing.status === "revoked") return recoveryUnavailable();
       return existing._id;
     }
     const forEntry = await ctx.db.query("participantRosterRecoveries")
@@ -66,6 +72,7 @@ export const approve = mutation({
     const id = await ctx.db.insert("participantRosterRecoveries", {
       eventId: event._id, teamId: args.teamId, rosterEntryId: args.rosterEntryId,
       emailNormalized, vitRegistrationNumber: args.vitRegistrationNumber,
+      ...(args.lateJoin ? { lateJoin: true as const } : {}),
       status: "approved", expiresAt: args.expiresAt, approvedByPersonId: person._id,
       authorizingGrantIds, reason, approvedAt: now,
     });
@@ -82,8 +89,62 @@ export const approve = mutation({
       permissionKey: "team.roster.import", grantIds: authorizingGrantIds, scopeType: "event",
       action: "participant.roster_recovery.approved", targetType: "participant_roster_recovery", targetId: id,
       nextSummary: JSON.stringify({ teamId: args.teamId, rosterEntryId: args.rosterEntryId, emailNormalized,
-        vitRegistrationNumber: args.vitRegistrationNumber, expiresAt: args.expiresAt }), reason });
+        vitRegistrationNumber: args.vitRegistrationNumber, expiresAt: args.expiresAt,
+        lateJoin: args.lateJoin === true }), reason });
     return id;
+  },
+});
+
+/** An organizer can waive GitHub setup, never identity verification or participant-policy consent. */
+export const completeLateJoin = mutation({
+  args: { recoveryId: v.id("participantRosterRecoveries"), expectedTeamVersion: v.number() },
+  returns: v.object({ membershipId: v.id("eventMemberships"), teamId: v.id("teams") }),
+  handler: async (ctx, args) => {
+    const recovery = await ctx.db.get(args.recoveryId);
+    if (!recovery?.lateJoin) return recoveryUnavailable();
+    const event = await ctx.db.get(recovery.eventId);
+    if (!event) return recoveryUnavailable();
+    const { person: actor } = await requireCurrentPerson(ctx);
+    const actorSubject = await requireEventSubject(ctx, event._id, actor._id);
+    const rosterGrants = await requirePermission(ctx, { eventId: event._id,
+      eventAccessSubjectId: actorSubject._id, permissionKey: "team.roster.import", scopeType: "event" });
+    const application = await ctx.db.query("applications")
+      .withIndex("by_team", q => q.eq("teamId", recovery.teamId)).unique();
+    if (!application) return recoveryUnavailable();
+    const decisionGrants = await requirePermission(ctx, { eventId: event._id,
+      eventAccessSubjectId: actorSubject._id, permissionKey: "application.decide",
+      scopeType: "application", scopeId: application._id });
+    if (recovery.status === "completed" && recovery.completedByMembershipId) {
+      return { membershipId: recovery.completedByMembershipId, teamId: recovery.teamId };
+    }
+    const now = Date.now();
+    const approved = await approvedRosterRecovery(ctx, event, recovery.emailNormalized,
+      recovery.vitRegistrationNumber, now);
+    if (!approved || approved.team.version !== args.expectedTeamVersion) return recoveryUnavailable();
+    const person = await ctx.db.query("people")
+      .withIndex("by_verified_email", q => q.eq("verifiedEmail", recovery.emailNormalized)).unique();
+    const membership = person ? await ctx.db.query("eventMemberships")
+      .withIndex("by_event_person", q => q.eq("eventId", event._id).eq("personId", person._id)).unique() : null;
+    if (!person || person.status !== "active" || !membership || membership.eligibilityStatus !== "eligible" ||
+        membership.vitStudentIdentity?.registrationNumber !== recovery.vitRegistrationNumber) {
+      throw new ConvexError({ code: "PARTICIPANT_ACCOUNT_REQUIRED", message: "The participant must first sign in with the approved VIT account." });
+    }
+    await requireEventSubject(ctx, event._id, person._id);
+    const current = await ctx.db.query("teamMembers").withIndex("by_event_membership_status", q =>
+      q.eq("eventId", event._id).eq("membershipId", membership._id).eq("status", "active")).unique();
+    if (current) throw new ConvexError({ code: "CURRENT_TEAM_CHANGED", message: "The participant already belongs to a team." });
+    const { teamMemberId } = await insertActiveTeamMember(ctx, { team: approved.team,
+      membership, role: "member", source: "backfill", joinedAt: now });
+    await addTeamMemberGrants(ctx, { event, membership, teamId: approved.team._id,
+      teamMemberId, actorPersonId: actor._id, lead: false });
+    await ctx.db.patch(approved.team._id, { version: approved.team.version + 1, updatedAt: now });
+    await ctx.db.patch(approved.entry._id, { status: "claimed", version: approved.entry.version + 1,
+      claimedByMembershipId: membership._id, claimedTeamId: approved.team._id, claimedAt: now });
+    await finalizeAcceptedRosterRecovery(ctx, { event, recovery, membership, person,
+      clientOperationId: `late-join:${recovery._id}`,
+      requestFingerprint: operationFingerprint([recovery._id, args.expectedTeamVersion]),
+      grantIds: [...rosterGrants, ...decisionGrants], now, operatorPersonId: actor._id });
+    return { membershipId: membership._id, teamId: approved.team._id };
   },
 });
 
