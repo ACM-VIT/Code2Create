@@ -23,7 +23,6 @@ import {
 } from "./lib/operations";
 import { writeAuditEvent } from "./lib/audit";
 import { callQueuedTeam } from "./reviewOperations";
-import { checkPanelStaffing } from "./reviewStaffing";
 import { activeRoundPause } from "./lib/reviewRoundPauses";
 import { nextQueuedTeam } from "./lib/reviewQueueProjection";
 import { notifyReviewTeam } from "./lib/reviewTeamNotices";
@@ -332,7 +331,6 @@ export const advance = internalMutation({
   args: { panelId: v.id("reviewPanels") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    await checkPanelStaffing(ctx, args);
     const panel = await ctx.db.get(args.panelId);
     if (!panel) return null;
     const [round, policy] = await Promise.all([

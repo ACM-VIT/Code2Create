@@ -4,7 +4,6 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { advanceAccessVersion } from "./accessVersion";
 import { insertPermissionGrant } from "./permissions";
-import { scheduleShiftReminders } from "./reviewConfirmation";
 
 export async function isRoundReviewer(
   ctx: QueryCtx | MutationCtx,
@@ -46,10 +45,7 @@ export async function ensureRoundConfirmation(
       q.eq("roundId", round._id).eq("personId", personId),
     )
     .unique();
-  if (existing?.status === "confirmed") {
-    await scheduleShiftReminders(ctx, existing, round, now);
-    return;
-  }
+  if (existing?.status === "confirmed") return;
   if (existing?.status === "unavailable") return;
   const confirmationId =
     existing?._id ??

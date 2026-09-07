@@ -601,12 +601,13 @@ function RoundPublisher({
   const publishPending = publishAttempt.hasPending("review-round-publish");
   const [rubricName, setRubricName] = useState(initialPreset.name);
   const [spreadThreshold, setSpreadThreshold] = useState("2");
-  const [automaticReplacement, setAutomaticReplacement] = useState(true);
-  const [juniorRotationReviews, setJuniorRotationReviews] = useState("1");
-  const [reviewerArrivalSeconds, setReviewerArrivalSeconds] = useState("90");
-  const [assignmentReminderSeconds, setAssignmentReminderSeconds] =
-    useState("300");
-  const [assignmentReminderCalls, setAssignmentReminderCalls] = useState(true);
+  // Automatic replacement, JC rotation, arrival deadlines, and shift reminders
+  // were retired; operators staff panels and page substitutes explicitly.
+  const automaticReplacement = false;
+  const juniorRotationReviews = "0";
+  const reviewerArrivalSeconds = "90";
+  const assignmentReminderSeconds = "0";
+  const assignmentReminderCalls = false;
   const [composition, setComposition] = useState<PanelComposition>({
     seniorSeats: 2,
     juniorSeats: 2,
@@ -1554,72 +1555,6 @@ function RoundPublisher({
             >
               Suggest {panels.length} panels from skills and experience
             </button>
-            <div className="form-grid">
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={automaticReplacement}
-                  onChange={(event) => {
-                    setAutomaticReplacement(event.target.checked);
-                    changed();
-                  }}
-                />
-                Automatically replace unavailable reviewers
-              </label>
-              <label className="field">
-                <span>JC rotation after reviews (0 disables)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={juniorRotationReviews}
-                  onChange={(event) => {
-                    setJuniorRotationReviews(event.target.value);
-                    changed();
-                  }}
-                />
-              </label>
-              <label className="field">
-                <span>Arrival after accepting a page (seconds)</span>
-                <input
-                  type="number"
-                  min={15}
-                  max={1800}
-                  step={1}
-                  value={reviewerArrivalSeconds}
-                  onChange={(event) => {
-                    setReviewerArrivalSeconds(event.target.value);
-                    changed();
-                  }}
-                />
-              </label>
-              <label className="field">
-                <span>Remind before shift (seconds, 0 disables)</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={3600}
-                  step={1}
-                  value={assignmentReminderSeconds}
-                  onChange={(event) => {
-                    setAssignmentReminderSeconds(event.target.value);
-                    changed();
-                  }}
-                />
-              </label>
-              <label className="field">
-                <input
-                  type="checkbox"
-                  checked={assignmentReminderCalls}
-                  onChange={(event) => {
-                    setAssignmentReminderCalls(event.target.checked);
-                    changed();
-                  }}
-                />
-                Also call reviewers who allow review calls
-              </label>
-            </div>
             <div className="panel-editors">
               {panels.map((panel) => (
                 <PanelEditor

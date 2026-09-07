@@ -1,4 +1,3 @@
-import { internal } from "../_generated/api";
 import { ConvexError } from "convex/values";
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -125,33 +124,5 @@ export async function requireConfirmedClockIn(
       message:
         "Confirm your availability in the app for a complete review, then clock in within the published early-arrival window for your shift.",
     });
-  }
-}
-
-export async function scheduleShiftReminders(
-  ctx: MutationCtx,
-  confirmation: Doc<"reviewerRoundConfirmations">,
-  round: Doc<"reviewRounds">,
-  now: number,
-) {
-  if (
-    confirmation.status !== "confirmed" ||
-    round.staffing.assignmentReminderSeconds === 0
-  )
-    return;
-  for (const window of confirmation.windows) {
-    if (window.startsAt <= now) continue;
-    await ctx.scheduler.runAt(
-      Math.max(
-        now,
-        window.startsAt - round.staffing.assignmentReminderSeconds * 1000,
-      ),
-      internal.reviewConfirmations.prepareShiftReminder,
-      {
-        confirmationId: confirmation._id,
-        confirmationVersion: confirmation.version,
-        shiftStartsAt: window.startsAt,
-      },
-    );
   }
 }

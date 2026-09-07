@@ -1,11 +1,10 @@
 import { ConvexError } from "convex/values";
-import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { reviewerParticipation } from "./reviewerParticipation";
 import { resolveVenueDeparture, venuePresence } from "./reviewerVenue";
 
-/** The same transaction that records a departure removes eligibility and queues staffing work. */
+/** Recording a departure ends the reviewer's duty; an operator staffs any vacancy. */
 export async function clockOutForVenueDeparture(
   ctx: MutationCtx,
   eventId: Id<"events">,
@@ -41,16 +40,6 @@ export async function clockOutForVenueDeparture(
       expectedReturnAt: undefined,
       lastHeartbeatAt: now,
       version: row.version + 1,
-    });
-  const members = await ctx.db
-    .query("reviewPanelMembers")
-    .withIndex("by_event_person_status", (q) =>
-      q.eq("eventId", eventId).eq("personId", personId).eq("status", "active"),
-    )
-    .collect();
-  for (const panelId of new Set(members.map((row) => row.panelId)))
-    await ctx.scheduler.runAfter(0, internal.reviewStaffing.checkPanel, {
-      panelId,
     });
 }
 

@@ -1,6 +1,4 @@
 import { internal } from "./_generated/api";
-import { currentShiftReminder } from "./lib/reviewShiftReminders";
-import { reviewerCallConsentPolicyVersion } from "@code2create/domain";
 import { normalizedE164Phone } from "./lib/outboundCalls";
 import { admissionRsvpCallScript, currentAdmissionRsvpReminder } from "./lib/admissionOfferCalls";
 import { venueCallResponseSchema } from "./lib/venueCallResponsePayload";
@@ -117,10 +115,7 @@ async function undispatchableReason(
       (delivery.venueConfirmation && delivery.venueConfirmation.expiresAt <= now) ||
       !consent || consent.eventId !== delivery.eventId ||
       consent.personId !== delivery.targetPersonId ||
-      consent.purpose !== (delivery.purpose === "reviewer_shift_reminder"
-        ? "reviewer_substitute_page" : delivery.purpose) ||
-      (delivery.purpose === "reviewer_shift_reminder" &&
-        consent.consentPolicyVersion !== reviewerCallConsentPolicyVersion) ||
+      consent.purpose !== delivery.purpose ||
       consent.state !== "granted" || consent.version !== delivery.consentVersion ||
       consent.destinationPhoneE164 !== delivery.destinationPhoneE164 ||
       consent.scriptPolicyVersion !== delivery.scriptPolicyVersion
@@ -129,8 +124,6 @@ async function undispatchableReason(
   const requiredPermissionKey =
     delivery.sourceType === "admission_offer_reminder"
       ? "application.offer.manage"
-      : delivery.sourceType === "reviewer_shift_reminder"
-      ? "reviewer.clock_in"
       : delivery.purpose === venueCallPurpose
       ? "reviewer.device.register"
       : delivery.purpose === "reviewer_substitute_page"
@@ -301,35 +294,13 @@ export const claimDelivery = internalMutation({
       script = admissionRsvpCallScript(current.team.name, current.offer.expiresAt, current.event.timezone);
     }
     if (delivery.sourceType === "reviewer_shift_reminder") {
-      const notificationId = ctx.db.normalizeId("reviewConfirmationNotifications", delivery.sourceId);
-      const notification = notificationId ? await ctx.db.get(notificationId) : null;
-      const confirmation = notification ? await ctx.db.get(notification.confirmationId) : null;
-      const round = confirmation ? await ctx.db.get(confirmation.roundId) : null;
-      const current = confirmation && round && delivery.shiftReminder &&
-        round.staffing.assignmentReminderCalls &&
-        confirmation.personId === delivery.targetPersonId &&
-        round.eventId === delivery.eventId
-        ? await currentShiftReminder(ctx, confirmation, round,
-          delivery.shiftReminder.confirmationVersion, delivery.shiftReminder.shiftStartsAt, now)
-        : null;
-      if (!current) {
-        await ctx.db.patch(delivery._id, {
-          state: "cancelled", providerErrorCode: "shift_reminder_no_longer_current",
-          claimExpiresAt: undefined, nextAttemptAt: undefined,
-          version: delivery.version + 1, updatedAt: now, completedAt: now,
-        });
-        return null;
-      }
-      if (now < current.remindAt) {
-        await ctx.db.patch(delivery._id, {
-          state: "retry_wait", nextAttemptAt: current.remindAt,
-          claimExpiresAt: undefined, version: delivery.version + 1, updatedAt: now,
-        });
-        await ctx.scheduler.runAt(current.remindAt, internal.outboundCalls.deliver, {
-          deliveryId: delivery._id,
-        });
-        return null;
-      }
+      // Reviewer shift reminders were retired; a delivery queued earlier never dials.
+      await ctx.db.patch(delivery._id, {
+        state: "cancelled", providerErrorCode: "shift_reminder_retired",
+        claimExpiresAt: undefined, nextAttemptAt: undefined,
+        version: delivery.version + 1, updatedAt: now, completedAt: now,
+      });
+      return null;
     }
     await ctx.db.patch(delivery._id, {
       state: "sending",

@@ -202,7 +202,6 @@ import type * as lib_reviewRepositoryInventory from "../lib/reviewRepositoryInve
 import type * as lib_reviewRoster from "../lib/reviewRoster.js";
 import type * as lib_reviewRoundPauses from "../lib/reviewRoundPauses.js";
 import type * as lib_reviewScores from "../lib/reviewScores.js";
-import type * as lib_reviewShiftReminders from "../lib/reviewShiftReminders.js";
 import type * as lib_reviewTeamNotices from "../lib/reviewTeamNotices.js";
 import type * as lib_reviewerAvailability from "../lib/reviewerAvailability.js";
 import type * as lib_reviewerPagePush from "../lib/reviewerPagePush.js";
@@ -537,7 +536,6 @@ declare const fullApi: ApiFromModules<{
   "lib/reviewRoster": typeof lib_reviewRoster;
   "lib/reviewRoundPauses": typeof lib_reviewRoundPauses;
   "lib/reviewScores": typeof lib_reviewScores;
-  "lib/reviewShiftReminders": typeof lib_reviewShiftReminders;
   "lib/reviewTeamNotices": typeof lib_reviewTeamNotices;
   "lib/reviewerAvailability": typeof lib_reviewerAvailability;
   "lib/reviewerPagePush": typeof lib_reviewerPagePush;

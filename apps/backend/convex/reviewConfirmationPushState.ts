@@ -1,5 +1,4 @@
 import { isRoundReviewer } from "./lib/reviewRoster";
-import { currentShiftReminder } from "./lib/reviewShiftReminders";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { internalMutation } from "./_generated/server";
@@ -72,13 +71,9 @@ export const claim = internalMutation({
       expiresAt = request.closesAt;
     }
     if (notification.purpose === "shift_reminder") {
-      const current = notification.shiftStartsAt === undefined ? null :
-        await currentShiftReminder(ctx, confirmation, round,
-          notification.confirmationVersion, notification.shiftStartsAt, now);
-      if (!current || now < current.remindAt) {
-        await ctx.db.patch(notification._id, { state: "cancelled", updatedAt: now });
-        return null;
-      }
+      // Reviewer shift reminders were retired; a queued notification never sends.
+      await ctx.db.patch(notification._id, { state: "cancelled", updatedAt: now });
+      return null;
     }
     const subject = await ctx.db
       .query("eventAccessSubjects")

@@ -3,7 +3,6 @@ import {
   reviewerCallScriptPolicyVersion,
   venueCallConsentVersion,
 } from "@code2create/domain";
-import { scheduleShiftReminders } from "./lib/reviewConfirmation";
 import { ConvexError, v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
@@ -24,7 +23,6 @@ import {
   venueCallScriptVersion,
 } from "./lib/reviewerVenuePolicy";
 
-import { maximumReviewRoundsPerEvent } from "./lib/reviewLimits";
 
 const reviewerPurpose = v.optional(
   v.union(
@@ -270,18 +268,6 @@ export const saveReviewerConsent = mutation({
         revokedAt: now,
         createdAt: now,
       });
-    }
-    if (args.state === "granted" && reviewerCallPurpose === "reviewer_substitute_page") {
-      const confirmations = await ctx.db.query("reviewerRoundConfirmations")
-        .withIndex("by_eventId_and_personId", (q) =>
-          q.eq("eventId", event._id).eq("personId", person._id)).take(maximumReviewRoundsPerEvent + 1);
-      if (confirmations.length > maximumReviewRoundsPerEvent)
-        throw new Error("Reviewer round limit exceeded.");
-      for (const confirmation of confirmations) {
-        const round = await ctx.db.get(confirmation.roundId);
-        if (round && ["published", "open"].includes(round.status) && round.endsAt > now)
-          await scheduleShiftReminders(ctx, confirmation, round, now);
-      }
     }
     await recordOperation(ctx, {
       eventId: event._id,

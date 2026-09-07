@@ -17,14 +17,6 @@ export function ReviewStaffingSettings({ roundId }: { roundId: RoundId }) {
   if (!settings) return null;
   return (
     <>
-      {settings.staffing.automaticReplacement &&
-      settings.automationBlockedPanels > 0 ? (
-        <p role="alert">
-          Automatic staffing is blocked for {settings.automationBlockedPanels}{" "}
-          panels. The operator who published this round needs permission to page
-          and assign substitutes for these panels.
-        </p>
-      ) : null}
       <StaffingForm
         key={settings.version}
         roundId={roundId}
@@ -158,35 +150,6 @@ function StaffingForm({
             />
             Allow an SC lead if Board is unavailable
           </label>
-          <label className="check-row md:col-span-2">
-            <input
-              type="checkbox"
-              checked={policy.automaticReplacement}
-              onChange={(event) =>
-                setPolicy((current) => ({
-                  ...current,
-                  automaticReplacement: event.target.checked,
-                }))
-              }
-            />
-            Automatic replacement
-          </label>
-          <label className="field">
-            Rotate JC after this many reviews (0 disables)
-            <input
-              type="number"
-              min={0}
-              max={100}
-              required
-              value={policy.juniorRotationReviews}
-              onChange={(event) =>
-                setPolicy((current) => ({
-                  ...current,
-                  juniorRotationReviews: Number(event.target.value),
-                }))
-              }
-            />
-          </label>
           <label className="field">
             Page response window (seconds)
             <input
@@ -196,22 +159,6 @@ function StaffingForm({
               required
               value={response}
               onChange={(event) => setResponse(event.target.value)}
-            />
-          </label>
-          <label className="field">
-            Arrival after page acceptance (seconds)
-            <input
-              type="number"
-              min={15}
-              max={1800}
-              required
-              value={policy.reviewerArrivalSeconds}
-              onChange={(event) =>
-                setPolicy((current) => ({
-                  ...current,
-                  reviewerArrivalSeconds: Number(event.target.value),
-                }))
-              }
             />
           </label>
           <label className="field">
@@ -225,39 +172,6 @@ function StaffingForm({
               onChange={(event) => setGrace(event.target.value)}
             />
           </label>
-          <label className="field">
-            Remind before shift (seconds, 0 disables)
-            <input
-              type="number"
-              min={0}
-              max={3600}
-              required
-              value={policy.assignmentReminderSeconds}
-              onChange={(event) =>
-                setPolicy((current) => ({
-                  ...current,
-                  assignmentReminderSeconds: Number(event.target.value),
-                }))
-              }
-            />
-          </label>
-          <label className="check-row md:col-span-2">
-            <input
-              type="checkbox"
-              checked={policy.assignmentReminderCalls}
-              onChange={(event) =>
-                setPolicy((current) => ({
-                  ...current,
-                  assignmentReminderCalls: event.target.checked,
-                }))
-              }
-            />
-            Also call reviewers who allow review calls
-          </label>
-          <p className="m-0 text-ink-2 md:col-span-2">
-            Push and calls use the same lead time. Changes reschedule upcoming
-            reminders; reviewers already clocked in are not reminded.
-          </p>
           {settings.canConfigure ? (
             <label className="field md:col-span-2">
               Reason

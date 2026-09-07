@@ -5,7 +5,6 @@ import { requireCurrentPerson, requireEventSubject } from "./lib/identity";
 import { requirePermission, revokeSourceGrants } from "./lib/permissions";
 import { canManagePanelRoster, grantPanelMemberAccess } from "./lib/reviewAccess";
 import { putInRoundReserve } from "./lib/reviewRoster";
-import { scheduleShiftReminders } from "./lib/reviewConfirmation";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { findOperation, operationFingerprint, recordOperation, storedOperationVersion } from "./lib/operations";
 import { normalizedText } from "./lib/strings";
@@ -152,7 +151,6 @@ export const restoreBeforeStart = internalMutation({
       const status = windows.length > 0 ? "confirmed" as const : "pending" as const;
       const updated = { ...confirmation, windows, status, version: confirmation.version + 1, updatedAt: now };
       await ctx.db.patch(confirmation._id, { windows, status, version: updated.version, updatedAt: now });
-      await scheduleShiftReminders(ctx, updated, updatedRound, now);
     }
     for (const panel of panels) {
       const members = restored.filter(m => m.panelId === panel._id);
