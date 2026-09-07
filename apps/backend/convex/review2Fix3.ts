@@ -4,6 +4,8 @@ import type { Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProjection";
 import { ensureRoundConfirmation } from "./lib/reviewRoster";
+import { advanceAccessVersion } from "./lib/accessVersion";
+import { revokeSourceGrants } from "./lib/permissions";
 
 /** One-off Review 2 adjustments on 2026-09-08 (scale, fixed questions, queue balance); delete after use. */
 
@@ -329,6 +331,39 @@ export const confirmSeatedReviewers = internalMutation({
       fixed.push(member.personId);
     }
     return { seats: members.length, fixed: fixed.length, personIds: fixed };
+  },
+});
+
+/**
+ * A reserve who took a seat keeps only panel grants; the seeding left their
+ * reserve grants active, which blocks returning them to the pool later.
+ */
+export const revokeAssignedReserveGrants = internalMutation({
+  args: { roundId: v.id("reviewRounds"), actorEmail: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const actorPersonId = await requireActor(ctx, round.eventId, args.actorEmail);
+    const reserves = await ctx.db
+      .query("reviewRoundReserves")
+      .withIndex("by_round_person", (q) => q.eq("roundId", round._id))
+      .take(600);
+    let revoked = 0;
+    for (const reserve of reserves) {
+      if (reserve.status !== "assigned") continue;
+      await revokeSourceGrants(ctx, {
+        eventId: round.eventId,
+        sourceType: "reserve_assignment",
+        sourceId: reserve._id,
+        revokedByPersonId: actorPersonId,
+        reason: "Reserve took a panel seat; reserve grants retired",
+      });
+      await advanceAccessVersion(ctx, reserve.eventAccessSubjectId, now);
+      revoked += 1;
+    }
+    return { assignedReserves: revoked };
   },
 });
 
