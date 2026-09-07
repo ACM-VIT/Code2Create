@@ -42,7 +42,6 @@ import { reviewProgressionBlocker } from "./lib/reviewProgression";
 
 const defaultPolicy = {
   enabled: false,
-  refreshSeconds: 120,
   maximumQuestions: 3,
   parallelAnalyses: 3,
   batchCharacters: 80000,
@@ -53,7 +52,6 @@ const defaultPolicy = {
 };
 function validatePolicy(policy: Infer<typeof reviewQuestionPolicy>) {
   const ranges: readonly (readonly [number, number, number])[] = [
-    [policy.refreshSeconds, 30, 3600],
     [policy.maximumQuestions, 1, 12],
     [policy.parallelAnalyses, 1, 8],
     [policy.batchCharacters, 64000, 160000],
@@ -335,8 +333,7 @@ export async function prepareQuestionSet(
   if (existing) {
     if (
       ["failed", "stale"].includes(existing.state) &&
-      existing.attempt < existing.policy.maximumAttempts &&
-      now >= existing.updatedAt + config.policy.refreshSeconds * 1000
+      existing.attempt < existing.policy.maximumAttempts
     ) {
       await ctx.db.patch(existing._id, { state: "queued", updatedAt: now });
       await ctx.scheduler.runAfter(0, internal.reviewQuestionActions.prepare, {
@@ -384,94 +381,6 @@ export async function prepareQuestionSet(
   });
   return jobId;
 }
-export const dispatch = internalMutation({
-  args: {
-    status: v.union(v.literal("published"), v.literal("open")),
-    cursor: v.optional(v.string()),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const rounds = await ctx.db
-      .query("reviewRounds")
-      .withIndex("by_status_start", (q) => q.eq("status", args.status))
-      .paginate({ cursor: args.cursor ?? null, numItems: 10 });
-    for (const round of rounds.page) {
-      const config = await ctx.db
-        .query("reviewQuestionPolicies")
-        .withIndex("by_round", (q) => q.eq("roundId", round._id))
-        .unique();
-      if (!config?.policy.enabled || Date.now() >= round.endsAt) continue;
-      const teams = await ctx.db
-        .query("teams")
-        .withIndex("by_event_status", (q) => q.eq("eventId", round.eventId))
-        .filter(q => q.and(q.neq(q.field("competitionCategory"), "oc"), q.or(q.eq(q.field("status"), "confirmed"), q.eq(q.field("status"), "checked_in"), q.eq(q.field("status"), "active"))))
-        .take(maximumReviewTeamsPerEvent + 1);
-      if (teams.length > maximumReviewTeamsPerEvent)
-        throw new Error("Team limit exceeded.");
-      for (const team of teams)
-        if (
-          team.lockedProjectVersionId
-        )
-          await ctx.scheduler.runAfter(
-            0,
-            internal.reviewQuestions.refreshTeam,
-            {
-              roundId: round._id,
-              teamId: team._id,
-            },
-          );
-    }
-    if (!rounds.isDone)
-      await ctx.scheduler.runAfter(0, internal.reviewQuestions.dispatch, {
-        ...args,
-        cursor: rounds.continueCursor,
-      });
-    return null;
-  },
-});
-export const refreshTeam = internalMutation({
-  args: { roundId: v.id("reviewRounds"), teamId: v.id("teams") },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const [round, team, config, latest] = await Promise.all([
-      ctx.db.get(args.roundId),
-      ctx.db.get(args.teamId),
-      ctx.db
-        .query("reviewQuestionPolicies")
-        .withIndex("by_round", (q) => q.eq("roundId", args.roundId))
-        .unique(),
-      ctx.db
-        .query("reviewQuestionSets")
-        .withIndex("by_round_team_created", (q) =>
-          q.eq("roundId", args.roundId).eq("teamId", args.teamId),
-        )
-        .order("desc")
-        .first(),
-    ]);
-    if (
-      !round ||
-      !team ||
-      round.eventId !== team.eventId ||
-      team.competitionCategory === "oc" ||
-      !team.lockedProjectVersionId ||
-      !config?.policy.enabled ||
-      !["published", "open"].includes(round.status) ||
-      Date.now() >= round.endsAt
-    )
-      return null;
-    if (
-      latest &&
-      latest.policyVersion === config.version &&
-      Date.now() <
-        (latest.lastSourceCheckAt ?? latest.createdAt) +
-          config.policy.refreshSeconds * 1000
-    )
-      return null;
-    const jobId = await prepareQuestionSet(ctx, round, team);
-    if (jobId) await ctx.db.patch(jobId, { lastSourceCheckAt: Date.now() });
-    return null;
-  },
-});
 export async function questionJobAuthorized(
   ctx: QueryCtx | MutationCtx,
   job: Doc<"reviewQuestionSets">,

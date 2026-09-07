@@ -100,7 +100,6 @@ function QuestionForm({
     }
   };
   const numericFields = [
-    ["refreshSeconds", "Refresh interval, seconds", 30, 3600],
     ["maximumQuestions", "Questions per team", 1, 12],
     ["parallelAnalyses", "Concurrent analysis batches", 1, 8],
     [
@@ -122,7 +121,7 @@ function QuestionForm({
       <p className="m-0 text-ink-2">
         Optional, ungraded follow-ups based on the team's idea, progress and repository evidence.
         The published rubric questions and 0–4 scoring anchors stay fixed. Figma links are for
-        reviewers to open themselves. Preparation covers every readable repository file in batches.
+        reviewers to open themselves. Preparation runs only when an operator requests it for a team and covers every readable repository file in batches.
       </p>
       <fieldset
         className="grid gap-4 md:grid-cols-2"
@@ -136,7 +135,7 @@ function QuestionForm({
               setPolicy({ ...policy, enabled: e.target.checked })
             }
           />
-          Continuously prepare suggested questions
+          Allow suggested question preparation when an operator requests it
         </label>
         <label className="field md:col-span-2">
           Model

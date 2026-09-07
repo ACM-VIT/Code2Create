@@ -3,18 +3,6 @@ import { cronJobs } from "convex/server";
 import { internal } from "./_generated/api";
 
 const crons = cronJobs();
-crons.interval(
-  "prepare published review questions",
-  { seconds: 30 },
-  internal.reviewQuestions.dispatch,
-  { status: "published" },
-);
-crons.interval(
-  "refresh open review questions",
-  { seconds: 30 },
-  internal.reviewQuestions.dispatch,
-  { status: "open" },
-);
 
 crons.interval(
   "advance review queues",

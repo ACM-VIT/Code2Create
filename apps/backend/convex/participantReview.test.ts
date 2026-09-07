@@ -1706,7 +1706,6 @@ async function prepareQuestionFixture(
     });
     const policy = {
       enabled: true,
-      refreshSeconds: 120,
       maximumQuestions: 6,
       parallelAnalyses: 3,
       batchCharacters: 80000,

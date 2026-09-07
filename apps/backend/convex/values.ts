@@ -1067,7 +1067,8 @@ export const reviewEvidenceCheckpointFields = {
 
 export const reviewQuestionPolicy = v.object({
   enabled: v.boolean(),
-  refreshSeconds: v.number(),
+  /** Retired automatic-refresh interval; existing documents may still carry it. */
+  refreshSeconds: v.optional(v.number()),
   maximumQuestions: v.number(),
   parallelAnalyses: v.number(),
   batchCharacters: v.number(),
