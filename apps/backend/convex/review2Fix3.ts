@@ -206,3 +206,87 @@ export const enqueueTeam = internalMutation({
   },
 });
 
+/** Makes a listed team callable: competitor category and a confirmed status. */
+export const makeReviewable = internalMutation({
+  args: { teamCodes: v.array(v.string()) },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const events = await ctx.db.query("events").take(2);
+    const event = events[0];
+    if (!event || events.length !== 1) throw new Error("Expected exactly one event.");
+    const changed: { team: string; from: string; category: string }[] = [];
+    const missing: string[] = [];
+    for (const raw of args.teamCodes) {
+      const code = raw.trim().toUpperCase();
+      const team = await ctx.db
+        .query("teams")
+        .withIndex("by_event_code", (q) => q.eq("eventId", event._id).eq("publicCode", code))
+        .unique();
+      if (!team) {
+        missing.push(code);
+        continue;
+      }
+      const status = ["confirmed", "checked_in", "active"].includes(team.status) ? team.status : "confirmed";
+      await ctx.db.patch(team._id, {
+        competitionCategory: "competitor",
+        status,
+        version: team.version + 1,
+        updatedAt: now,
+      });
+      changed.push({ team: team.name, from: `${team.status}/${team.competitionCategory ?? "competitor"}`, category: "competitor" });
+    }
+    return { changed, missing };
+  },
+});
+
+/** Removes listed teams from the queue (withdrawn teams as withdrawn, others as skipped). */
+export const dequeueTeams = internalMutation({
+  args: { roundId: v.id("reviewRounds"), actorEmail: v.string(), teamCodes: v.array(v.string()), reason: v.string() },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const actorPersonId = await requireActor(ctx, round.eventId, args.actorEmail);
+    const result: { code: string; team: string; to: string }[] = [];
+    const missing: string[] = [];
+    for (const raw of args.teamCodes) {
+      const code = raw.trim().toUpperCase();
+      const team = await ctx.db
+        .query("teams")
+        .withIndex("by_event_code", (q) => q.eq("eventId", round.eventId).eq("publicCode", code))
+        .unique();
+      const state = team
+        ? await ctx.db
+            .query("teamRoundStates")
+            .withIndex("by_round_team", (q) => q.eq("roundId", round._id).eq("teamId", team._id))
+            .unique()
+        : null;
+      if (!team || !state || state.state !== "queued") {
+        missing.push(code);
+        continue;
+      }
+      const to = team.status === "withdrawn" ? ("withdrawn" as const) : ("skipped" as const);
+      await patchTeamRoundState(ctx, state, {
+        state: to,
+        ...(to === "skipped" ? { skipReason: args.reason } : {}),
+        panelId: undefined,
+        queuedAt: undefined,
+        calledAt: undefined,
+        callAttemptCount: 0,
+        lastCallAttemptAt: undefined,
+        holdReason: undefined,
+        stateBeforeHold: undefined,
+        heldAt: undefined,
+        missedAt: undefined,
+        version: state.version + 1,
+        updatedByPersonId: actorPersonId,
+        updatedAt: now,
+      });
+      result.push({ code, team: team.name, to });
+    }
+    return { changed: result.length, result, missing };
+  },
+});
+
