@@ -3,6 +3,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
 import { insertTeamRoundState, patchTeamRoundState } from "./lib/reviewQueueProjection";
+import { ensureRoundConfirmation } from "./lib/reviewRoster";
 
 /** One-off Review 2 adjustments on 2026-09-08 (scale, fixed questions, queue balance); delete after use. */
 
@@ -288,6 +289,46 @@ export const dequeueTeams = internalMutation({
       result.push({ code, team: team.name, to });
     }
     return { changed: result.length, result, missing };
+  },
+});
+
+/** Every seated reviewer gets a confirmed window covering the whole round; rerun after desk swaps. */
+export const confirmSeatedReviewers = internalMutation({
+  args: { roundId: v.id("reviewRounds") },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const members = (
+      await ctx.db
+        .query("reviewPanelMembers")
+        .withIndex("by_round_person_status", (q) => q.eq("roundId", round._id))
+        .collect()
+    ).filter((member) => member.status === "active");
+    const window = { startsAt: round.startsAt, endsAt: round.endsAt };
+    const fixed: string[] = [];
+    for (const member of members) {
+      await ensureRoundConfirmation(ctx, round, member.personId, now);
+      const confirmation = await ctx.db
+        .query("reviewerRoundConfirmations")
+        .withIndex("by_roundId_and_personId", (q) => q.eq("roundId", round._id).eq("personId", member.personId))
+        .unique();
+      if (!confirmation) continue;
+      const covers =
+        confirmation.status === "confirmed" &&
+        confirmation.windows.some((w) => w.startsAt <= window.startsAt && w.endsAt >= window.endsAt);
+      if (covers) continue;
+      await ctx.db.patch(confirmation._id, {
+        status: "confirmed",
+        windows: [window],
+        respondedAt: now,
+        version: confirmation.version + 1,
+        updatedAt: now,
+      });
+      fixed.push(member.personId);
+    }
+    return { seats: members.length, fixed: fixed.length, personIds: fixed };
   },
 });
 
