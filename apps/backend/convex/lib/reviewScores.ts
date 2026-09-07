@@ -163,7 +163,8 @@ export async function computeReviewEvaluation(
   ]);
   const active = activeAssignmentScorecards(assignments, scorecards);
   if (
-    active.assignments.length !== args.round.requiredPanelSize ||
+    active.assignments.length < args.round.minimumScorersPerCriterion ||
+    active.assignments.length > args.round.requiredPanelSize ||
     active.scorecards.length !== active.assignments.length ||
     active.scorecards.some(
       (scorecard) => scorecard.status !== "submitted" || !scorecard.submittedVersionId,

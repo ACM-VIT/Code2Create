@@ -1125,7 +1125,8 @@ export const now = query({
     );
     const submittedScorecardCount = submittedReviewerIds.size;
     const completionReady =
-      assignedRows.length === round.requiredPanelSize &&
+      assignedRows.length >= round.minimumScorersPerCriterion &&
+      assignedRows.length <= round.requiredPanelSize &&
       submittedScorecardCount === assignedRows.length &&
       (!round.requiresSharedCommitments ||
         Boolean(active.session.sharedFindings?.trim() && active.session.sharedCommitments?.trim()));

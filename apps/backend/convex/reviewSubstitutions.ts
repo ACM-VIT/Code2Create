@@ -690,23 +690,23 @@ export async function vacatePanelSeat(
       )
       .take(2),
   ]);
-  if (activeSessions.length > 0 || scoringSessions.length > 0) {
-    throw new ConvexError({
-      code: "ACTIVE_REVIEW_ASSIGNED",
-      message: "Do not replace a reviewer while their review timer is running.",
-    });
+  const liveSessions = [
+    ...pendingSessions,
+    ...activeSessions,
+    ...scoringSessions,
+  ];
+  if (liveSessions.length > 1) {
+    throw new Error("A panel has more than one live review.");
   }
-  if (pendingSessions.length > 1)
-    throw new Error("A panel has more than one pending review.");
-  const pendingSession = pendingSessions[0];
+  const liveSession = liveSessions[0];
   const nextPanelVersion = panel.version + 1;
-  if (pendingSession) {
-    const [assignment, scorecard] = await Promise.all([
+  if (liveSession) {
+    const [assignment, scorecard, assignments] = await Promise.all([
       ctx.db
         .query("reviewAssignments")
         .withIndex("by_session_person", (index) =>
           index
-            .eq("reviewSessionId", pendingSession._id)
+            .eq("reviewSessionId", liveSession._id)
             .eq("reviewerPersonId", member.personId),
         )
         .unique(),
@@ -714,10 +714,16 @@ export async function vacatePanelSeat(
         .query("scorecards")
         .withIndex("by_session_reviewer", (index) =>
           index
-            .eq("reviewSessionId", pendingSession._id)
+            .eq("reviewSessionId", liveSession._id)
             .eq("reviewerPersonId", member.personId),
         )
         .unique(),
+      ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_session_person", (index) =>
+          index.eq("reviewSessionId", liveSession._id),
+        )
+        .take(maximumReviewersPerPanel + 1),
     ]);
     if (
       !assignment ||
@@ -726,8 +732,40 @@ export async function vacatePanelSeat(
       scorecard.status !== "draft"
     ) {
       throw new Error(
-        "The pending review does not contain the expected draft assignment.",
+        "The live review does not contain the expected draft assignment.",
       );
+    }
+    if (assignments.length > maximumReviewersPerPanel) {
+      throw new Error("A review exceeds the published reviewer limit.");
+    }
+    if (
+      (liveSession.status === "active" || liveSession.status === "scoring") &&
+      scorecard.ratings.length > 0
+    ) {
+      throw new ConvexError({
+        code: "REVIEWER_SCORING_STARTED",
+        message:
+          "This reviewer has started scoring. Resolve their scorecard before removing them.",
+      });
+    }
+    const remainingAssignments = assignments.filter(
+      (candidate) =>
+        candidate.status === "assigned" && candidate._id !== assignment._id,
+    );
+    if (
+      (liveSession.status === "active" || liveSession.status === "scoring") &&
+      member.assignedCriterionIds.some(
+        (criterionId) =>
+          remainingAssignments.filter((candidate) =>
+            candidate.assignedCriterionIds.includes(criterionId),
+          ).length < round.minimumScorersPerCriterion,
+      )
+    ) {
+      throw new ConvexError({
+        code: "REVIEWER_MINIMUM_COVERAGE_REQUIRED",
+        message:
+          "Removing this reviewer would leave a criterion below its published scorer minimum.",
+      });
     }
     await ctx.db.patch(assignment._id, { status: "removed", endedAt: now });
     await revokeSourceGrants(ctx, {
@@ -742,9 +780,9 @@ export async function vacatePanelSeat(
       version: scorecard.version + 1,
       updatedAt: now,
     });
-    await ctx.db.patch(pendingSession._id, {
+    await ctx.db.patch(liveSession._id, {
       panelVersion: nextPanelVersion,
-      version: pendingSession.version + 1,
+      version: liveSession.version + 1,
       updatedAt: now,
     });
   }
@@ -762,7 +800,7 @@ export async function vacatePanelSeat(
     updatedAt: now,
   });
   await appendReviewPanelVacancyReadFactById(ctx, panel._id, now);
-  return { panelVersion: nextPanelVersion, pendingSession };
+  return { panelVersion: nextPanelVersion, liveSession };
 }
 
 export const markNoShow = mutation({
@@ -853,7 +891,7 @@ export const markNoShow = mutation({
         message: "The published reviewer no-show grace period has not ended.",
       });
     }
-    const { panelVersion: nextPanelVersion, pendingSession } =
+    const { panelVersion: nextPanelVersion, liveSession } =
       await vacatePanelSeat(ctx, {
         round,
         panel,
@@ -893,7 +931,7 @@ export const markNoShow = mutation({
       nextSummary: JSON.stringify({
         panelStatus: "needs_reviewer",
         panelVersion: nextPanelVersion,
-        pendingReviewSessionId: pendingSession?._id ?? null,
+        affectedReviewSessionId: liveSession?._id ?? null,
       }),
       reason,
     });
