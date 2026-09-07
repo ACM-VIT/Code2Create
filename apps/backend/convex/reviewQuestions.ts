@@ -280,6 +280,100 @@ function questionEvidenceChecksum(snapshot: Doc<"reviewQuestionSets">["snapshot"
   ]);
 }
 
+/** The same five questions for every team, one per Review 2 criterion, when generation is off. */
+const fixedReviewQuestions: { criterionKey: string; question: string; reason: string }[] = [
+  {
+    criterionKey: "technical_completion",
+    question:
+      "Since the last review, what has changed in the architecture and implementation, and which of the pieces you promised are now working end to end?",
+    reason: "Technical Completion (30%): follow up on the earlier technical execution.",
+  },
+  {
+    criterionKey: "demo",
+    question:
+      "Walk us through the working demo the way a user would experience it, and tell us what happens under the hood at each step.",
+    reason: "Demo (15%): demo, walkthrough, presentation, and how the idea is communicated.",
+  },
+  {
+    criterionKey: "reproducibility_deployment",
+    question:
+      "How would someone else run or deploy this from the repository today? Show the setup steps, the configuration, and where it is deployed.",
+    reason: "Reproducibility & Deployment (20%).",
+  },
+  {
+    criterionKey: "design_ux",
+    question:
+      "Explain the design decisions behind the interface: the main flow, how errors and edge cases are handled, and what you changed after trying it with users.",
+    reason: "Design & UX (25%): a proper explanation of the design.",
+  },
+  {
+    criterionKey: "growth_progress",
+    question:
+      "What did you get done during the hackathon, what would you build next, and how could this grow beyond the event?",
+    reason: "Growth, Progress & Future Scope (10%).",
+  },
+];
+
+async function fixedQuestionSet(
+  ctx: MutationCtx,
+  round: Doc<"reviewRounds">,
+  team: Doc<"teams">,
+  config: Doc<"reviewQuestionPolicies"> | null,
+  snapshot?: Awaited<ReturnType<typeof buildEvidenceCheckpoint>>,
+) {
+  const now = Date.now();
+  const operatorPersonId = config?.operatorPersonId ?? round.createdByPersonId;
+  const fields =
+    snapshot ??
+    (await buildEvidenceCheckpoint(ctx, {
+      eventId: round.eventId,
+      round,
+      team,
+      actorPersonId: operatorPersonId,
+      createdAt: now,
+    }));
+  const sourceChecksum = questionEvidenceChecksum(fields);
+  const policyVersion = config?.version ?? 0;
+  const existing = await ctx.db
+    .query("reviewQuestionSets")
+    .withIndex("by_round_team_source_policy", (q) =>
+      q
+        .eq("roundId", round._id)
+        .eq("teamId", team._id)
+        .eq("sourceChecksum", sourceChecksum)
+        .eq("policyVersion", policyVersion),
+    )
+    .unique();
+  if (existing?.state === "ready") return existing._id;
+  const criteria = await ctx.db
+    .query("reviewRubricCriteria")
+    .filter((q) => q.eq(q.field("rubricVersionId"), round.rubricVersionId))
+    .collect();
+  const keys = new Set(criteria.map((criterion) => criterion.stableKey));
+  const questions = fixedReviewQuestions
+    .filter((entry) => keys.has(entry.criterionKey))
+    .map((entry) => ({ ...entry, sourceIds: [] }));
+  if (questions.length === 0) return undefined;
+  return ctx.db.insert("reviewQuestionSets", {
+    eventId: round.eventId,
+    roundId: round._id,
+    teamId: team._id,
+    policyVersion,
+    policy: config?.policy ?? { ...defaultPolicy, enabled: false },
+    operatorPersonId,
+    sourceChecksum,
+    snapshot: fields,
+    state: "ready",
+    attempt: 0,
+    analysisSummary: "Fixed questions from the round rubric; no generated analysis.",
+    sources: [],
+    questions,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: now,
+  });
+}
+
 export async function prepareQuestionSet(
   ctx: MutationCtx,
   round: Doc<"reviewRounds">,
@@ -291,7 +385,7 @@ export async function prepareQuestionSet(
     .query("reviewQuestionPolicies")
     .withIndex("by_round", (q) => q.eq("roundId", round._id))
     .unique();
-  if (!config?.policy.enabled) return undefined;
+  if (!config?.policy.enabled) return fixedQuestionSet(ctx, round, team, config, snapshot);
   const actor = await ctx.db
     .query("eventAccessSubjects")
     .withIndex("by_event_person", (q) =>

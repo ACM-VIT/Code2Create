@@ -107,8 +107,6 @@ type DraftStorageState =
 type BusyAction = "create" | "reset" | "register" | "start" | null;
 type CorrectionCategory = "reviewer_error" | "technical_error" | "other";
 
-const scores = [0, 1, 2, 3, 4] as const;
-
 export function ReviewPanel({ runtime }: { runtime: ReviewerRuntime }) {
   const eventSlug = runtime.configuration.eventSlug;
   const platform = reviewerPlatform();
@@ -1945,7 +1943,7 @@ function ScorecardEditor({
       return;
     }
     const problem =
-      submissionProblem(review.criteria, ratings) ??
+      submissionProblem(review.criteria, ratings, scale) ??
       (review.scorecard.requiresFinalComment && finalComment.trim().length < 3
         ? "Leave a final comment about the review before submitting."
         : null);
@@ -1988,6 +1986,8 @@ function ScorecardEditor({
   // A background save must never lock the inputs; only submitting does.
   const locked =
     busy === "submit" || localState === "loading" || submitUncertain;
+  const scale = review.scale;
+  const scores = scoreRange(scale);
   const summaryStep = review.criteria.length;
   const criterion = step < summaryStep ? review.criteria[step] : undefined;
   const rating = criterion
@@ -1995,7 +1995,7 @@ function ScorecardEditor({
     : undefined;
   const stepNoteMissing =
     rating !== undefined &&
-    (rating.score === 0 || rating.score === 4) &&
+    isExtreme(rating.score, scale) &&
     (!rating.evidenceNote || rating.evidenceNote.trim().length < 3);
 
   return (
@@ -2040,13 +2040,13 @@ function ScorecardEditor({
             selected={rating?.score}
           />
           <Text style={styles.anchor}>
-            {rating ? anchorText(criterion, rating.score) : criterion.guidance}
+            {rating ? anchorText(criterion, rating.score, scale) : criterion.guidance}
           </Text>
           {rating ? (
             <Field
               editable={!locked}
               label={
-                rating.score === 0 || rating.score === 4
+                isExtreme(rating.score, scale)
                   ? "Why this score (required)"
                   : "Note (optional)"
               }
@@ -2294,16 +2294,33 @@ function notificationLabel(
   return "Ready to register";
 }
 
-function anchorText(criterion: Criterion, score: number) {
-  if (score === 0) return criterion.anchors.zero;
-  if (score === 1) return criterion.anchors.one;
-  if (score === 2) return criterion.anchors.two;
-  if (score === 3) return criterion.anchors.three;
-  if (score === 4) return criterion.anchors.four;
-  return "Choose a published score from 0 to 4.";
+type ScoreScale = { minimum: number; maximum: number };
+
+function scoreRange(scale: ScoreScale) {
+  const values: number[] = [];
+  for (let score = scale.minimum; score <= scale.maximum; score += 1) values.push(score);
+  return values;
 }
 
-function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
+function isExtreme(score: number, scale: ScoreScale) {
+  return score === scale.minimum || score === scale.maximum;
+}
+
+/** Five published anchors describe the whole scale; a score maps to its nearest band. */
+function anchorText(criterion: Criterion, score: number, scale: ScoreScale) {
+  const span = Math.max(1, scale.maximum - scale.minimum);
+  const band = Math.round(((score - scale.minimum) / span) * 4);
+  if (score < scale.minimum || score > scale.maximum) {
+    return `Choose a published score from ${scale.minimum} to ${scale.maximum}.`;
+  }
+  if (band <= 0) return criterion.anchors.zero;
+  if (band === 1) return criterion.anchors.one;
+  if (band === 2) return criterion.anchors.two;
+  if (band === 3) return criterion.anchors.three;
+  return criterion.anchors.four;
+}
+
+function submissionProblem(criteria: Criterion[], ratings: Rating[], scale: ScoreScale) {
   if (ratings.length !== criteria.length)
     return "Rate every assigned criterion before submitting.";
   for (const criterion of criteria) {
@@ -2312,7 +2329,7 @@ function submissionProblem(criteria: Criterion[], ratings: Rating[]) {
     );
     if (!rating) return "Rate every assigned criterion before submitting.";
     if (
-      (rating.score === 0 || rating.score === 4) &&
+      isExtreme(rating.score, scale) &&
       (!rating.evidenceNote || rating.evidenceNote.trim().length < 3)
     ) {
       return `${criterion.label}: add a short evidence note for a score of ${rating.score}.`;

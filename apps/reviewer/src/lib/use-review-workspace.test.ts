@@ -21,6 +21,7 @@ const firstId = "review-one" as ReviewId;
 const nextId = "review-two" as ReviewId;
 const loadedWorkspace: Workspace = {
   id: firstId,
+  scale: { minimum: 1, maximum: 7 },
   criteria: [],
   evidence: {
     id: "evidence" as Workspace["evidence"]["id"],
