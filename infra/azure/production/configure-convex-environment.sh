@@ -69,7 +69,6 @@ GITHUB_APP_CLIENT_ID=$(read_secret github-app-client-id)
 GITHUB_APP_CLIENT_SECRET=$(read_secret github-app-client-secret)
 GITHUB_CLIENT_ID=$(read_secret github-client-id)
 GITHUB_CLIENT_SECRET=$(read_secret github-client-secret)
-GITHUB_WEBHOOK_SECRET=$(read_secret github-webhook-secret)
 PROVIDER_TOKEN_ENCRYPTION_KEY_VERSION=production-v1
 PROVIDER_TOKEN_ENCRYPTION_KEY=$(read_secret provider-token-encryption-key)
 INTELLIGENCE_WORKER_URL=https://intelligence.c2c.sh

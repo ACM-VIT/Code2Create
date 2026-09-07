@@ -100,6 +100,13 @@ explicitly. Environment configuration grants one bootstrap email permission to
 create the event; it does not create the event or open either application
 window.
 
+GitHub repository reconciliation and webhook receipt run in the intelligence
+Worker, not in Convex. Configure the Worker secrets `GITHUB_APP_ID`,
+`GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` with Wrangler, and point
+the GitHub App's webhook URL at `https://intelligence.c2c.sh/v1/github/webhook`.
+The Convex environment keeps the App ID, private key, and OAuth client values
+for the participant connection flow and no longer holds the webhook secret.
+
 The production `posthog-project-token` is stored in the production Key Vault.
 Convex and the intelligence Worker use it with the first-party
 `https://i.c2c.sh` ingest proxy. To refresh only the Convex PostHog values, run

@@ -20,7 +20,6 @@ app.use(aggregate, { name: "reviewQueue" });
 app.use(aggregate, { name: "participantServiceQueues" });
 app.use(aggregate, { name: "synesthesiaVotes" });
 app.use(workpool, { name: "admissionWorkpool" });
-app.use(workpool, { name: "integrationWorkpool" });
 app.use(workpool, { name: "exportWorkpool" });
 app.use(workpool, { name: "intelligenceWorkpool" });
 app.use(presence, { name: "intakePresence" });

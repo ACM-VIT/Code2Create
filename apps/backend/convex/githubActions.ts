@@ -7,7 +7,7 @@ import { RequestError } from "octokit";
 
 import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { action, internalAction } from "./_generated/server";
+import { action } from "./_generated/server";
 import {
   GitHubOctokit,
   githubApp,
@@ -55,19 +55,6 @@ type AvailableRepositoryPage = {
 };
 
 const repositoryPageSize = 50;
-
-type RepositorySyncContext = {
-  bindingId: Id<"githubRepositoryBindings">;
-  installationId: string;
-  repositoryId: string;
-  owner: string;
-  name: string;
-  trackedBranch: string;
-  rootPath?: string;
-  baselineSha: string;
-  requiredTopic: string;
-  syncRevision: number;
-};
 
 function opaqueDigest(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -486,129 +473,6 @@ export const addRepository = action({
       },
     );
     return result;
-  },
-});
-
-export const reconcileRepository = internalAction({
-  args: { bindingId: v.id("githubRepositoryBindings") },
-  returns: v.null(),
-  handler: async (ctx, args): Promise<null> => {
-    const leaseId = randomUUID();
-    const sync: RepositorySyncContext | null = await ctx.runMutation(
-      internal.githubIntegrations.beginRepositorySync,
-      {
-        bindingId: args.bindingId,
-        leaseId,
-      },
-    );
-    if (!sync) return null;
-    try {
-      const octokit = await repositoryOctokit(sync.installationId, sync.repositoryId);
-      const [repository, topics, languages, branch] = await Promise.all([
-        octokit.rest.repos.get({ owner: sync.owner, repo: sync.name }),
-        octokit.rest.repos.getAllTopics({ owner: sync.owner, repo: sync.name }),
-        octokit.rest.repos.listLanguages({ owner: sync.owner, repo: sync.name }),
-        octokit.rest.repos.getBranch({
-          owner: sync.owner,
-          repo: sync.name,
-          branch: sync.trackedBranch,
-        }),
-      ]);
-      if (String(repository.data.id) !== sync.repositoryId) {
-        throw new ConvexError({
-          code: "REPOSITORY_ID_MISMATCH",
-          message: "GitHub returned a different repository for this binding.",
-        });
-      }
-      const headSha = branch.data.commit.sha;
-      if (sync.rootPath) {
-        await octokit.rest.repos.getContent({
-          owner: repository.data.owner.login,
-          repo: repository.data.name,
-          path: sync.rootPath,
-          ref: headSha,
-        });
-      }
-      let commitCount = 0;
-      let additions = 0;
-      let deletions = 0;
-      let changedFiles = 0;
-      let compareTruncated = false;
-      let observedCommitShas: string[] = [];
-      let commitIdentityComplete = true;
-      let completeness: "complete" | "partial" | "unknown" = "complete";
-      if (headSha !== sync.baselineSha) {
-        const comparison = await octokit.rest.repos.compareCommitsWithBasehead({
-          owner: repository.data.owner.login,
-          repo: repository.data.name,
-          basehead: `${sync.baselineSha}...${headSha}`,
-          per_page: 100,
-          page: 1,
-        });
-        commitCount = providerCount(comparison.data.total_commits, "commit count");
-        const files = comparison.data.files ?? [];
-        const relevantFiles = sync.rootPath
-          ? files.filter(
-              (file) =>
-                file.filename === sync.rootPath || file.filename.startsWith(`${sync.rootPath}/`),
-            )
-          : files;
-        additions = relevantFiles.reduce(
-          (total, file) => total + providerCount(file.additions, "addition count"),
-          0,
-        );
-        deletions = relevantFiles.reduce(
-          (total, file) => total + providerCount(file.deletions, "deletion count"),
-          0,
-        );
-        changedFiles = relevantFiles.length;
-        compareTruncated = files.length >= 300;
-        const returnedCommitShas = comparison.data.commits.map((commit) => commit.sha);
-        observedCommitShas = sync.rootPath ? [] : returnedCommitShas;
-        commitIdentityComplete =
-          commitCount === 0 || (!sync.rootPath && returnedCommitShas.length === commitCount);
-        if (compareTruncated || sync.rootPath || !commitIdentityComplete) {
-          completeness = "partial";
-        }
-      }
-      const providerCommitAt = unixTime(
-        branch.data.commit.commit.committer?.date ?? branch.data.commit.commit.author?.date,
-      );
-      await ctx.runMutation(internal.githubIntegrations.finishRepositorySync, {
-        bindingId: sync.bindingId,
-        leaseId,
-        syncRevision: sync.syncRevision,
-        repositoryId: String(repository.data.id),
-        owner: repository.data.owner.login,
-        name: repository.data.name,
-        fullName: repository.data.full_name,
-        url: repository.data.html_url,
-        isPrivate: repository.data.private,
-        isFork: repository.data.fork,
-        defaultBranch: repository.data.default_branch,
-        topicState: topics.data.names.includes(sync.requiredTopic) ? "present" : "missing",
-        headSha,
-        ...(providerCommitAt !== undefined ? { providerCommitAt } : {}),
-        commitCount,
-        additions,
-        deletions,
-        changedFiles,
-        observedCommitShas,
-        commitIdentityComplete,
-        languageBytes: normalizedLanguages(languages.data),
-        completeness,
-        compareTruncated,
-      });
-    } catch (error) {
-      const failure = providerFailure(error);
-      await ctx.runMutation(internal.githubIntegrations.failRepositorySync, {
-        bindingId: sync.bindingId,
-        leaseId,
-        state: failure.state,
-        errorCode: failure.code,
-      });
-    }
-    return null;
   },
 });
 

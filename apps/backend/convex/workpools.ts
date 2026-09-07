@@ -14,16 +14,6 @@ export const admissionWorkpool = new Workpool(components.admissionWorkpool, {
   },
 });
 
-export const integrationWorkpool = new Workpool(components.integrationWorkpool, {
-  maxParallelism: 6,
-  retryActionsByDefault: false,
-  defaultRetryBehavior: {
-    maxAttempts: 2,
-    initialBackoffMs: 2_000,
-    base: 2,
-  },
-});
-
 export const exportWorkpool = new Workpool(components.exportWorkpool, {
   maxParallelism: 2,
   retryActionsByDefault: true,

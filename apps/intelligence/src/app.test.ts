@@ -18,6 +18,11 @@ import {
   operationsIntelligenceStreamTicketHeaders,
   serializeOperationsIntelligenceStreamTicket,
   signServiceBody,
+  verifyServiceBody,
+  githubSyncCallbackContext,
+  githubSyncIngressContext,
+  githubSyncProtocolVersion,
+  githubWebhookCallbackContext,
   type OperationsIntelligenceStreamTicket,
 } from "@code2create/domain";
 import type { DispatchReceipt } from "@flue/runtime";
@@ -32,6 +37,7 @@ import {
   memoryAutonomyAdmissionController,
   type AutonomyAdmissionController,
 } from "./lib/autonomyAdmissionController.ts";
+import { githubWebhookSignature } from "./lib/githubWebhookSignature.ts";
 
 type CopilotDispatchRequest = {
   initialData: { conversationId: string; eventSlug: string };
@@ -203,6 +209,9 @@ const environment: Cloudflare.Env = {
   CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL:
     "https://example.test/autonomy/recommendation-evidence",
   OPS_ORIGIN: "https://ops.example.test",
+  GITHUB_APP_ID: "303",
+  GITHUB_APP_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----",
+  GITHUB_WEBHOOK_SECRET: "github-webhook-fixture-secret",
 };
 
 describe("intelligence readiness", () => {
@@ -1550,5 +1559,172 @@ describe("review question ingress", () => {
       422,
     );
     expect(runtime.dispatchBrief).not.toHaveBeenCalled();
+  });
+});
+
+describe("GitHub provider ingress", () => {
+  const syncRequest = {
+    protocolVersion: githubSyncProtocolVersion,
+    bindingId: "binding-1",
+    syncRevision: 3,
+    installationId: "52001",
+    repositoryId: "9001",
+    owner: "measured-moon",
+    name: "portal",
+    trackedBranch: "main",
+    baselineSha: "a".repeat(40),
+    requiredTopic: "code2create-7",
+  };
+  async function sendSync(body: string, signatureContext = githubSyncIngressContext) {
+    const timestamp = String(Date.now());
+    const signature = await signServiceBody({ context: signatureContext, secret, timestamp, body });
+    const background: Promise<unknown>[] = [];
+    const response = await app.request(
+      "/v1/github/repository-syncs",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-c2c-timestamp": timestamp,
+          "x-c2c-signature": signature,
+        },
+        body,
+      },
+      environment,
+      {
+        waitUntil: (promise: Promise<unknown>) => {
+          background.push(promise);
+        },
+        passThroughOnException: () => {},
+        props: {},
+      },
+    );
+    return { response, background };
+  }
+
+  test("accepts a signed sync request and settles it over the signed callback", async () => {
+    const outbound: { url: string; body: string; headers: Headers }[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      outbound.push({ url, body: String(init?.body ?? ""), headers: new Headers(init?.headers) });
+      return new Response(JSON.stringify({ state: "accepted" }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    try {
+      const forged = await sendSync(JSON.stringify(syncRequest), githubWebhookCallbackContext);
+      expect(forged.response.status).toBe(401);
+      const invalid = await sendSync(JSON.stringify({ ...syncRequest, syncRevision: 0 }));
+      expect(invalid.response.status).toBe(422);
+
+      const accepted = await sendSync(JSON.stringify(syncRequest));
+      expect(accepted.response.status).toBe(202);
+      expect(await accepted.response.json()).toEqual({ state: "accepted" });
+      expect(accepted.background).toHaveLength(1);
+      await Promise.all(accepted.background);
+
+      const callback = outbound.find((call) =>
+        call.url.endsWith("/intelligence/github/repository-syncs"),
+      );
+      expect(callback).toBeDefined();
+      expect(new URL(callback?.url ?? "").origin).toBe("https://example.test");
+      expect(
+        await verifyServiceBody({
+          context: githubSyncCallbackContext,
+          secret,
+          timestamp: callback?.headers.get("x-c2c-timestamp") ?? "",
+          signature: callback?.headers.get("x-c2c-signature") ?? "",
+          body: callback?.body ?? "",
+          now: Date.now(),
+          maximumAgeMs: 60_000,
+        }),
+      ).toBe(true);
+      expect(JSON.parse(callback?.body ?? "{}")).toMatchObject({
+        protocolVersion: githubSyncProtocolVersion,
+        bindingId: "binding-1",
+        syncRevision: 3,
+        status: "failed",
+        errorCode: "github_request_failed",
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
+
+  test("forwards only provider-signed supported webhooks to Convex", async () => {
+    const outbound: { url: string; body: string; headers: Headers }[] = [];
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      outbound.push({ url, body: String(init?.body ?? ""), headers: new Headers(init?.headers) });
+      return new Response(JSON.stringify({ state: "accepted" }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    const body = new TextEncoder().encode(JSON.stringify({ zen: "Keep it logically awesome." }));
+    const signature = await githubWebhookSignature(environment.GITHUB_WEBHOOK_SECRET, body);
+    const send = (headers: Record<string, string>) =>
+      app.request(
+        "/v1/github/webhook",
+        { method: "POST", headers: { "content-type": "application/json", ...headers }, body },
+        environment,
+      );
+    try {
+      expect((await send({ "x-github-event": "ping" })).status).toBe(400);
+      expect(
+        (
+          await send({
+            "x-github-delivery": "delivery-1",
+            "x-github-event": "ping",
+            "x-hub-signature-256": "sha256=" + "0".repeat(64),
+          })
+        ).status,
+      ).toBe(401);
+      expect(
+        (
+          await send({
+            "x-github-delivery": "delivery-2",
+            "x-github-event": "star",
+            "x-hub-signature-256": signature,
+          })
+        ).status,
+      ).toBe(204);
+      expect(outbound).toHaveLength(0);
+
+      const accepted = await send({
+        "x-github-delivery": "delivery-3",
+        "x-github-event": "ping",
+        "x-hub-signature-256": signature,
+      });
+      expect(accepted.status).toBe(202);
+      expect(await accepted.json()).toEqual({ state: "accepted" });
+      const callback = outbound[0];
+      expect(callback?.url).toBe("https://example.test/intelligence/github/webhooks");
+      expect(
+        await verifyServiceBody({
+          context: githubWebhookCallbackContext,
+          secret,
+          timestamp: callback?.headers.get("x-c2c-timestamp") ?? "",
+          signature: callback?.headers.get("x-c2c-signature") ?? "",
+          body: callback?.body ?? "",
+          now: Date.now(),
+          maximumAgeMs: 60_000,
+        }),
+      ).toBe(true);
+      const digest = Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", body)),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+      expect(JSON.parse(callback?.body ?? "{}")).toEqual({
+        protocolVersion: "github-webhook-v1",
+        deliveryId: "delivery-3",
+        eventName: "ping",
+        payloadHash: digest,
+        event: { kind: "ping" },
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });

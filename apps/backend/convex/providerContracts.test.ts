@@ -1,5 +1,3 @@
-import { createHmac } from "node:crypto";
-
 import {
   defaultParticipantEmailTemplates,
   participantEmailEventSignatureContext,
@@ -20,7 +18,6 @@ import { walletUrlOrEmpty, withoutUnavailableWalletActions } from "./participant
 import schema from "./schema";
 
 const modules = import.meta.glob(["./**/*.ts", "!./**/*.test.ts"]);
-const originalGitHubWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET;
 const originalEmailEventCallbackSecret = process.env.EMAIL_EVENT_CALLBACK_SECRET;
 const originalAuthSiteUrl = process.env.AUTH_SITE_URL;
 const originalParticipantSiteUrl = process.env.PARTICIPANT_SITE_URL;
@@ -33,7 +30,6 @@ process.env.OPERATIONS_SITE_URL = "http://localhost:4174";
 type BackendTest = TestConvex<typeof schema>;
 
 afterEach(() => {
-  restoreEnvironment("GITHUB_WEBHOOK_SECRET", originalGitHubWebhookSecret);
   restoreEnvironment("EMAIL_EVENT_CALLBACK_SECRET", originalEmailEventCallbackSecret);
 });
 
@@ -44,61 +40,6 @@ afterAll(() => {
 });
 
 describe("GitHub provider contract", () => {
-  test("verifies the signed HTTP payload and deduplicates the delivery", async () => {
-    const backend = convexTest(schema, modules);
-    const secret = "github-provider-fixture-secret";
-    const body = JSON.stringify({ zen: "Keep it logically awesome." });
-    process.env.GITHUB_WEBHOOK_SECRET = secret;
-
-    const first = await backend.fetch("/integrations/github/webhook", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "github-delivery-ping-1",
-        "x-github-event": "ping",
-        "x-hub-signature-256": githubSignature(secret, body),
-      },
-      body,
-    });
-    expect(first.status).toBe(202);
-    await expect(first.json()).resolves.toEqual({ accepted: true });
-
-    const duplicate = await backend.fetch("/integrations/github/webhook", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "github-delivery-ping-1",
-        "x-github-event": "ping",
-        "x-hub-signature-256": githubSignature(secret, body),
-      },
-      body,
-    });
-    expect(duplicate.status).toBe(202);
-
-    const deliveries = await backend.run((ctx) =>
-      ctx.db.query("githubWebhookDeliveries").collect(),
-    );
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({
-      deliveryId: "github-delivery-ping-1",
-      eventName: "ping",
-      state: "accepted",
-      reasonCode: "ping",
-    });
-
-    const invalid = await backend.fetch("/integrations/github/webhook", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-github-delivery": "github-delivery-ping-2",
-        "x-github-event": "ping",
-        "x-hub-signature-256": "sha256=00",
-      },
-      body,
-    });
-    expect(invalid.status).toBe(401);
-  });
-
   test("suspends every matching installation binding once", async () => {
     const backend = convexTest(schema, modules);
     const fixture = await seedIntegrationTeam(backend);
@@ -774,9 +715,6 @@ async function sendCloudflareEmailEvent(
   });
 }
 
-function githubSignature(secret: string, body: string) {
-  return `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
-}
 
 function restoreEnvironment(name: string, value: string | undefined) {
   if (value === undefined) delete process.env[name];

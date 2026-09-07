@@ -13,7 +13,7 @@ import {
   importBundleEndpoint,
   importBundleOptions,
 } from "./communicationsEmailAssetActions";
-import { githubWebhook } from "./githubWebhook";
+import { repositorySyncCallback, webhookCallback } from "./githubSyncHttp";
 import { intelligenceReadEndpoint } from "./intelligenceReads";
 import { intelligenceRecommendationWebhook } from "./intelligenceRecommendations";
 import { operationsIntelligenceWebhook } from "./operationsIntelligenceWebhook";
@@ -61,9 +61,14 @@ http.route({
   handler: importBundleOptions,
 });
 http.route({
-  path: "/integrations/github/webhook",
+  path: "/intelligence/github/repository-syncs",
   method: "POST",
-  handler: githubWebhook,
+  handler: repositorySyncCallback,
+});
+http.route({
+  path: "/intelligence/github/webhooks",
+  method: "POST",
+  handler: webhookCallback,
 });
 http.route({
   path: "/communications/cloudflare-email/events",

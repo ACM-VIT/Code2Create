@@ -14,6 +14,7 @@ import { reviewQuestionRoutes } from "./routes/reviewQuestionRoutes.ts";
 import { briefRoutes } from "./routes/briefRoutes.ts";
 import { copilotRoutes } from "./routes/copilotRoutes.ts";
 import { episodeRoutes } from "./routes/episodeRoutes.ts";
+import { githubRoutes } from "./routes/githubRoutes.ts";
 import { healthRoutes } from "./routes/healthRoutes.ts";
 import { ideaRoutes } from "./routes/ideaRoutes.ts";
 import { streamRoutes } from "./routes/streamRoutes.ts";
@@ -47,6 +48,7 @@ app.route("/", reviewQuestionRoutes);
 app.route("/", copilotRoutes);
 app.route("/", episodeRoutes);
 app.route("/", ideaRoutes);
+app.route("/", githubRoutes);
 
 app.onError((_error, context) => {
   if (postHogIntelligenceObservabilityConfigured(context.env)) {

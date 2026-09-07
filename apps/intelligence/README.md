@@ -42,6 +42,8 @@ The HTTP shell stays separate from autonomy semantics: `src/routes/autonomyRoute
 - `POST /v1/operations-episodes`, authenticated with the episode-ingress HMAC context;
 - `POST /v1/idea-submissions`, authenticated with the idea-ingress HMAC context;
 - `POST /v1/review-questions`, authenticated with the review-question ingress HMAC context;
+- `POST /v1/github/repository-syncs`, authenticated with the GitHub sync ingress HMAC context;
+- `POST /v1/github/webhook`, authenticated with GitHub's `X-Hub-Signature-256` over the raw body;
 - `POST /v1/operations-autonomy-runs/:runId/continue`, for a backend-owned durable work item;
 - `POST /v1/operations-autonomy-runs/:runId/abort`, which durably revokes admission before aborting agent work;
 - `GET|HEAD /v1/operations-brief-runs/:instanceId`, with a short-lived route-bound read ticket;
@@ -74,7 +76,9 @@ The Worker requires:
 - `CONVEX_INTELLIGENCE_AUTONOMY_WORK_URL`;
 - `CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_URL`;
 - `CONVEX_INTELLIGENCE_AUTONOMY_RECOMMENDATION_EVIDENCE_URL`;
-- `OPS_ORIGIN`, the exact HTTPS operations-dashboard origin (local HTTP is allowed only on localhost).
+- `OPS_ORIGIN`, the exact HTTPS operations-dashboard origin (local HTTP is allowed only on localhost);
+- `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY`, the read-only evidence App used to mint repository-scoped installation tokens;
+- `GITHUB_WEBHOOK_SECRET`, the App's webhook secret.
 
 Flue sends model work directly to the pinned OpenAI Responses model. Interrupted semantic work remains durable and can continue in a new submission while authority is current.
 
@@ -126,6 +130,23 @@ Do not deploy production from an unreviewed working tree. Configure the correspo
 - [Agent API](https://flueframework.com/docs/reference/agent-api/)
 - [Routing](https://flueframework.com/docs/guide/routing/)
 - [Tools](https://flueframework.com/docs/guide/tools/)
+
+### GitHub repository evidence
+
+The Worker owns every GitHub API round trip for team repositories. Convex signs
+one `github-sync-v1` request per binding revision (`POST /v1/github/repository-syncs`);
+the Worker acknowledges it immediately, mints an installation token restricted to
+that repository with Metadata and Contents read, reads the repository, topics,
+languages, tracked head, optional project root, and baseline comparison, and
+settles the result over the signed `/intelligence/github/repository-syncs`
+callback. Convex applies a settlement once per `syncRevision`, records a newer
+revision as still pending, and re-requests overdue work from a one-minute sweep.
+Rate limits settle as `rate_limited` with GitHub's retry delay; Convex schedules
+the retry. The GitHub App's webhook URL is `https://intelligence.c2c.sh/v1/github/webhook`:
+the Worker verifies the provider signature, normalizes `push`, `installation`,
+`installation_repositories`, and `ping`, and forwards one event per delivery to
+`/intelligence/github/webhooks`, where Convex deduplicates by delivery identifier.
+No repository content, token, or provider body is logged.
 
 ### Review evidence images
 

@@ -38,6 +38,15 @@ healthRoutes.get("/health", (context) => {
     ] as const)
       requireStrongServiceSecret(value, name);
     requireExactOpsOrigin(context.env.OPS_ORIGIN);
+    if (!/^\d{1,20}$/u.test(context.env.GITHUB_APP_ID.trim())) {
+      throw new Error("GITHUB_APP_ID is unavailable.");
+    }
+    if (!context.env.GITHUB_APP_PRIVATE_KEY.includes("PRIVATE KEY-----")) {
+      throw new Error("GITHUB_APP_PRIVATE_KEY is unavailable.");
+    }
+    if (context.env.GITHUB_WEBHOOK_SECRET.trim().length === 0) {
+      throw new Error("GITHUB_WEBHOOK_SECRET is unavailable.");
+    }
     for (const [value, name] of [
       [context.env.CONVEX_INTELLIGENCE_CALLBACK_URL, "Convex intelligence callback"],
       [context.env.CONVEX_INTELLIGENCE_READ_URL, "Convex intelligence read"],

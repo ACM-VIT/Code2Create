@@ -41,6 +41,13 @@ crons.interval(
 );
 
 crons.interval(
+  "recover overdue GitHub repository syncs",
+  { minutes: 1 },
+  internal.githubSync.sweep,
+  {},
+);
+
+crons.interval(
   "refresh operations health snapshot",
   { seconds: 30 },
   internal.operationsHealth.refresh,

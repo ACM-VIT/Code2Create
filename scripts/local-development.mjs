@@ -69,7 +69,6 @@ const privateEnvironmentKeys = [
   "GITHUB_APP_PRIVATE_KEY",
   "GITHUB_CLIENT_ID",
   "GITHUB_CLIENT_SECRET",
-  "GITHUB_WEBHOOK_SECRET",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_WALLET_ISSUER_ID",
@@ -139,8 +138,16 @@ export const localConvexEnvironment = Object.freeze({
   ...localPostHogEnvironment,
 });
 
+const localGithubWorkerEnvironment = Object.fromEntries(
+  ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "GITHUB_WEBHOOK_SECRET"].flatMap((key) => {
+    const value = process.env[key]?.trim();
+    return value ? [[key, value]] : [];
+  }),
+);
+
 export const localIntelligenceWorkerEnvironment = Object.freeze({
   ...(localOpenAiApiKey ? { OPENAI_API_KEY: localOpenAiApiKey } : {}),
+  ...localGithubWorkerEnvironment,
   ...localPostHogEnvironment,
   C2C_DEPLOYMENT_ENVIRONMENT: "development",
   C2C_RELEASE_ID: "development",

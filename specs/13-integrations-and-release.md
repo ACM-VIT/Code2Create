@@ -154,7 +154,7 @@ Staging and production require these paired values:
 
 - Convex: `INTELLIGENCE_WORKER_URL`, `INTELLIGENCE_INGRESS_SECRET`, `INTELLIGENCE_CALLBACK_SECRET`, `INTELLIGENCE_READ_SECRET`, and `INTELLIGENCE_STREAM_SECRET`;
 - Worker: the matching four secrets plus exact brief/autonomy callback, read, work-authorization, recommendation, and recommendation-evidence URLs;
-- Worker secret: `OPENAI_API_KEY`.
+- Worker secrets: `OPENAI_API_KEY`, `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`.
 
 Every configured service URL is a canonical HTTPS origin/endpoint outside loopback development. Development, staging, and production never share a URL or secret. The Worker has no Convex deployment credential and cannot bypass the signed, run-scoped routes. New intelligence jobs follow the same rule: one strict versioned input, closed reads/tools/output, explicit authority owner, durable idempotent identity, complete cursor traversal, defined retention, sanitized observable lifecycle, and no broad service credential or consequential command.
 
@@ -244,23 +244,23 @@ Every REST request sends `Accept: application/vnd.github+json` and the pinned `X
 
 ### Webhook fast path
 
-The Convex HTTP action:
+GitHub delivers webhooks to the intelligence Worker at
+`https://intelligence.c2c.sh/v1/github/webhook`. The Worker:
 
 1. reads the unmodified request body;
 2. validates `X-Hub-Signature-256` with constant-time comparison;
 3. checks `X-GitHub-Event`, installation ID, and repository ID;
-4. deduplicates `X-GitHub-Delivery`;
-5. resolves the repository binding, records the small provider event, and advances that repository plus the one current team summary projection;
-6. enqueues enrichment in the bounded integration Workpool;
-7. returns a 2xx response within GitHub's ten-second window.
+4. normalizes `push`, `installation`, `installation_repositories`, and `ping` into one small provider event, and answers 204 for every other event type;
+5. forwards that event over the signed `/intelligence/github/webhooks` callback;
+6. returns GitHub's 2xx only after Convex has deduplicated `X-GitHub-Delivery`, resolved the repository binding, recorded the small provider event, advanced that repository plus the one current team summary projection, and requested reconciliation.
 
-A `push` payload supplies `ref`, `before`, `after`, `created`, `deleted`, `forced`, and up to 2,048 pushed commits. The fast path updates the team card without waiting for another API request. Events can arrive out of order, so the worker compares provider timestamps and ancestry instead of treating delivery order as commit order.
+A `push` payload supplies `ref`, `before`, `after`, `created`, `deleted`, `forced`, and up to 2,048 pushed commits. The fast path updates the team card without waiting for another API request. Events can arrive out of order, so reconciliation compares provider timestamps and ancestry instead of treating delivery order as commit order.
 
-Invalid signatures, unknown repositories, repeated deliveries, unsupported event types, and oversized payloads do not change project evidence.
+Invalid signatures, unknown repositories, repeated deliveries, unsupported event types, and oversized payloads do not change project evidence. Convex holds no GitHub webhook secret.
 
 ### Enrichment, statistics, and repository view
 
-For each repository’s tracked branch and optional project root, the worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
+Reconciliation runs in the intelligence Worker, never inside Convex. Convex freezes one signed `github-sync-v1` request per binding revision, the Worker mints a repository-scoped read-only installation token, and the result returns over a signed callback that Convex applies exactly once per revision. A settlement for an older revision is recorded and the newer revision is requested again; a reconciliation that misses its deadline is re-requested by a one-minute sweep. For each repository’s tracked branch and optional project root, the Worker uses the Commits, Compare, Git Trees, Contents, repository, topic, and language endpoints. It records:
 
 - optional topic metadata;
 - baseline SHA, current head SHA, head commit time, and ahead/behind state;
@@ -290,7 +290,7 @@ Counts are context. Squashes, generated files, rebases, pair programming, and Gi
 - Rename or transfer resolves by repository ID on reconciliation.
 - A force push records the new head and a discontinuity; it never silently rewrites an earlier snapshot.
 - A deleted tracked branch requires the team to choose another branch and creates a new baseline relationship.
-- Rate-limit responses pause that installation's Workpool lane until reset; live clients keep the last verified data and its age.
+- Rate-limit responses settle the repository as `rate_limited` with GitHub's retry delay, and Convex requests it again after that pause; live clients keep the last verified data and its age.
 - Removing or replacing a repository before freeze changes the active set and preserves earlier binding versions, snapshots, and checkpoint sets.
 
 ## 5. Figma OAuth and full design evidence

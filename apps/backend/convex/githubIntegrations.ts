@@ -38,7 +38,7 @@ import {
   repositoryKind,
   teamStatus,
 } from "./values";
-import { integrationWorkpool } from "./workpools";
+import { scheduleRepositorySync } from "./githubSync";
 
 type ReadCtx = QueryCtx | MutationCtx;
 
@@ -281,36 +281,12 @@ function normalizedKindLabel(
   return undefined;
 }
 
-function normalizedObservedCommitShas(args: {
-  values: string[];
-  commitCount: number;
-  complete: boolean;
-}) {
-  if (!Number.isSafeInteger(args.commitCount) || args.commitCount < 0) {
-    throw new Error("GitHub returned an invalid commit count.");
-  }
-  if (args.values.length > 100) {
-    throw new Error("GitHub returned more commit identities than the bounded comparison permits.");
-  }
-  const normalized = args.values.map((value) => value.toLowerCase());
-  if (
-    normalized.some((value) => !/^[a-f0-9]{40,64}$/.test(value)) ||
-    new Set(normalized).size !== normalized.length ||
-    normalized.length > args.commitCount ||
-    (args.complete && normalized.length !== args.commitCount)
-  ) {
-    throw new Error("GitHub returned an inconsistent commit identity set.");
-  }
-  return normalized;
-}
-
 function githubEnvironmentConfigured() {
   return Boolean(
     process.env.GITHUB_APP_ID?.trim() &&
     process.env.GITHUB_APP_PRIVATE_KEY?.trim() &&
     process.env.GITHUB_APP_CLIENT_ID?.trim() &&
-    process.env.GITHUB_APP_CLIENT_SECRET?.trim() &&
-    process.env.GITHUB_WEBHOOK_SECRET?.trim(),
+    process.env.GITHUB_APP_CLIENT_SECRET?.trim(),
   );
 }
 
@@ -1201,12 +1177,7 @@ export const refreshRepository = mutation({
       teamId: team._id,
       now,
     });
-    await integrationWorkpool.enqueueAction(
-      ctx,
-      internal.githubActions.reconcileRepository,
-      { bindingId: binding._id },
-      { retry: false },
-    );
+    await scheduleRepositorySync(ctx, binding._id);
     await recordOperation(ctx, {
       eventId: event._id,
       actorPersonId: person._id,
@@ -1508,251 +1479,6 @@ export const refreshTeamMetrics = internalMutation({
   },
 });
 
-export const beginRepositorySync = internalMutation({
-  args: {
-    bindingId: v.id("githubRepositoryBindings"),
-    leaseId: v.string(),
-  },
-  returns: v.union(
-    v.null(),
-    v.object({
-      bindingId: v.id("githubRepositoryBindings"),
-      installationId: v.string(),
-      repositoryId: v.string(),
-      owner: v.string(),
-      name: v.string(),
-      trackedBranch: v.string(),
-      rootPath: v.optional(v.string()),
-      baselineSha: v.string(),
-      requiredTopic: v.string(),
-      syncRevision: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db.get(args.bindingId);
-    if (!binding || binding.state !== "active" || !binding.baselineSha) return null;
-    if (binding.syncedRevision >= binding.syncRevision) return null;
-    const now = Date.now();
-    if (
-      binding.syncState === "running" &&
-      binding.syncLeaseId &&
-      (binding.syncLeaseExpiresAt ?? 0) > now
-    ) {
-      return null;
-    }
-    const connection = await ctx.db.get(binding.installationConnectionId);
-    if (!connection || connection.state !== "active") {
-      await ctx.db.patch(binding._id, {
-        state: "inaccessible",
-        syncState: "error",
-        syncErrorCode: "installation_unavailable",
-        syncLeaseId: undefined,
-        syncLeaseExpiresAt: undefined,
-        version: binding.version + 1,
-        updatedAt: now,
-      });
-      await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-      await refreshGithubTeamMetrics(ctx, {
-        eventId: binding.eventId,
-        teamId: binding.teamId,
-        now,
-      });
-      return null;
-    }
-    await ctx.db.patch(binding._id, {
-      syncState: "running",
-      syncLeaseId: args.leaseId,
-      syncLeaseExpiresAt: now + 2 * 60 * 1_000,
-      syncErrorCode: undefined,
-    });
-    await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-    await refreshGithubTeamMetrics(ctx, {
-      eventId: binding.eventId,
-      teamId: binding.teamId,
-      now,
-    });
-    return {
-      bindingId: binding._id,
-      installationId: connection.installationId,
-      repositoryId: binding.repositoryId,
-      owner: binding.owner,
-      name: binding.name,
-      trackedBranch: binding.trackedBranch,
-      ...(binding.rootPath !== undefined ? { rootPath: binding.rootPath } : {}),
-      baselineSha: binding.baselineSha,
-      requiredTopic: binding.requiredTopic,
-      syncRevision: binding.syncRevision,
-    };
-  },
-});
-
-export const finishRepositorySync = internalMutation({
-  args: {
-    bindingId: v.id("githubRepositoryBindings"),
-    leaseId: v.string(),
-    syncRevision: v.number(),
-    repositoryId: v.string(),
-    owner: v.string(),
-    name: v.string(),
-    fullName: v.string(),
-    url: v.string(),
-    isPrivate: v.boolean(),
-    isFork: v.boolean(),
-    defaultBranch: v.string(),
-    topicState: githubRepositoryTopicState,
-    headSha: v.string(),
-    providerCommitAt: v.optional(v.number()),
-    commitCount: v.number(),
-    additions: v.number(),
-    deletions: v.number(),
-    changedFiles: v.number(),
-    observedCommitShas: v.array(v.string()),
-    commitIdentityComplete: v.boolean(),
-    languageBytes,
-    completeness: githubRepositoryCoverage,
-    compareTruncated: v.boolean(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db.get(args.bindingId);
-    if (
-      !binding ||
-      binding.state !== "active" ||
-      binding.syncState !== "running" ||
-      binding.syncLeaseId !== args.leaseId ||
-      binding.repositoryId !== args.repositoryId
-    ) {
-      return null;
-    }
-    const now = Date.now();
-    const metric = await ctx.db
-      .query("githubRepositoryMetrics")
-      .withIndex("by_binding", (index) => index.eq("repositoryBindingId", binding._id))
-      .unique();
-    if (!metric) throw new Error("GitHub repository metrics are missing.");
-    for (const value of [args.additions, args.deletions, args.changedFiles]) {
-      if (!Number.isSafeInteger(value) || value < 0) {
-        throw new Error("GitHub returned an invalid repository metric.");
-      }
-    }
-    const observedCommitShas = normalizedObservedCommitShas({
-      values: args.observedCommitShas,
-      commitCount: args.commitCount,
-      complete: args.commitIdentityComplete,
-    });
-    const syncedRevision = Math.max(binding.syncedRevision, args.syncRevision);
-    const dirty = binding.syncRevision > syncedRevision;
-    await ctx.db.patch(binding._id, {
-      owner: args.owner,
-      name: args.name,
-      fullName: args.fullName,
-      url: args.url,
-      isPrivate: args.isPrivate,
-      isFork: args.isFork,
-      defaultBranch: args.defaultBranch,
-      topicState: dirty ? "unknown" : args.topicState,
-      currentHeadSha: args.headSha,
-      pendingHeadSha: undefined,
-      lastReconciledAt: now,
-      syncedRevision,
-      syncState: dirty ? "pending" : "ready",
-      syncLeaseId: undefined,
-      syncLeaseExpiresAt: undefined,
-      syncErrorCode: undefined,
-      version: binding.version + 1,
-      updatedAt: now,
-    });
-    await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-    await ctx.db.patch(metric._id, {
-      currentHeadSha: args.headSha,
-      commitCount: args.commitCount,
-      additions: args.additions,
-      deletions: args.deletions,
-      changedFiles: args.changedFiles,
-      observedCommitShas,
-      commitIdentityComplete: args.commitIdentityComplete,
-      languageBytes: args.languageBytes,
-      completeness: args.completeness,
-      compareTruncated: args.compareTruncated,
-      ...(args.providerCommitAt !== undefined
-        ? { lastProviderCommitAt: args.providerCommitAt }
-        : {}),
-      capturedAt: now,
-      version: metric.version + 1,
-    });
-    const previousSnapshot = await ctx.db
-      .query("githubRepositorySnapshots")
-      .withIndex("by_binding_time", (index) => index.eq("repositoryBindingId", binding._id))
-      .order("desc")
-      .first();
-    await ctx.db.insert("githubRepositorySnapshots", {
-      eventId: binding.eventId,
-      teamId: binding.teamId,
-      repositoryBindingId: binding._id,
-      ...(previousSnapshot ? { previousSnapshotId: previousSnapshot._id } : {}),
-      reason: "reconcile",
-      headSha: args.headSha,
-      topicState: args.topicState,
-      commitCount: args.commitCount,
-      additions: args.additions,
-      deletions: args.deletions,
-      changedFiles: args.changedFiles,
-      observedCommitShas,
-      commitIdentityComplete: args.commitIdentityComplete,
-      languageBytes: args.languageBytes,
-      completeness: args.completeness,
-      compareTruncated: args.compareTruncated,
-      ...(args.providerCommitAt !== undefined ? { providerCommitAt: args.providerCommitAt } : {}),
-      capturedAt: now,
-    });
-    await refreshGithubTeamMetrics(ctx, {
-      eventId: binding.eventId,
-      teamId: binding.teamId,
-      now,
-    });
-    if (dirty) {
-      await integrationWorkpool.enqueueAction(
-        ctx,
-        internal.githubActions.reconcileRepository,
-        { bindingId: binding._id },
-        { retry: false },
-      );
-    }
-    return null;
-  },
-});
-
-export const failRepositorySync = internalMutation({
-  args: {
-    bindingId: v.id("githubRepositoryBindings"),
-    leaseId: v.string(),
-    state: v.union(v.literal("rate_limited"), v.literal("error")),
-    errorCode: v.string(),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    const binding = await ctx.db.get(args.bindingId);
-    if (binding?.syncLeaseId === args.leaseId && binding.syncState === "running") {
-      const now = Date.now();
-      await ctx.db.patch(binding._id, {
-        syncState: args.state,
-        syncErrorCode: args.errorCode,
-        syncLeaseId: undefined,
-        syncLeaseExpiresAt: undefined,
-        version: binding.version + 1,
-        updatedAt: now,
-      });
-      await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-      await refreshGithubTeamMetrics(ctx, {
-        eventId: binding.eventId,
-        teamId: binding.teamId,
-        now,
-      });
-    }
-    return null;
-  },
-});
-
 const webhookEvent = v.union(
   v.object({
     kind: v.literal("push"),
@@ -1884,12 +1610,7 @@ export const acceptWebhook = internalMutation({
               updatedAt: now,
             });
             await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-            await integrationWorkpool.enqueueAction(
-              ctx,
-              internal.githubActions.reconcileRepository,
-              { bindingId: binding._id },
-              { retry: false },
-            );
+            await scheduleRepositorySync(ctx, binding._id);
             affectedTeams.set(binding.teamId, binding.eventId);
             affectedBindings += 1;
           }
@@ -1927,12 +1648,7 @@ export const acceptWebhook = internalMutation({
               updatedAt: now,
             });
             await appendGithubIntegrationReadFactById(ctx, binding._id, now);
-            await integrationWorkpool.enqueueAction(
-              ctx,
-              internal.githubActions.reconcileRepository,
-              { bindingId: binding._id },
-              { retry: false },
-            );
+            await scheduleRepositorySync(ctx, binding._id);
             affectedTeams.set(binding.teamId, binding.eventId);
             affectedBindings += 1;
           }
@@ -1993,12 +1709,7 @@ export const acceptWebhook = internalMutation({
             capturedAt: now,
             version: metric.version + 1,
           });
-          await integrationWorkpool.enqueueAction(
-            ctx,
-            internal.githubActions.reconcileRepository,
-            { bindingId: binding._id },
-            { retry: false },
-          );
+          await scheduleRepositorySync(ctx, binding._id);
           affectedTeams.set(binding.teamId, binding.eventId);
           affectedBindings += 1;
         }

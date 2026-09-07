@@ -55,6 +55,10 @@ async function readBoundedBytes(message: Request | Response, maximumBytes: numbe
   return bytes;
 }
 
+export function readBoundedRequestBytes(request: Request, maximumBytes: number) {
+  return readBoundedBytes(request, maximumBytes);
+}
+
 export async function readBoundedRequestText(request: Request, maximumBytes: number) {
   const bytes = await readBoundedBytes(request, maximumBytes);
   try {
