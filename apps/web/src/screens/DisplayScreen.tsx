@@ -100,6 +100,7 @@ export function DisplayView({
   const headline = current ? current.name : next ? next.name : "That’s a wrap";
   const music = display?.music ?? null;
   const playing = music?.nowPlaying ?? null;
+  const review = display?.review ?? null;
 
   return (
     <PortalScene tree="both" logo="none" fill>
@@ -146,6 +147,19 @@ export function DisplayView({
           <p className="m-0 mt-[1.2vw] text-[1.6vw] text-fg/55">thank you for building with us</p>
         )}
 
+        {review && review.panels.length > 0 ? (
+          <div className="mt-[2.2vw] w-[82vw] text-left">
+            <p className="m-0 mb-[0.8vw] text-center text-[1.2vw] text-rose-light">
+              {review.roundName} · panels
+            </p>
+            <div className="grid grid-cols-3 gap-x-[1.6vw] gap-y-[0.9vw]">
+              {review.panels.map((panel) => (
+                <PanelCallUp key={panel.name} panel={panel} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {music ? (
           <div className="absolute bottom-0 left-0 flex max-w-[46vw] items-center gap-[1.2vw] text-left">
             <span className="size-[5.4vw] shrink-0 overflow-hidden rounded-[0.7vw] bg-avatar">
@@ -178,3 +192,31 @@ export function DisplayView({
     </PortalScene>
   );
 }
+
+/** One panel on the wall: who is at its table, who has been called, and who is next. */
+function PanelCallUp({
+  panel,
+}: {
+  panel: NonNullable<NonNullable<VenueDisplay["review"]>["panels"][number]>;
+}) {
+  const now = panel.inReview[0] ?? null;
+  const called = panel.called[0] ?? null;
+  const next = panel.upNext.find((name) => name !== called) ?? null;
+  return (
+    <div className="flex min-w-0 items-baseline gap-[0.9vw] rounded-[0.6vw] bg-fg/[0.06] px-[1vw] py-[0.55vw]">
+      <span className="shrink-0 font-display text-[1.35vw] text-fg">{panel.name}</span>
+      <span className="min-w-0 flex-1 truncate text-[1.1vw] leading-snug">
+        {now ? (
+          <span className="text-fg">{now}</span>
+        ) : called ? (
+          <span className="text-rose-light">{called} · come to the table</span>
+        ) : (
+          <span className="text-fg/45">free</span>
+        )}
+        {now && called ? <span className="text-rose-light"> · called {called}</span> : null}
+        {next ? <span className="text-fg/45"> · next {next}</span> : null}
+      </span>
+    </div>
+  );
+}
+
