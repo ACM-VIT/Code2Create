@@ -2,6 +2,8 @@ import { v } from "convex/values";
 
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx } from "./_generated/server";
+import { writeAuditEvent } from "./lib/audit";
+import { operationFingerprint } from "./lib/operations";
 import { appendReviewPanelVacancyReadFactById } from "./lib/operationsAutonomyReadFacts";
 import { patchTeamRoundState } from "./lib/reviewQueueProjection";
 
@@ -111,5 +113,52 @@ export const dequeueTeams = internalMutation({
       result.push({ code, team: team.name, from: state.state, to });
     }
     return { applied: !args.dryRun, changed: result.length, result, missing };
+  },
+});
+
+/** Moves the round's start and report times and opens it, the way the desk's Open round does. */
+export const startRound = internalMutation({
+  args: {
+    roundId: v.id("reviewRounds"),
+    actorEmail: v.string(),
+    startsAt: v.number(),
+    reviewerReportAt: v.number(),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    if (round.status !== "published" && round.status !== "open") {
+      throw new Error(`The round is ${round.status}; only a published or open round can be started.`);
+    }
+    if (args.reviewerReportAt > args.startsAt || args.startsAt >= round.endsAt) {
+      throw new Error("Report time must precede the start, and the start must precede the end.");
+    }
+    const actorPersonId = await requireActor(ctx, round.eventId, args.actorEmail);
+    const previous = { status: round.status, version: round.version, startsAt: round.startsAt };
+    await ctx.db.patch(round._id, {
+      startsAt: args.startsAt,
+      reviewerReportAt: args.reviewerReportAt,
+      status: "open",
+      openedAt: round.openedAt ?? now,
+      version: round.version + 1,
+      configurationChecksum: operationFingerprint([round.configurationChecksum, String(args.startsAt)]),
+    });
+    await writeAuditEvent(ctx, {
+      eventId: round.eventId,
+      actorPersonId,
+      permissionKey: "round.manage",
+      grantIds: [],
+      scopeType: "round",
+      scopeId: round._id,
+      action: "review.round_opened",
+      targetType: "review_round",
+      targetId: round._id,
+      previousSummary: JSON.stringify(previous),
+      nextSummary: JSON.stringify({ status: "open", version: round.version + 1, startsAt: args.startsAt }),
+      reason: "Review 2 started from the desk at 01:20 IST",
+    });
+    return { previous, status: "open", version: round.version + 1, startsAt: args.startsAt, reviewerReportAt: args.reviewerReportAt };
   },
 });
