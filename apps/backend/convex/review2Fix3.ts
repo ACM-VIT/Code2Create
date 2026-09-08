@@ -7,6 +7,10 @@ import { ensureRoundConfirmation } from "./lib/reviewRoster";
 import { advanceAccessVersion } from "./lib/accessVersion";
 import { revokeSourceGrants } from "./lib/permissions";
 import { initializeAttendanceTeamAvailability } from "./lib/attendanceTeamAvailability";
+import { createEvidenceCheckpoint } from "./lib/reviewEvidenceCheckpoint";
+import { computeReviewEvaluation } from "./lib/reviewScores";
+import { operationFingerprint } from "./lib/operations";
+import { normalizedText } from "./lib/strings";
 
 /** One-off Review 2 adjustments on 2026-09-08 (scale, fixed questions, queue balance); delete after use. */
 
@@ -415,3 +419,270 @@ export const initializeTeamAvailability = internalMutation({
   },
 });
 
+
+/**
+ * Imports reviews that a panel ran outside the app (the online/hybrid sheet) as completed
+ * review sessions on a dedicated hidden panel, so the round's results include those teams.
+ */
+export const importOfflineReviews = internalMutation({
+  args: {
+    roundId: v.id("reviewRounds"),
+    actorEmail: v.string(),
+    panelName: v.string(),
+    panelStableKey: v.string(),
+    sharedFindings: v.string(),
+    sharedCommitments: v.string(),
+    dryRun: v.boolean(),
+    reviews: v.array(
+      v.object({
+        teamCode: v.string(),
+        scorecards: v.array(
+          v.object({
+            personId: v.id("people"),
+            scores: v.array(v.number()),
+            comment: v.string(),
+          }),
+        ),
+      }),
+    ),
+  },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const round = await ctx.db.get(args.roundId);
+    if (!round) throw new Error("The round does not exist.");
+    const rubric = await ctx.db.get(round.rubricVersionId);
+    if (!rubric) throw new Error("The rubric is missing.");
+    const criteria = await ctx.db
+      .query("reviewRubricCriteria")
+      .withIndex("by_rubric_order", (q) => q.eq("rubricVersionId", rubric._id))
+      .collect();
+    const actorPersonId = await requireActor(ctx, round.eventId, args.actorEmail);
+
+    let panel = (
+      await ctx.db
+        .query("reviewPanels")
+        .filter((q) => q.eq(q.field("roundId"), round._id))
+        .collect()
+    ).find((row) => row.stableKey === args.panelStableKey);
+    const plan: Array<Record<string, unknown>> = [];
+
+    if (!panel && !args.dryRun) {
+      const panelId = await ctx.db.insert("reviewPanels", {
+        eventId: round.eventId,
+        roundId: round._id,
+        stableKey: args.panelStableKey,
+        name: args.panelName,
+        coordinatorPersonId: actorPersonId,
+        status: "closed",
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      panel = (await ctx.db.get(panelId)) ?? undefined;
+    }
+
+    for (const entry of args.reviews) {
+      const team = await ctx.db
+        .query("teams")
+        .withIndex("by_event_code", (q) =>
+          q.eq("eventId", round.eventId).eq("publicCode", entry.teamCode.trim().toUpperCase()),
+        )
+        .unique();
+      if (!team) throw new Error(`No team with code ${entry.teamCode}.`);
+      if (entry.scorecards.length < round.minimumScorersPerCriterion) {
+        throw new Error(
+          `${team.name} has ${entry.scorecards.length} scorecards; the round needs ${round.minimumScorersPerCriterion}.`,
+        );
+      }
+      if (entry.scorecards.length > round.requiredPanelSize) {
+        throw new Error(`${team.name} has more scorecards than the panel size.`);
+      }
+      const existing = await ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_team_status", (q) => q.eq("roundId", round._id).eq("teamId", team._id))
+        .collect();
+      if (existing.some((session) => session.status !== "cancelled")) {
+        plan.push({ team: team.name, skipped: "a review session already exists" });
+        continue;
+      }
+      const people = await Promise.all(
+        entry.scorecards.map(async (card) => {
+          const subject = await ctx.db
+            .query("eventAccessSubjects")
+            .withIndex("by_event_person", (q) =>
+              q.eq("eventId", round.eventId).eq("personId", card.personId),
+            )
+            .unique();
+          if (!subject) throw new Error(`No event subject for reviewer ${card.personId}.`);
+          const ratings = criteria.map((criterion, index) => {
+            const score = card.scores[index];
+            if (
+              score === undefined ||
+              !Number.isInteger(score) ||
+              score < rubric.scoreMinimum ||
+              score > rubric.scoreMaximum
+            ) {
+              throw new Error(
+                `${subject.displayName} scored ${team.name} outside the ${rubric.scoreMinimum}-${rubric.scoreMaximum} scale.`,
+              );
+            }
+            return { criterionId: criterion._id, score };
+          });
+          return {
+            subject,
+            ratings,
+            finalComment: normalizedText(card.comment, "Final comment", 3, 2_000),
+          };
+        }),
+      );
+      plan.push({
+        team: team.name,
+        reviewers: people.map((person) => ({
+          name: person.subject.displayName,
+          scores: person.ratings.map((rating) => rating.score),
+        })),
+      });
+      if (args.dryRun) continue;
+      if (!panel) throw new Error("The import panel is missing.");
+
+      const evidence = await createEvidenceCheckpoint(ctx, {
+        eventId: round.eventId,
+        round,
+        team,
+        actorPersonId,
+        createdAt: now,
+      });
+      const reviewSessionId = await ctx.db.insert("reviewSessions", {
+        eventId: round.eventId,
+        roundId: round._id,
+        panelId: panel._id,
+        teamId: team._id,
+        projectVersionId: evidence.projectVersionId,
+        evidenceCheckpointSetId: evidence.checkpointId,
+        rubricVersionId: rubric._id,
+        panelVersion: panel.version,
+        status: "completed",
+        startedAt: now,
+        sharedFindings: args.sharedFindings,
+        sharedCommitments: args.sharedCommitments,
+        sharedNotesVersion: 1,
+        sharedNotesByPersonId: actorPersonId,
+        extensionCount: 0,
+        extensionSeconds: 0,
+        completedAt: now,
+        version: 2,
+        createdByPersonId: actorPersonId,
+        createdAt: now,
+        updatedAt: now,
+      });
+      for (const [index, person] of people.entries()) {
+        const assignmentId = await ctx.db.insert("reviewAssignments", {
+          eventId: round.eventId,
+          roundId: round._id,
+          panelId: panel._id,
+          reviewSessionId,
+          reviewerPersonId: person.subject.personId,
+          eventAccessSubjectId: person.subject._id,
+          assignedCriterionIds: criteria.map((criterion) => criterion._id),
+          isCoordinator: index === 0,
+          status: "assigned",
+          assignedAt: now,
+        });
+        const scorecardId = await ctx.db.insert("scorecards", {
+          eventId: round.eventId,
+          roundId: round._id,
+          reviewSessionId,
+          reviewerPersonId: person.subject.personId,
+          assignmentId,
+          rubricVersionId: rubric._id,
+          status: "submitted",
+          ratings: person.ratings,
+          finalComment: person.finalComment,
+          draftVersion: 1,
+          submittedAt: now,
+          version: 2,
+          createdAt: now,
+          updatedAt: now,
+        });
+        const checksum = operationFingerprint([
+          scorecardId,
+          rubric._id,
+          1,
+          JSON.stringify(person.ratings),
+          null,
+          person.finalComment,
+        ]);
+        const scorecardVersionId = await ctx.db.insert("scorecardVersions", {
+          eventId: round.eventId,
+          roundId: round._id,
+          reviewSessionId,
+          scorecardId,
+          reviewerPersonId: person.subject.personId,
+          version: 1,
+          rubricVersionId: rubric._id,
+          ratings: person.ratings,
+          finalComment: person.finalComment,
+          checksum,
+          clientOperationId: `offline-import-${scorecardId}`,
+          submittedAt: now,
+        });
+        await ctx.db.patch(scorecardId, { submittedVersionId: scorecardVersionId });
+      }
+      const session = await ctx.db.get(reviewSessionId);
+      if (!session) throw new Error("The imported review session is missing.");
+      const evaluation = await computeReviewEvaluation(ctx, { round, session, rubric });
+      await ctx.db.insert("reviewEvaluations", {
+        eventId: round.eventId,
+        roundId: round._id,
+        reviewSessionId,
+        teamId: team._id,
+        rubricVersionId: rubric._id,
+        criterionResults: evaluation.criterionResults,
+        totalPoints: evaluation.totalPoints,
+        state: "complete",
+        inputChecksum: evaluation.inputChecksum,
+        version: 1,
+        computedAt: now,
+      });
+      const state = await ctx.db
+        .query("teamRoundStates")
+        .withIndex("by_round_team", (q) => q.eq("roundId", round._id).eq("teamId", team._id))
+        .unique();
+      const stateFields = {
+        panelId: panel._id,
+        state: "completed" as const,
+        completedAt: now,
+        updatedByPersonId: actorPersonId,
+        updatedAt: now,
+      };
+      if (state) {
+        await patchTeamRoundState(ctx, state, {
+          ...stateFields,
+          skipReason: undefined,
+          holdReason: undefined,
+          stateBeforeHold: undefined,
+          heldAt: undefined,
+          missedAt: undefined,
+          version: state.version + 1,
+        });
+      } else {
+        await insertTeamRoundState(ctx, {
+          eventId: round.eventId,
+          roundId: round._id,
+          teamId: team._id,
+          callAttemptCount: 0,
+          priority: 0,
+          version: 1,
+          ...stateFields,
+        });
+      }
+      plan[plan.length - 1] = {
+        ...plan[plan.length - 1],
+        imported: true,
+        totalPoints: Number(evaluation.totalPoints.toFixed(2)),
+      };
+    }
+    return { dryRun: args.dryRun, panel: panel?.name ?? args.panelName, results: plan };
+  },
+});
