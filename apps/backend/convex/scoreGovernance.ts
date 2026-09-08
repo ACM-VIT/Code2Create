@@ -790,6 +790,435 @@ export const roundValues = query({
   },
 });
 
+const maximumStandingsRows = 1_000;
+
+const standingsEvaluation = v.object({
+  state: reviewEvaluationState,
+  version: v.number(),
+  totalPoints: v.number(),
+  criterionResults: v.array(
+    v.object({
+      criterionId: v.id("reviewRubricCriteria"),
+      scoreCount: v.number(),
+      meanScore: v.number(),
+      weightedPoints: v.number(),
+      spreadFlag: v.boolean(),
+    }),
+  ),
+});
+
+const standingsRow = v.object({
+  reviewSessionId: v.id("reviewSessions"),
+  teamId: v.id("teams"),
+  teamName: v.string(),
+  teamCode: v.string(),
+  applicationId: v.optional(v.id("applications")),
+  panelId: v.id("reviewPanels"),
+  panelName: v.string(),
+  status: reviewSessionStatus,
+  calledAt: v.number(),
+  startedAt: v.optional(v.number()),
+  completedAt: v.optional(v.number()),
+  manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
+  evaluation: v.union(v.null(), standingsEvaluation),
+});
+
+function evaluationView(evaluation: Doc<"reviewEvaluations"> | null) {
+  if (!evaluation) return null;
+  return {
+    state: evaluation.state,
+    version: evaluation.version,
+    totalPoints: evaluation.totalPoints,
+    criterionResults: evaluation.criterionResults.map((result) => ({
+      criterionId: result.criterionId,
+      scoreCount: result.scoreCount,
+      meanScore: result.meanScore,
+      weightedPoints: result.weightedPoints,
+      spreadFlag: result.spreadFlag,
+    })),
+  };
+}
+
+async function applicationIdForTeam(ctx: QueryCtx, teamId: Id<"teams">) {
+  const application = await ctx.db
+    .query("applications")
+    .withIndex("by_team", (index) => index.eq("teamId", teamId))
+    .first();
+  return application?._id;
+}
+
+/** Every review session of a round with its result, for narrowing down and ranking. */
+export const roundStandings = query({
+  args: { eventSlug: v.string(), roundId: v.id("reviewRounds") },
+  returns: v.object({
+    scoreMinimum: v.number(),
+    scoreMaximum: v.number(),
+    totalWeight: v.number(),
+    criteria: v.array(
+      v.object({
+        id: v.id("reviewRubricCriteria"),
+        label: v.string(),
+        weight: v.number(),
+        displayOrder: v.number(),
+      }),
+    ),
+    panels: v.array(v.object({ id: v.id("reviewPanels"), name: v.string() })),
+    rows: v.array(standingsRow),
+    truncated: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const round = await requireRound(ctx, event._id, args.roundId);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "score.values.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const [rubric, criteria, sessions] = await Promise.all([
+      ctx.db.get(round.rubricVersionId),
+      ctx.db
+        .query("reviewRubricCriteria")
+        .withIndex("by_rubric_order", (index) => index.eq("rubricVersionId", round.rubricVersionId),
+        )
+        .collect(),
+      ctx.db
+        .query("reviewSessions")
+        .withIndex("by_round_status_updated", (index) => index.eq("roundId", round._id))
+        .take(maximumStandingsRows + 1),
+    ]);
+    if (!rubric) throw new Error("A round references a missing rubric.");
+    const truncated = sessions.length > maximumStandingsRows;
+    const teams = new Map<Id<"teams">, Doc<"teams">>();
+    const panels = new Map<Id<"reviewPanels">, Doc<"reviewPanels">>();
+    const applications = new Map<Id<"teams">, Id<"applications"> | undefined>();
+    const rows = [];
+    for (const session of sessions.slice(0, maximumStandingsRows)) {
+      let team = teams.get(session.teamId);
+      if (!team) {
+        const loaded = await ctx.db.get(session.teamId);
+        if (!loaded) throw new Error("A review references a missing team.");
+        teams.set(session.teamId, loaded);
+        team = loaded;
+      }
+      let panel = panels.get(session.panelId);
+      if (!panel) {
+        const loaded = await ctx.db.get(session.panelId);
+        if (!loaded) throw new Error("A review references a missing panel.");
+        panels.set(session.panelId, loaded);
+        panel = loaded;
+      }
+      if (!applications.has(session.teamId)) {
+        applications.set(session.teamId, await applicationIdForTeam(ctx, session.teamId));
+      }
+      const applicationId = applications.get(session.teamId);
+      const evaluation = await ctx.db
+        .query("reviewEvaluations")
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+        .unique();
+      rows.push({
+        reviewSessionId: session._id,
+        teamId: team._id,
+        teamName: team.name,
+        teamCode: team.publicCode,
+        ...(applicationId ? { applicationId } : {}),
+        panelId: panel._id,
+        panelName: panel.name,
+        status: session.status,
+        calledAt: session.createdAt,
+        ...(session.startedAt !== undefined ? { startedAt: session.startedAt } : {}),
+        ...(session.completedAt !== undefined ? { completedAt: session.completedAt } : {}),
+        ...(session.completedByManualReviewRecordId !== undefined
+          ? { manualReviewRecordId: session.completedByManualReviewRecordId }
+          : {}),
+        evaluation: evaluationView(evaluation),
+      });
+    }
+    return {
+      scoreMinimum: rubric.scoreMinimum,
+      scoreMaximum: rubric.scoreMaximum,
+      totalWeight: criteria.reduce((total, criterion) => total + criterion.weight, 0),
+      criteria: criteria.map((criterion) => ({
+        id: criterion._id,
+        label: criterion.label,
+        weight: criterion.weight,
+        displayOrder: criterion.displayOrder,
+      })),
+      panels: [...panels.values()]
+        .sort((left, right) => left.name.localeCompare(right.name))
+        .map((panel) => ({ id: panel._id, name: panel.name })),
+      rows,
+      truncated,
+    };
+  },
+});
+
+const detailRating = v.object({
+  criterionId: v.id("reviewRubricCriteria"),
+  score: v.number(),
+  evidenceNote: v.optional(v.string()),
+});
+
+/** Everything an operator can read about one review: project, panel, every score and note. */
+export const reviewDetail = query({
+  args: { eventSlug: v.string(), reviewSessionId: v.id("reviewSessions") },
+  returns: v.object({
+    reviewSessionId: v.id("reviewSessions"),
+    roundId: v.id("reviewRounds"),
+    roundName: v.string(),
+    team: v.object({
+      id: v.id("teams"),
+      name: v.string(),
+      code: v.string(),
+      applicationId: v.optional(v.id("applications")),
+    }),
+    panel: v.object({ id: v.id("reviewPanels"), name: v.string() }),
+    status: reviewSessionStatus,
+    calledAt: v.number(),
+    startedAt: v.optional(v.number()),
+    plannedEndAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    cancelledAt: v.optional(v.number()),
+    extensionCount: v.number(),
+    extensionSeconds: v.number(),
+    manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
+    project: v.object({
+      version: v.number(),
+      initialIdea: v.string(),
+      additionalInformation: v.optional(v.string()),
+      repositories: v.array(
+        v.object({ fullName: v.string(), url: v.string(), kind: v.string() }),
+      ),
+    }),
+    rubric: v.object({
+      scoreMinimum: v.number(),
+      scoreMaximum: v.number(),
+      totalWeight: v.number(),
+    }),
+    criteria: v.array(
+      v.object({
+        id: v.id("reviewRubricCriteria"),
+        label: v.string(),
+        question: v.string(),
+        weight: v.number(),
+        displayOrder: v.number(),
+      }),
+    ),
+    evaluation: v.union(v.null(), standingsEvaluation),
+    reviewers: v.array(
+      v.object({
+        personId: v.id("people"),
+        name: v.string(),
+        isCoordinator: v.boolean(),
+        assignmentStatus: v.string(),
+      }),
+    ),
+    scorecards: v.array(
+      v.object({
+        id: v.id("scorecards"),
+        reviewerPersonId: v.id("people"),
+        reviewerName: v.string(),
+        status: scorecardStatus,
+        version: v.number(),
+        submittedAt: v.optional(v.number()),
+        finalComment: v.optional(v.string()),
+        manualReviewRecordId: v.optional(v.id("manualReviewRecords")),
+        ratings: v.array(detailRating),
+      }),
+    ),
+    sharedNotes: v.object({
+      findings: v.optional(v.string()),
+      commitments: v.optional(v.string()),
+      authorName: v.optional(v.string()),
+    }),
+    questions: v.array(
+      v.object({ question: v.string(), reason: v.string(), criterionKey: v.string() }),
+    ),
+    cases: v.array(completenessCase),
+  }),
+  handler: async (ctx, args) => {
+    const event = await requireEventBySlug(ctx, args.eventSlug);
+    const { person } = await requireCurrentPerson(ctx);
+    const subject = await requireEventSubject(ctx, event._id, person._id);
+    const session = await ctx.db.get(args.reviewSessionId);
+    if (!session || session.eventId !== event._id) {
+      throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "This review does not exist." });
+    }
+    const round = await requireRound(ctx, event._id, session.roundId);
+    await requirePermission(ctx, {
+      eventId: event._id,
+      eventAccessSubjectId: subject._id,
+      permissionKey: "score.values.read",
+      scopeType: "round",
+      scopeId: round._id,
+    });
+    const [
+      team,
+      panel,
+      rubric,
+      criteria,
+      projectVersion,
+      repositories,
+      evaluation,
+      assignments,
+      scorecards,
+      cases,
+      questionSet,
+      applicationId,
+      notesAuthor,
+    ] = await Promise.all([
+      ctx.db.get(session.teamId),
+      ctx.db.get(session.panelId),
+      ctx.db.get(session.rubricVersionId),
+      ctx.db
+        .query("reviewRubricCriteria")
+        .withIndex("by_rubric_order", (index) =>
+          index.eq("rubricVersionId", session.rubricVersionId),
+        )
+        .collect(),
+      ctx.db.get(session.projectVersionId),
+      ctx.db
+        .query("githubRepositoryBindings")
+        .withIndex("by_team_state", (index) =>
+          index.eq("teamId", session.teamId).eq("state", "active"),
+        )
+        .take(20),
+      ctx.db
+        .query("reviewEvaluations")
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", session._id))
+        .unique(),
+      ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_round_session", (index) =>
+          index.eq("roundId", session.roundId).eq("reviewSessionId", session._id),
+        )
+        .take(maximumReviewersPerPanel + 1),
+      ctx.db
+        .query("scorecards")
+        .withIndex("by_session_status", (index) => index.eq("reviewSessionId", session._id))
+        .take(maximumReviewersPerPanel + 1),
+      ctx.db
+        .query("scorecardCorrectionCases")
+        .withIndex("by_session_kind", (index) => index.eq("reviewSessionId", session._id))
+        .take(maximumCorrectionCasesPerReview + 1),
+      session.questionSetId ? ctx.db.get(session.questionSetId) : Promise.resolve(null),
+      applicationIdForTeam(ctx, session.teamId),
+      session.sharedNotesByPersonId
+        ? ctx.db.get(session.sharedNotesByPersonId)
+        : Promise.resolve(null),
+    ]);
+    if (!team || !panel || !rubric || !projectVersion) {
+      throw new Error("A review references a missing team, panel, rubric, or project.");
+    }
+    if (scorecards.length > maximumReviewersPerPanel) {
+      throw new Error("A review exceeds the published scorecard limit.");
+    }
+    const people = new Map<Id<"people">, string>();
+    const personName = async (personId: Id<"people">) => {
+      const known = people.get(personId);
+      if (known !== undefined) return known;
+      const loaded = await ctx.db.get(personId);
+      if (!loaded) throw new Error("A review references a missing person.");
+      people.set(personId, loaded.displayName);
+      return loaded.displayName;
+    };
+    const reviewers = [];
+    for (const assignment of assignments.slice(0, maximumReviewersPerPanel)) {
+      reviewers.push({
+        personId: assignment.reviewerPersonId,
+        name: await personName(assignment.reviewerPersonId),
+        isCoordinator: assignment.isCoordinator,
+        assignmentStatus: assignment.status,
+      });
+    }
+    const scorecardRows = [];
+    for (const scorecard of scorecards) {
+      const version = scorecard.submittedVersionId
+        ? await ctx.db.get(scorecard.submittedVersionId)
+        : null;
+      scorecardRows.push({
+        id: scorecard._id,
+        reviewerPersonId: scorecard.reviewerPersonId,
+        reviewerName: await personName(scorecard.reviewerPersonId),
+        status: scorecard.status,
+        version: scorecard.version,
+        ...(version ? { submittedAt: version.submittedAt } : {}),
+        ...(version?.finalComment !== undefined ? { finalComment: version.finalComment } : {}),
+        ...(version?.manualReviewRecordId !== undefined
+          ? { manualReviewRecordId: version.manualReviewRecordId }
+          : {}),
+        ratings: version ? version.ratings : [],
+      });
+    }
+    return {
+      reviewSessionId: session._id,
+      roundId: round._id,
+      roundName: round.name,
+      team: {
+        id: team._id,
+        name: team.name,
+        code: team.publicCode,
+        ...(applicationId ? { applicationId } : {}),
+      },
+      panel: { id: panel._id, name: panel.name },
+      status: session.status,
+      calledAt: session.createdAt,
+      ...(session.startedAt !== undefined ? { startedAt: session.startedAt } : {}),
+      ...(session.plannedEndAt !== undefined ? { plannedEndAt: session.plannedEndAt } : {}),
+      ...(session.completedAt !== undefined ? { completedAt: session.completedAt } : {}),
+      ...(session.cancelledAt !== undefined ? { cancelledAt: session.cancelledAt } : {}),
+      extensionCount: session.extensionCount,
+      extensionSeconds: session.extensionSeconds,
+      ...(session.completedByManualReviewRecordId !== undefined
+        ? { manualReviewRecordId: session.completedByManualReviewRecordId }
+        : {}),
+      project: {
+        version: projectVersion.version,
+        initialIdea: projectVersion.initialIdea,
+        ...(projectVersion.additionalInformation !== undefined
+          ? { additionalInformation: projectVersion.additionalInformation }
+          : {}),
+        repositories: repositories.map((binding) => ({
+          fullName: binding.fullName,
+          url: binding.url,
+          kind: binding.kind,
+        })),
+      },
+      rubric: {
+        scoreMinimum: rubric.scoreMinimum,
+        scoreMaximum: rubric.scoreMaximum,
+        totalWeight: criteria.reduce((total, criterion) => total + criterion.weight, 0),
+      },
+      criteria: criteria.map((criterion) => ({
+        id: criterion._id,
+        label: criterion.label,
+        question: criterion.question,
+        weight: criterion.weight,
+        displayOrder: criterion.displayOrder,
+      })),
+      evaluation: evaluationView(evaluation),
+      reviewers,
+      scorecards: scorecardRows,
+      sharedNotes: {
+        ...(session.sharedFindings !== undefined ? { findings: session.sharedFindings } : {}),
+        ...(session.sharedCommitments !== undefined
+          ? { commitments: session.sharedCommitments }
+          : {}),
+        ...(notesAuthor ? { authorName: notesAuthor.displayName } : {}),
+      },
+      questions: (questionSet?.questions ?? []).map((question) => ({
+        question: question.question,
+        reason: question.reason,
+        criterionKey: question.criterionKey,
+      })),
+      cases: cases.slice(0, maximumCorrectionCasesPerReview).map(correctionCaseView),
+    };
+  },
+});
+
 export const myCorrectionOptions = query({
   args: { eventSlug: v.string() },
   returns: v.array(

@@ -13,8 +13,8 @@ import {
 } from "@code2create/domain";
 import type { FunctionReturnType } from "convex/server";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { eventSlug } from "../lib/config";
 import { formatMonthDayTime as formatTime } from "../lib/dateTime";
@@ -30,11 +30,59 @@ type Completeness = FunctionReturnType<typeof api.scoreGovernance.completeness>;
 type Review = FunctionReturnType<typeof api.scoreGovernance.completenessReviews>["page"][number];
 type Scorecard = Review["scorecards"][number];
 type CorrectionCase = NonNullable<Scorecard["currentCase"]>;
-type ValueReview = FunctionReturnType<typeof api.scoreGovernance.roundValues>["page"][number];
-type ValueCriteria = FunctionReturnType<typeof api.scoreGovernance.roundValueCriteria>;
+type Standings = FunctionReturnType<typeof api.scoreGovernance.roundStandings>;
+type StandingsRow = Standings["rows"][number];
+type StandingsCriterion = Standings["criteria"][number];
+type ReviewDetailData = FunctionReturnType<typeof api.scoreGovernance.reviewDetail>;
 type ReviewView = "needs_action" | "settled" | "all";
+type ResultView = "all" | "scored" | "unscored" | "far_apart" | "short";
 
-const scoreGovernancePageSize = 20;
+const scoreGovernancePageSize = 30;
+const resultViews: ResultView[] = ["all", "scored", "unscored", "far_apart", "short"];
+const isResultView = (value: string): value is ResultView =>
+  (resultViews as string[]).includes(value);
+const resultViewLabels: Record<ResultView, string> = {
+  all: "Every review",
+  scored: "Scored",
+  unscored: "Not scored yet",
+  far_apart: "Reviewers far apart",
+  short: "Short of scorers",
+};
+const fixedSortLabels = {
+  score: "Highest total first",
+  score_asc: "Lowest total first",
+  team: "Team A to Z",
+  panel: "By panel",
+  recent: "Most recently finished",
+} as const;
+type FixedSort = keyof typeof fixedSortLabels;
+const isFixedSort = (value: string): value is FixedSort => value in fixedSortLabels;
+
+function useResultFilters() {
+  const [params, setParams] = useSearchParams();
+  const rawResult = params.get("result") ?? "all";
+  const filters = {
+    search: params.get("q") ?? "",
+    panelId: params.get("panel") ?? "",
+    result: isResultView(rawResult) ? rawResult : "all",
+    sort: params.get("sort") ?? "score",
+    openReviewId: params.get("open") ?? "",
+  };
+  const update = (patch: Partial<Record<"q" | "panel" | "result" | "sort" | "open", string>>) => {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous);
+        for (const [key, value] of Object.entries(patch)) {
+          if (value) next.set(key, value);
+          else next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
+  };
+  return { filters, update };
+}
 
 export function ScoreRound() {
   const { roundId } = useParams<{ roundId: string }>();
@@ -49,22 +97,21 @@ export function ScoreRound() {
     visibleRound ? { eventSlug, roundId: visibleRound.id } : "skip",
     { initialNumItems: scoreGovernancePageSize },
   );
-  const [showValues, setShowValues] = useState(false);
+  const [showValues, setShowValues] = useState(true);
   const [reviewView, setReviewView] = useState<ReviewView>("needs_action");
+  const [loadEverything, setLoadEverything] = useState(false);
   const estimatedServerNow = useEstimatedServerNow(completeness?.serverNow);
-  const valueCriteria = useQuery(
-    api.scoreGovernance.roundValueCriteria,
+  const { filters, update } = useResultFilters();
+  const standings = useQuery(
+    api.scoreGovernance.roundStandings,
     visibleRound && completeness?.canReadValues && showValues
       ? { eventSlug, roundId: visibleRound.id }
       : "skip",
   );
-  const values = usePaginatedQuery(
-    api.scoreGovernance.roundValues,
-    visibleRound && completeness?.canReadValues && showValues
-      ? { eventSlug, roundId: visibleRound.id }
-      : "skip",
-    { initialNumItems: scoreGovernancePageSize },
-  );
+  const canLoadMore = reviews.status === "CanLoadMore";
+  useEffect(() => {
+    if (loadEverything && canLoadMore) reviews.loadMore(scoreGovernancePageSize);
+  }, [loadEverything, canLoadMore, reviews]);
 
   if (!roundId) return <p className="notice error">Round ID is missing.</p>;
   if (
@@ -94,13 +141,20 @@ export function ScoreRound() {
     );
   }
 
+  const searchText = filters.search.trim().toLowerCase();
+  const panelName = standings?.panels.find((panel) => panel.id === filters.panelId)?.name;
   const ordered = [...reviews.results].sort(
     (left, right) =>
       reviewRank(left) - reviewRank(right) || left.teamName.localeCompare(right.teamName),
   );
-  const needsActionCount = ordered.filter(reviewNeedsAction).length;
-  const settledCount = ordered.length - needsActionCount;
-  const visibleReviews = ordered.filter((review) => {
+  const narrowed = ordered.filter(
+    (review) =>
+      (searchText.length === 0 || review.teamName.toLowerCase().includes(searchText)) &&
+      (!panelName || review.panelName === panelName),
+  );
+  const needsActionCount = narrowed.filter(reviewNeedsAction).length;
+  const settledCount = narrowed.length - needsActionCount;
+  const visibleReviews = narrowed.filter((review) => {
     if (reviewView === "needs_action") return reviewNeedsAction(review);
     if (reviewView === "settled") return !reviewNeedsAction(review);
     return true;
@@ -132,7 +186,7 @@ export function ScoreRound() {
             type="button"
             onClick={() => setShowValues((current) => !current)}
           >
-            {showValues ? "Hide numeric values" : "Open numeric values"}
+            {showValues ? "Hide standings" : "Open standings"}
           </button>
         ) : null}
       </header>
@@ -155,26 +209,19 @@ export function ScoreRound() {
         />
       </dl>
 
-      {showValues ? (
-        valueCriteria === undefined || values.status === "LoadingFirstPage" ? (
+      {completeness.canReadValues && showValues ? (
+        standings === undefined ? (
           <>
-            <LoadingLabel>Opening the scores</LoadingLabel>
+            <LoadingLabel>Opening the standings</LoadingLabel>
             <SkeletonList rows={4} />
           </>
         ) : (
-          <>
-            <NumericValues criteria={valueCriteria} reviews={values.results} />
-            {values.status === "CanLoadMore" || values.status === "LoadingMore" ? (
-              <button
-                className="secondary"
-                type="button"
-                disabled={values.status === "LoadingMore"}
-                onClick={() => values.loadMore(scoreGovernancePageSize)}
-              >
-                {values.status === "LoadingMore" ? "Loading values…" : "Load more numeric values"}
-              </button>
-            ) : null}
-          </>
+          <StandingsBoard
+            filters={filters}
+            minimumScorers={completeness.round.minimumScorersPerCriterion}
+            standings={standings}
+            update={update}
+          />
         )
       ) : null}
 
@@ -213,10 +260,23 @@ export function ScoreRound() {
               type="button"
               onClick={() => setReviewView("all")}
             >
-              All · <LiveNumber value={ordered.length} />
+              All · <LiveNumber value={narrowed.length} />
             </button>
           </div>
         </div>
+        {!showValues || !completeness.canReadValues ? (
+          <div className="standings-toolbar">
+            <label className="compact-search">
+              <span className="visually-hidden">Search teams</span>
+              <input
+                type="search"
+                placeholder="Search team name"
+                value={filters.search}
+                onChange={(event) => update({ q: event.target.value })}
+              />
+            </label>
+          </div>
+        ) : null}
         <div className="score-review-list">
           {visibleReviews.map((review) => (
             <ReviewCompleteness
@@ -234,14 +294,24 @@ export function ScoreRound() {
       </section>
 
       {reviews.status === "CanLoadMore" || reviews.status === "LoadingMore" ? (
-        <button
-          className="secondary"
-          type="button"
-          disabled={reviews.status === "LoadingMore"}
-          onClick={() => reviews.loadMore(scoreGovernancePageSize)}
-        >
-          {reviews.status === "LoadingMore" ? "Loading sessions…" : "Load more review sessions"}
-        </button>
+        <div className="button-row">
+          <button
+            className="secondary"
+            type="button"
+            disabled={reviews.status === "LoadingMore"}
+            onClick={() => reviews.loadMore(scoreGovernancePageSize)}
+          >
+            {reviews.status === "LoadingMore" ? "Loading sessions…" : "Load more review sessions"}
+          </button>
+          <button
+            className="secondary"
+            type="button"
+            disabled={loadEverything}
+            onClick={() => setLoadEverything(true)}
+          >
+            {loadEverything ? "Loading every session…" : "Load every session"}
+          </button>
+        </div>
       ) : null}
 
       {reviews.results.length === 0 ? (
@@ -252,6 +322,702 @@ export function ScoreRound() {
       <ReviewProgression roundId={completeness.round.id} />
     </section>
   );
+}
+
+function StandingsBoard({
+  filters,
+  minimumScorers,
+  standings,
+  update,
+}: {
+  filters: ReturnType<typeof useResultFilters>["filters"];
+  minimumScorers: number;
+  standings: Standings;
+  update: ReturnType<typeof useResultFilters>["update"];
+}) {
+  const criteria = useMemo(
+    () => [...standings.criteria].sort((left, right) => left.displayOrder - right.displayOrder),
+    [standings.criteria],
+  );
+  const ranks = useMemo(() => rankByTotal(standings.rows), [standings.rows]);
+  const searchText = filters.search.trim().toLowerCase();
+  const matching = standings.rows.filter(
+    (row) =>
+      (searchText.length === 0 ||
+        row.teamName.toLowerCase().includes(searchText) ||
+        row.teamCode.toLowerCase().includes(searchText)) &&
+      (!filters.panelId || row.panelId === filters.panelId) &&
+      matchesResultView(row, filters.result, minimumScorers),
+  );
+  const sorted = sortRows(matching, filters.sort, ranks);
+  const scored = matching.filter((row) => row.evaluation?.state === "complete");
+  const average =
+    scored.length > 0
+      ? scored.reduce((total, row) => total + (row.evaluation?.totalPoints ?? 0), 0) /
+        scored.length
+      : null;
+  const top = scored.reduce<StandingsRow | null>(
+    (best, row) =>
+      best === null || (row.evaluation?.totalPoints ?? 0) > (best.evaluation?.totalPoints ?? 0)
+        ? row
+        : best,
+    null,
+  );
+  const hasFilters =
+    filters.search.length > 0 || filters.panelId.length > 0 || filters.result !== "all";
+  const columnCount = 7 + criteria.length;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [detailWidth, setDetailWidth] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const measure = () => setDetailWidth(element.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const sortByCriterion = filters.sort.startsWith("criterion:")
+    ? filters.sort.slice("criterion:".length)
+    : null;
+
+  return (
+    <section className="standings">
+      <div className="section-heading score-team-workspace-heading">
+        <div>
+          <h2>Standings</h2>
+          <p className="muted">
+            Scores are out of {standings.totalWeight} points. Each criterion shows the panel
+            average on the {standings.scoreMinimum} to {standings.scoreMaximum} scale. Open a
+            team to see every reviewer’s scores and notes.
+          </p>
+        </div>
+      </div>
+
+      <div className="standings-toolbar">
+        <label className="compact-search">
+          <span className="visually-hidden">Search teams</span>
+          <input
+            type="search"
+            placeholder="Search team name or code"
+            value={filters.search}
+            onChange={(event) => update({ q: event.target.value })}
+          />
+        </label>
+        <label className="field">
+          <span>Panel</span>
+          <select
+            value={filters.panelId}
+            onChange={(event) => update({ panel: event.target.value })}
+          >
+            <option value="">All panels</option>
+            {standings.panels.map((panel) => (
+              <option key={panel.id} value={panel.id}>
+                {panel.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Show</span>
+          <select
+            value={filters.result}
+            onChange={(event) => update({ result: event.target.value })}
+          >
+            {resultViews.map((view) => (
+              <option key={view} value={view}>
+                {resultViewLabels[view]} ·{" "}
+                {standings.rows.filter(
+                  (row) =>
+                    (!filters.panelId || row.panelId === filters.panelId) &&
+                    matchesResultView(row, view, minimumScorers),
+                ).length}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Order</span>
+          <select
+            value={isFixedSort(filters.sort) || sortByCriterion ? filters.sort : "score"}
+            onChange={(event) => update({ sort: event.target.value })}
+          >
+            {Object.entries(fixedSortLabels).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+            {criteria.map((criterion) => (
+              <option key={criterion.id} value={`criterion:${criterion.id}`}>
+                Best {criterion.label} first
+              </option>
+            ))}
+          </select>
+        </label>
+        {hasFilters ? (
+          <button
+            className="secondary"
+            type="button"
+            onClick={() => update({ q: "", panel: "", result: "" })}
+          >
+            Clear filters
+          </button>
+        ) : null}
+      </div>
+
+      <p className="muted standings-status" role="status">
+        Showing <LiveNumber value={sorted.length} /> of <LiveNumber value={standings.rows.length} />{" "}
+        reviews · <LiveNumber value={scored.length} /> scored
+        {average !== null ? (
+          <>
+            {" "}· average <LiveNumber value={average} format={{ maximumFractionDigits: 1 }} />
+          </>
+        ) : null}
+        {top?.evaluation ? (
+          <>
+            {" "}· highest{" "}
+            <LiveNumber value={top.evaluation.totalPoints} format={{ maximumFractionDigits: 1 }} />{" "}
+            by {top.teamName}
+          </>
+        ) : null}
+        {standings.truncated ? " · only the first 1,000 reviews are listed" : ""}
+      </p>
+
+      <div className="standings-scroll" ref={scrollRef}>
+        <table className="standings-table">
+          <thead>
+            <tr>
+              <th scope="col" className="numeric">#</th>
+              <th scope="col">Team</th>
+              <th scope="col">Panel</th>
+              <th scope="col" className="numeric">
+                <button
+                  className={`standings-sort${filters.sort === "score" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => update({ sort: "score" })}
+                >
+                  Total
+                </button>
+              </th>
+              {criteria.map((criterion) => (
+                <th scope="col" className="numeric" key={criterion.id}>
+                  <button
+                    className={`standings-sort${sortByCriterion === criterion.id ? " active" : ""}`}
+                    type="button"
+                    title={`${criterion.label} · weight ${criterion.weight}`}
+                    onClick={() => update({ sort: `criterion:${criterion.id}` })}
+                  >
+                    {criterion.label}
+                  </button>
+                </th>
+              ))}
+              <th scope="col" className="numeric">Scorers</th>
+              <th scope="col">Finished</th>
+              <th scope="col"><span className="visually-hidden">Project</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row) => {
+              const open = filters.openReviewId === row.reviewSessionId;
+              const rank = ranks.get(row.reviewSessionId);
+              return (
+                <StandingsRowView
+                  columnCount={columnCount}
+                  criteria={criteria}
+                  detailWidth={detailWidth}
+                  key={row.reviewSessionId}
+                  minimumScorers={minimumScorers}
+                  open={open}
+                  rank={rank}
+                  row={row}
+                  toggle={() => update({ open: open ? "" : row.reviewSessionId })}
+                />
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {sorted.length === 0 ? (
+        <p className="empty">
+          {standings.rows.length === 0
+            ? "No panel has been given a team to judge in this round."
+            : "No review matches these filters."}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function StandingsRowView({
+  columnCount,
+  criteria,
+  detailWidth,
+  minimumScorers,
+  open,
+  rank,
+  row,
+  toggle,
+}: {
+  columnCount: number;
+  criteria: StandingsCriterion[];
+  detailWidth: number | undefined;
+  minimumScorers: number;
+  open: boolean;
+  rank: number | undefined;
+  row: StandingsRow;
+  toggle: () => void;
+}) {
+  const complete = row.evaluation?.state === "complete";
+  const scorerCounts = row.evaluation?.criterionResults.map((result) => result.scoreCount) ?? [];
+  const fewest = scorerCounts.length > 0 ? Math.min(...scorerCounts) : null;
+  const most = scorerCounts.length > 0 ? Math.max(...scorerCounts) : null;
+  return (
+    <>
+      <tr className={`standings-row${open ? " open" : ""}`}>
+        <td className="numeric standings-rank">{rank ?? "–"}</td>
+        <td>
+          <button
+            aria-expanded={open}
+            className="standings-team"
+            type="button"
+            onClick={toggle}
+          >
+            <strong>{row.teamName}</strong>
+            <small>
+              {row.teamCode}
+              {row.manualReviewRecordId ? " · entered from paper" : ""}
+            </small>
+          </button>
+        </td>
+        <td>{row.panelName}</td>
+        <td className="numeric standings-total">
+          {complete && row.evaluation ? (
+            <LiveNumber value={row.evaluation.totalPoints} format={{ maximumFractionDigits: 1 }} />
+          ) : (
+            <span className="muted">
+              {row.evaluation
+                ? reviewEvaluationStateLabels[row.evaluation.state]
+                : reviewSessionStatusLabels[row.status]}
+            </span>
+          )}
+        </td>
+        {criteria.map((criterion) => {
+          const result = row.evaluation?.criterionResults.find(
+            (candidate) => candidate.criterionId === criterion.id,
+          );
+          return (
+            <td
+              className={`numeric${result?.spreadFlag ? " spread" : ""}`}
+              key={criterion.id}
+              title={
+                result
+                  ? `${result.weightedPoints.toFixed(1)} of ${criterion.weight} points${result.spreadFlag ? " · reviewers far apart" : ""}`
+                  : undefined
+              }
+            >
+              {complete && result ? (
+                <LiveNumber value={result.meanScore} format={{ maximumFractionDigits: 1 }} />
+              ) : (
+                <span className="muted">–</span>
+              )}
+            </td>
+          );
+        })}
+        <td className={`numeric${fewest !== null && fewest < minimumScorers ? " spread" : ""}`}>
+          {fewest === null ? <span className="muted">–</span> : fewest === most ? fewest : `${fewest}–${most}`}
+        </td>
+        <td className="standings-time">
+          {row.completedAt
+            ? formatTime(row.completedAt)
+            : row.startedAt
+              ? `Started ${formatTime(row.startedAt)}`
+              : `Called ${formatTime(row.calledAt)}`}
+        </td>
+        <td className="standings-actions">
+          {row.applicationId ? (
+            <Link className="row-action" to={`/admissions/${row.applicationId}`}>
+              Project
+            </Link>
+          ) : null}
+        </td>
+      </tr>
+      {open ? (
+        <tr className="standings-detail-row">
+          <td colSpan={columnCount}>
+            <div className="review-detail-frame" style={{ width: detailWidth }}>
+              <ReviewDetail reviewSessionId={row.reviewSessionId} />
+            </div>
+          </td>
+        </tr>
+      ) : null}
+    </>
+  );
+}
+
+function ReviewDetail({ reviewSessionId }: { reviewSessionId: StandingsRow["reviewSessionId"] }) {
+  const detail = useQuery(api.scoreGovernance.reviewDetail, { eventSlug, reviewSessionId });
+  if (detail === undefined) {
+    return (
+      <div className="review-detail">
+        <LoadingLabel>Opening this review</LoadingLabel>
+        <SkeletonList rows={3} />
+      </div>
+    );
+  }
+  return <ReviewDetailView detail={detail} />;
+}
+
+function ReviewDetailView({ detail }: { detail: ReviewDetailData }) {
+  const criteria = [...detail.criteria].sort((left, right) => left.displayOrder - right.displayOrder);
+  const submitted = detail.scorecards
+    .filter((scorecard) => scorecard.status === "submitted")
+    .sort((left, right) => left.reviewerName.localeCompare(right.reviewerName));
+  const others = detail.scorecards.filter((scorecard) => scorecard.status !== "submitted");
+  const missing = detail.reviewers.filter(
+    (reviewer) =>
+      reviewer.assignmentStatus === "assigned" &&
+      !detail.scorecards.some((scorecard) => scorecard.reviewerPersonId === reviewer.personId),
+  );
+  const notes = submitted.flatMap((scorecard) =>
+    scorecard.ratings
+      .filter((rating) => rating.evidenceNote)
+      .map((rating) => ({
+        reviewerName: scorecard.reviewerName,
+        criterion: criteria.find((criterion) => criterion.id === rating.criterionId)?.label ?? "Criterion",
+        score: rating.score,
+        note: rating.evidenceNote ?? "",
+      })),
+  );
+  const comments = submitted.filter((scorecard) => scorecard.finalComment);
+  const timeline = [
+    `Called ${formatTime(detail.calledAt)}`,
+    detail.startedAt ? `started ${formatTime(detail.startedAt)}` : null,
+    detail.completedAt ? `finished ${formatTime(detail.completedAt)}` : null,
+    detail.cancelledAt ? `cancelled ${formatTime(detail.cancelledAt)}` : null,
+    detail.extensionCount > 0
+      ? `${detail.extensionCount} ${detail.extensionCount === 1 ? "extension" : "extensions"} (${Math.round(detail.extensionSeconds / 60)} min)`
+      : null,
+  ].filter((entry): entry is string => entry !== null);
+
+  return (
+    <div className="review-detail">
+      <div className="review-detail-head">
+        <div>
+          <strong>{detail.team.name}</strong>
+          <p className="muted">
+            {detail.team.code} · {detail.panel.name} · {reviewSessionStatusLabels[detail.status]}
+            {detail.manualReviewRecordId ? " · entered from paper" : ""}
+          </p>
+          <p className="muted">{timeline.join(" · ")}</p>
+        </div>
+        <div className="review-detail-links">
+          {detail.team.applicationId ? (
+            <Link className="secondary" to={`/admissions/${detail.team.applicationId}`}>
+              Open the project
+            </Link>
+          ) : null}
+          {detail.project.repositories.map((repository) => (
+            <a
+              className="secondary"
+              href={repository.url}
+              key={repository.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              {repository.fullName}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      <section className="review-detail-section">
+        <h3>Project idea</h3>
+        <p className="prewrap">{detail.project.initialIdea}</p>
+        {detail.project.additionalInformation ? (
+          <details className="case-history">
+            <summary>More from the team</summary>
+            <p className="prewrap">{detail.project.additionalInformation}</p>
+          </details>
+        ) : null}
+      </section>
+
+      <section className="review-detail-section">
+        <h3>Scores</h3>
+        {submitted.length === 0 ? (
+          <p className="muted">No scorecard has been submitted for this review.</p>
+        ) : (
+          <div className="standings-scroll">
+            <table className="score-matrix">
+              <thead>
+                <tr>
+                  <th scope="col">Reviewer</th>
+                  {criteria.map((criterion) => (
+                    <th scope="col" className="numeric" key={criterion.id} title={criterion.question}>
+                      {criterion.label}
+                      <small>weight {criterion.weight}</small>
+                    </th>
+                  ))}
+                  <th scope="col" className="numeric">Weighted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {submitted.map((scorecard) => (
+                  <tr key={scorecard.id}>
+                    <th scope="row">
+                      {scorecard.reviewerName}
+                      <small>
+                        submission {scorecard.version}
+                        {scorecard.submittedAt ? ` · ${formatTime(scorecard.submittedAt)}` : ""}
+                        {scorecard.manualReviewRecordId ? " · from paper" : ""}
+                      </small>
+                    </th>
+                    {criteria.map((criterion) => {
+                      const rating = scorecard.ratings.find(
+                        (candidate) => candidate.criterionId === criterion.id,
+                      );
+                      return (
+                        <td className="numeric" key={criterion.id}>
+                          {rating ? rating.score : <span className="muted">–</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="numeric">
+                      {weightedTotal(scorecard.ratings, criteria, detail.rubric.scoreMaximum).toFixed(1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th scope="row">Panel average</th>
+                  {criteria.map((criterion) => {
+                    const result = detail.evaluation?.criterionResults.find(
+                      (candidate) => candidate.criterionId === criterion.id,
+                    );
+                    return (
+                      <td className={`numeric${result?.spreadFlag ? " spread" : ""}`} key={criterion.id}>
+                        {result ? result.meanScore.toFixed(2) : "–"}
+                        {result?.spreadFlag ? <small>far apart</small> : null}
+                      </td>
+                    );
+                  })}
+                  <td className="numeric">
+                    {detail.evaluation?.state === "complete"
+                      ? `${detail.evaluation.totalPoints.toFixed(2)} / ${detail.rubric.totalWeight}`
+                      : detail.evaluation
+                        ? reviewEvaluationStateLabels[detail.evaluation.state]
+                        : "No result"}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Points</th>
+                  {criteria.map((criterion) => {
+                    const result = detail.evaluation?.criterionResults.find(
+                      (candidate) => candidate.criterionId === criterion.id,
+                    );
+                    return (
+                      <td className="numeric" key={criterion.id}>
+                        {result ? `${result.weightedPoints.toFixed(1)} / ${criterion.weight}` : "–"}
+                      </td>
+                    );
+                  })}
+                  <td className="numeric" />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+        {others.length > 0 || missing.length > 0 ? (
+          <p className="muted">
+            {[
+              ...others.map(
+                (scorecard) =>
+                  `${scorecard.reviewerName}: ${scorecardStatusLabels[scorecard.status].toLowerCase()}`,
+              ),
+              ...missing.map((reviewer) => `${reviewer.name}: no scorecard`),
+            ].join(" · ")}
+          </p>
+        ) : null}
+      </section>
+
+      {notes.length > 0 || comments.length > 0 ? (
+        <section className="review-detail-section">
+          <h3>Reviewer notes</h3>
+          <div className="review-notes">
+            {comments.map((scorecard) => (
+              <div className="review-note" key={`comment-${scorecard.id}`}>
+                <strong>{scorecard.reviewerName}</strong>
+                <p className="prewrap">{scorecard.finalComment}</p>
+              </div>
+            ))}
+            {notes.map((note, index) => (
+              <div className="review-note" key={`note-${index}`}>
+                <strong>
+                  {note.reviewerName} · {note.criterion} · {note.score}
+                </strong>
+                <p className="prewrap">{note.note}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {detail.sharedNotes.findings || detail.sharedNotes.commitments ? (
+        <section className="review-detail-section">
+          <h3>Panel notes</h3>
+          <div className="review-notes">
+            {detail.sharedNotes.findings ? (
+              <div className="review-note">
+                <strong>What the panel found</strong>
+                <p className="prewrap">{detail.sharedNotes.findings}</p>
+              </div>
+            ) : null}
+            {detail.sharedNotes.commitments ? (
+              <div className="review-note">
+                <strong>What the team committed to</strong>
+                <p className="prewrap">{detail.sharedNotes.commitments}</p>
+              </div>
+            ) : null}
+          </div>
+          {detail.sharedNotes.authorName ? (
+            <p className="muted">Written by {detail.sharedNotes.authorName}.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {detail.questions.length > 0 ? (
+        <section className="review-detail-section">
+          <h3>Questions prepared for the panel</h3>
+          <ol className="review-questions">
+            {detail.questions.map((question, index) => (
+              <li key={index}>
+                <span>{question.question}</span>
+                <small>{question.reason}</small>
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+
+      {detail.cases.length > 0 ? (
+        <section className="review-detail-section">
+          <h3>Corrections</h3>
+          <ul className="review-questions">
+            {detail.cases.map((entry) => (
+              <li key={entry.id}>
+                <span>
+                  {scorecardCorrectionKindLabels[entry.kind]} ·{" "}
+                  {scorecardCorrectionStateLabels[entry.state]} ·{" "}
+                  {scorecardCorrectionCategoryLabels[entry.category]}
+                </span>
+                <small>
+                  {entry.reason} · {formatTime(entry.requestedAt)}
+                </small>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function weightedTotal(
+  ratings: ReviewDetailData["scorecards"][number]["ratings"],
+  criteria: ReviewDetailData["criteria"],
+  scoreMaximum: number,
+) {
+  if (scoreMaximum <= 0) return 0;
+  return ratings.reduce((total, rating) => {
+    const criterion = criteria.find((candidate) => candidate.id === rating.criterionId);
+    return criterion ? total + (rating.score / scoreMaximum) * criterion.weight : total;
+  }, 0);
+}
+
+function rankByTotal(rows: StandingsRow[]) {
+  const totals = rows.flatMap((row) =>
+    row.evaluation?.state === "complete" ? [row.evaluation.totalPoints] : [],
+  );
+  const ranks = new Map<StandingsRow["reviewSessionId"], number>();
+  for (const row of rows) {
+    if (row.evaluation?.state !== "complete") continue;
+    const total = row.evaluation.totalPoints;
+    ranks.set(row.reviewSessionId, 1 + totals.filter((candidate) => candidate > total).length);
+  }
+  return ranks;
+}
+
+function matchesResultView(row: StandingsRow, view: ResultView, minimumScorers: number) {
+  const complete = row.evaluation?.state === "complete";
+  switch (view) {
+    case "all":
+      return true;
+    case "scored":
+      return complete;
+    case "unscored":
+      return !complete;
+    case "far_apart":
+      return row.evaluation?.criterionResults.some((result) => result.spreadFlag) ?? false;
+    case "short":
+      return (
+        row.evaluation?.criterionResults.some((result) => result.scoreCount < minimumScorers) ??
+        false
+      );
+  }
+}
+
+function sortRows(
+  rows: StandingsRow[],
+  sort: string,
+  ranks: Map<StandingsRow["reviewSessionId"], number>,
+) {
+  const total = (row: StandingsRow) =>
+    row.evaluation?.state === "complete" ? row.evaluation.totalPoints : null;
+  const byTotal = (left: StandingsRow, right: StandingsRow, direction: 1 | -1) => {
+    const leftTotal = total(left);
+    const rightTotal = total(right);
+    if (leftTotal === null && rightTotal === null) return left.teamName.localeCompare(right.teamName);
+    if (leftTotal === null) return 1;
+    if (rightTotal === null) return -1;
+    return (rightTotal - leftTotal) * direction || left.teamName.localeCompare(right.teamName);
+  };
+  const sorted = [...rows];
+  if (sort.startsWith("criterion:")) {
+    const criterionId = sort.slice("criterion:".length);
+    const mean = (row: StandingsRow) =>
+      row.evaluation?.state === "complete"
+        ? (row.evaluation.criterionResults.find((result) => result.criterionId === criterionId)
+            ?.meanScore ?? null)
+        : null;
+    return sorted.sort((left, right) => {
+      const leftMean = mean(left);
+      const rightMean = mean(right);
+      if (leftMean === null && rightMean === null) return byTotal(left, right, 1);
+      if (leftMean === null) return 1;
+      if (rightMean === null) return -1;
+      return rightMean - leftMean || byTotal(left, right, 1);
+    });
+  }
+  switch (sort) {
+    case "score_asc":
+      return sorted.sort((left, right) => byTotal(left, right, -1));
+    case "team":
+      return sorted.sort((left, right) => left.teamName.localeCompare(right.teamName));
+    case "panel":
+      return sorted.sort(
+        (left, right) =>
+          left.panelName.localeCompare(right.panelName, undefined, { numeric: true }) ||
+          byTotal(left, right, 1),
+      );
+    case "recent":
+      return sorted.sort(
+        (left, right) =>
+          (right.completedAt ?? right.startedAt ?? right.calledAt) -
+          (left.completedAt ?? left.startedAt ?? left.calledAt),
+      );
+    default:
+      return sorted.sort((left, right) => byTotal(left, right, 1) || (ranks.get(left.reviewSessionId) ?? 0) - (ranks.get(right.reviewSessionId) ?? 0));
+  }
 }
 
 function ReviewCompleteness({
@@ -660,85 +1426,6 @@ function VoidScorecard({ scorecard }: { scorecard: Scorecard }) {
       </div>
       {error ? <p className="notice error">{error}</p> : null}
     </div>
-  );
-}
-
-function NumericValues({ criteria, reviews,
-}: { criteria: ValueCriteria; reviews: ValueReview[];
-}) {
-  const ordered = [...reviews].sort((left, right) => left.teamName.localeCompare(right.teamName),
-  );
-  return (
-    <section className="numeric-values">
-      <div className="section-heading">
-        <div>
-          <h2>Scores</h2>
-          <p className="muted">Alphabetical by team.</p>
-        </div>
-      </div>
-      {ordered.map((review) => (
-        <details key={review.reviewSessionId}>
-          <summary>
-            <span>{review.teamName}</span>
-            <strong>
-              {review.evaluation?.state === "complete"
-                ? <LiveNumber value={review.evaluation.totalPoints} format={{ maximumFractionDigits: 2 }} />
-                : review.evaluation
-                  ? reviewEvaluationStateLabels[review.evaluation.state]
-                  : "No result"}
-            </strong>
-          </summary>
-          {review.evaluation?.state === "complete" ? (
-            <dl className="numeric-criteria">
-              {review.evaluation.criterionResults.map((result) => {
-                const criterion = criteria.find((candidate) => candidate.id === result.criterionId,
-                );
-                return (
-                  <div key={result.criterionId}>
-                    <dt>
-                      {criterion?.label ?? "Criterion"}
-                      {result.spreadFlag ? " · reviewers far apart" : ""}
-                    </dt>
-                    <dd>
-                      {<LiveNumber value={result.meanScore} format={{ maximumFractionDigits: 2 }} />} average · {" "}
-                      {<LiveNumber value={result.weightedPoints} format={{ maximumFractionDigits: 2 }} />}
-                      weighted
-                    </dd>
-                  </div>
-                );
-              })}
-            </dl>
-          ) : null}
-          <div className="raw-scorecards">
-            {review.scorecards.map((scorecard) => (
-              <div key={`${review.reviewSessionId}-${scorecard.reviewerName}-${scorecard.version}`}>
-                <strong>
-                  {scorecard.reviewerName} · submission {scorecard.version}
-                  {scorecard.manualReviewRecordId ? " · entered from paper" : ""}
-                </strong>
-                {scorecard.finalComment ? (
-                  <p>{scorecard.finalComment}</p>
-                ) : null}
-                {scorecard.ratings.map((rating) => {
-                  const criterion = criteria.find(
-                    (candidate) => candidate.id === rating.criterionId,
-                  );
-                  return (
-                    <p key={rating.criterionId}>
-                      {criterion?.label ?? "Criterion"}: {rating.score}
-                      {rating.evidenceNote ? ` · ${rating.evidenceNote}` : ""}
-                    </p>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
-        </details>
-      ))}
-      {reviews.length === 0 ? (
-        <p className="empty">No completed review has scores yet.</p>
-      ) : null}
-    </section>
   );
 }
 

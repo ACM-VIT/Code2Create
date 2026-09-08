@@ -518,6 +518,74 @@ describe("combined review results", () => {
   });
 });
 
+describe("round standings and review detail", () => {
+  test("standings list every review with its result and the detail exposes project, scores, and notes", async () => {
+    const backend = seededBackend();
+    const fixture = await seedCorrectionFixture(backend);
+    await prepareCorrectionSubmission(backend, fixture);
+    const actor = reviewerClient(backend, fixture);
+    const standingsArgs = { eventSlug: fixture.eventSlug, roundId: fixture.roundId };
+    const detailArgs = { eventSlug: fixture.eventSlug, reviewSessionId: fixture.reviewSessionId };
+    await expect(actor.query(api.scoreGovernance.roundStandings, standingsArgs)).rejects.toThrow();
+    await expect(actor.query(api.scoreGovernance.reviewDetail, detailArgs)).rejects.toThrow();
+    await backend.run(async (ctx) => {
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.personId,
+        eventAccessSubjectId: fixture.subjectId,
+        permissionKey: "score.values.read",
+        scopeType: "round",
+        scopeId: fixture.roundId,
+        sourceType: "manual",
+        sourceId: "standings-test",
+        grantedByPersonId: fixture.personId,
+        reason: "Read standings",
+      });
+      await ctx.db.patch(fixture.reviewSessionId, {
+        sharedFindings: "Working demo on stage.",
+        sharedCommitments: "Ship the deploy script.",
+        sharedNotesByPersonId: fixture.personId,
+      });
+    });
+    const standings = await actor.query(api.scoreGovernance.roundStandings, standingsArgs);
+    expect(standings.truncated).toBe(false);
+    expect(standings.scoreMaximum).toBe(4);
+    expect(standings.panels).toEqual([{ id: expect.any(String), name: "Correction panel" }]);
+    expect(standings.rows).toHaveLength(1);
+    expect(standings.rows[0]).toMatchObject({
+      reviewSessionId: fixture.reviewSessionId,
+      teamId: fixture.teamId,
+      teamName: "Correction team",
+      panelName: "Correction panel",
+      status: "completed",
+      evaluation: { state: "complete", totalPoints: 0 },
+    });
+    expect(standings.rows[0]?.applicationId).toBeUndefined();
+    const detail = await actor.query(api.scoreGovernance.reviewDetail, detailArgs);
+    expect(detail.team).toMatchObject({ id: fixture.teamId, name: "Correction team" });
+    expect(detail.project.initialIdea).toBe("A fixture project for score correction tests.");
+    expect(detail.project.repositories).toEqual([]);
+    expect(detail.reviewers).toEqual([
+      expect.objectContaining({ personId: fixture.personId, isCoordinator: true }),
+    ]);
+    expect(detail.scorecards).toEqual([
+      expect.objectContaining({ id: fixture.scorecardId, status: "submitted", version: 1, ratings: [] }),
+    ]);
+    expect(detail.sharedNotes).toEqual({
+      findings: "Working demo on stage.",
+      commitments: "Ship the deploy script.",
+      authorName: "Correction reviewer",
+    });
+    expect(detail.evaluation?.state).toBe("complete");
+    await expect(
+      actor.query(api.scoreGovernance.reviewDetail, {
+        eventSlug: `${fixture.eventSlug}-other`,
+        reviewSessionId: fixture.reviewSessionId,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
 describe("score governance pagination", () => {
   test.each([true, false])(
     "final comments follow the published requirement (%s) and survive correction",
