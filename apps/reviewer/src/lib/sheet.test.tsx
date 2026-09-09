@@ -22,6 +22,7 @@ vi.mock("react-native", () => ({
   View: "View",
   RefreshControl: "RefreshControl",
   Platform: { OS: "android" },
+  Keyboard: { addListener: () => ({ remove: () => undefined }) },
 }));
 
 let renderer: ReturnType<typeof create>;

@@ -1,6 +1,6 @@
 import { Stack } from "expo-router";
-import { useState, type ReactNode } from "react";
-import { Platform, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { Keyboard, Platform, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { androidNativeTabBarHeight } from "@/lib/navigation-layout";
@@ -25,6 +25,7 @@ export function DutyScreen({
   const insets = useSafeAreaInsets();
   const [viewportHeight, setViewportHeight] = useState(0);
   const [contentHeight, setContentHeight] = useState(0);
+  const keyboardVisible = useKeyboardVisible();
   const navigationInset =
     Platform.OS === "android"
       ? insets.bottom + (underNativeTabs ? androidNativeTabBarHeight : 0)
@@ -43,6 +44,9 @@ export function DutyScreen({
       {scroll ? (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
+          // iOS keeps the focused field above the keyboard by growing the insets;
+          // Android resizes the window, which the layout handler picks up.
+          automaticallyAdjustKeyboardInsets
           contentInsetAdjustmentBehavior="automatic"
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
@@ -57,9 +61,11 @@ export function DutyScreen({
               />
             ) : undefined
           }
-          // A screen that fits should sit still; pull-to-refresh screens
-          // keep the gesture regardless.
-          scrollEnabled={onRefresh !== undefined || contentHeight > viewportHeight + 1}
+          // A screen that fits should sit still; pull-to-refresh screens keep
+          // the gesture regardless, and an open keyboard always allows scrolling.
+          scrollEnabled={
+            keyboardVisible || onRefresh !== undefined || contentHeight > viewportHeight + 1
+          }
           style={styles.scroll}
         >
           {children}
@@ -69,6 +75,25 @@ export function DutyScreen({
       )}
     </View>
   );
+}
+
+function useKeyboardVisible() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const show = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      () => setVisible(true),
+    );
+    const hide = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => setVisible(false),
+    );
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+  return visible;
 }
 
 const styles = StyleSheet.create({

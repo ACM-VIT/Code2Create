@@ -2071,6 +2071,193 @@ describe("live panel membership", () => {
     }
   });
 
+  test("removes an empty no-show scorecard during scoring and completes with published minimum coverage", async () => {
+    const backend = seededBackend();
+    const fixture = await seedPanel(backend);
+    const reviewSessionId = await seedLiveReview(backend, fixture);
+    await grantNoShow(backend, fixture);
+    const seeded = await backend.run(async (ctx) => {
+      const now = Date.now();
+      const [session, round, panelMembers, criteria] = await Promise.all([
+        ctx.db.get(reviewSessionId),
+        ctx.db.get(fixture.roundId),
+        ctx.db
+          .query("reviewPanelMembers")
+          .withIndex("by_panel_status", (index) =>
+            index.eq("panelId", fixture.panelId).eq("status", "active"),
+          )
+          .collect(),
+        ctx.db
+          .query("reviewRubricCriteria")
+          .withIndex("by_rubric_order", (index) =>
+            index.eq("rubricVersionId", fixture.rubricVersionId),
+          )
+          .collect(),
+      ]);
+      if (!session || !round) throw new Error("The live no-show review is missing.");
+      await ctx.db.patch(round._id, {
+        minimumScorersPerCriterion: 2,
+        requiresSharedCommitments: false,
+      });
+      await ctx.db.patch(session._id, { status: "scoring" });
+      await insertTeamRoundState(ctx, {
+        eventId: fixture.eventId,
+        roundId: fixture.roundId,
+        teamId: session.teamId,
+        panelId: fixture.panelId,
+        state: "in_review",
+        queuedAt: now - 60_000,
+        calledAt: now - 30_000,
+        callAttemptCount: 1,
+        lastCallAttemptAt: now - 30_000,
+        priority: 0,
+        version: 1,
+        updatedByPersonId: fixture.operatorPersonId,
+        updatedAt: now,
+      });
+      let removedAssignmentId: Id<"reviewAssignments"> | null = null;
+      let removedScorecardId: Id<"scorecards"> | null = null;
+      for (const member of panelMembers) {
+        const assignmentId = await ctx.db.insert("reviewAssignments", {
+          eventId: fixture.eventId,
+          roundId: fixture.roundId,
+          panelId: fixture.panelId,
+          reviewSessionId,
+          reviewerPersonId: member.personId,
+          eventAccessSubjectId: member.eventAccessSubjectId,
+          assignedCriterionIds: member.assignedCriterionIds,
+          isCoordinator: member.isCoordinator,
+          status: "assigned",
+          assignedAt: now,
+        });
+        const removed = member._id === fixture.memberId;
+        const ratings = removed
+          ? []
+          : criteria.map((criterion) => ({ criterionId: criterion._id, score: 2 }));
+        const scorecardId = await ctx.db.insert("scorecards", {
+          eventId: fixture.eventId,
+          roundId: fixture.roundId,
+          reviewSessionId,
+          reviewerPersonId: member.personId,
+          assignmentId,
+          rubricVersionId: fixture.rubricVersionId,
+          status: removed ? "draft" : "submitted",
+          ratings,
+          draftVersion: removed ? 0 : 1,
+          version: 1,
+          createdAt: now,
+          updatedAt: now,
+          ...(removed ? {} : { submittedAt: now }),
+        });
+        if (removed) {
+          removedAssignmentId = assignmentId;
+          removedScorecardId = scorecardId;
+        } else {
+          const submittedVersionId = await ctx.db.insert("scorecardVersions", {
+            eventId: fixture.eventId,
+            roundId: fixture.roundId,
+            reviewSessionId,
+            scorecardId,
+            reviewerPersonId: member.personId,
+            version: 1,
+            rubricVersionId: fixture.rubricVersionId,
+            ratings,
+            checksum: `submitted-${scorecardId}`,
+            clientOperationId: `submit-${scorecardId}`,
+            submittedAt: now,
+          });
+          await ctx.db.patch(scorecardId, { submittedVersionId });
+        }
+        await grantReviewAssignmentAccess(ctx, {
+          eventId: fixture.eventId,
+          reviewSessionId,
+          scorecardId,
+          assignmentId,
+          reviewerPersonId: member.personId,
+          eventAccessSubjectId: member.eventAccessSubjectId,
+          grantedByPersonId: fixture.operatorPersonId,
+          isCoordinator: member.isCoordinator,
+        });
+      }
+      await insertPermissionGrant(ctx, {
+        eventId: fixture.eventId,
+        personId: fixture.operatorPersonId,
+        eventAccessSubjectId: fixture.operatorSubjectId,
+        permissionKey: "review.complete",
+        scopeType: "review",
+        scopeId: reviewSessionId,
+        sourceType: "manual",
+        sourceId: `complete:${reviewSessionId}`,
+        grantedByPersonId: fixture.operatorPersonId,
+        reason: "Complete a reduced live review after a no-show",
+      });
+      if (!removedAssignmentId || !removedScorecardId) {
+        throw new Error("The removable reviewer assignment was not created.");
+      }
+      return { removedAssignmentId, removedScorecardId };
+    });
+
+    const operator = asOperator(backend, fixture);
+    const request = {
+      eventSlug: fixture.eventSlug,
+      panelMemberId: fixture.memberId,
+      expectedPanelVersion: 1,
+      reason: "Reviewer could not join this live review.",
+      clientOperationId: "live-review-no-show",
+    };
+    const removed = await operator.mutation(api.reviewSubstitutions.markNoShow, request);
+    await expect(operator.mutation(api.reviewSubstitutions.markNoShow, request)).resolves.toEqual(
+      removed,
+    );
+
+    const afterRemoval = await backend.run(async (ctx) => ({
+      assignment: await ctx.db.get(seeded.removedAssignmentId),
+      scorecard: await ctx.db.get(seeded.removedScorecardId),
+      session: await ctx.db.get(reviewSessionId),
+      panel: await ctx.db.get(fixture.panelId),
+      activeAssignments: await ctx.db
+        .query("reviewAssignments")
+        .withIndex("by_session_person", (index) =>
+          index.eq("reviewSessionId", reviewSessionId),
+        )
+        .collect(),
+    }));
+    expect(afterRemoval.assignment).toMatchObject({ status: "removed" });
+    expect(afterRemoval.scorecard).toMatchObject({ status: "void", version: 2 });
+    expect(afterRemoval.session).toMatchObject({ status: "scoring", version: 2 });
+    expect(afterRemoval.panel).toMatchObject({ status: "needs_reviewer", version: 2 });
+    expect(
+      afterRemoval.activeAssignments.filter((assignment) => assignment.status === "assigned"),
+    ).toHaveLength(2);
+    expect(
+      await activeSourceGrantCount(
+        backend,
+        fixture.eventId,
+        "panel_assignment",
+        seeded.removedAssignmentId,
+      ),
+    ).toBe(0);
+
+    await expect(
+      operator.mutation(api.reviewOperations.completeReview, {
+        eventSlug: fixture.eventSlug,
+        reviewSessionId,
+        expectedVersion: 2,
+        reason: "Completed with the published minimum scorer coverage",
+        clientOperationId: "complete-reduced-live-review",
+      }),
+    ).resolves.toMatchObject({ reviewSessionId });
+    await backend.run(async (ctx) => {
+      const evaluation = await ctx.db
+        .query("reviewEvaluations")
+        .withIndex("by_session", (index) => index.eq("reviewSessionId", reviewSessionId))
+        .unique();
+      expect(evaluation?.criterionResults.every((criterion) => criterion.scoreCount === 2)).toBe(
+        true,
+      );
+    });
+  });
+
   test("round publication creates pending confirmations without assuming form hours", async () => {
     const backend = seededBackend();
     const fixture = await seedPanel(backend);

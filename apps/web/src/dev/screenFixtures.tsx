@@ -876,6 +876,16 @@ function DisplayFixture() {
           },
           upNext: ["Midnight City", "Smells Like Teen Spirit", "Nightcall"],
         },
+        review: {
+          roundName: "Review 2",
+          startsAt: eventClock(1, 20),
+          endsAt: eventClock(5, 0),
+          panels: [
+            { name: "Panel 1", inReview: ["SYNC TECH"], called: ["DAHI VADA"], upNext: ["CHERRY"] },
+            { name: "Panel 2", inReview: [], called: ["HACKIFIER"], upNext: ["NEURAL NINJAS"] },
+            { name: "Panel 3", inReview: [], called: [], upNext: ["LATENCY", "CODE-BLOODED"] },
+          ],
+        },
       }}
       now={now}
     />

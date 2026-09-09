@@ -181,8 +181,25 @@ export const extend = mutation({
       .query("reviewConfirmationRequests")
       .withIndex("by_roundId", (q) => q.eq("roundId", round._id))
       .unique();
+    // A reviewer who confirmed through the round's end stays confirmed through the new end;
+    // anyone who confirmed shorter hours keeps them and can extend in the app.
+    const confirmations = await ctx.db
+      .query("reviewerRoundConfirmations")
+      .withIndex("by_roundId_and_personId", (q) => q.eq("roundId", round._id))
+      .take(501);
+    if (confirmations.length > 500) throw new Error("Reviewer confirmation limit exceeded.");
+    for (const confirmation of confirmations) {
+      if (confirmation.status !== "confirmed") continue;
+      if (!confirmation.windows.some((window) => window.endsAt === round.endsAt)) continue;
+      await ctx.db.patch(confirmation._id, {
+        windows: confirmation.windows.map((window) =>
+          window.endsAt === round.endsAt ? { ...window, endsAt: args.endsAt } : window,
+        ),
+        version: confirmation.version + 1,
+        updatedAt: now,
+      });
+    }
     if (request && request.opensAt <= now) {
-      // Extending the round never extends a person's confirmed hours. They can now update them explicitly.
       await ctx.db.patch(request._id, {
         closesAt: args.endsAt,
         // The first opening must pass through openRequest to enqueue notifications.

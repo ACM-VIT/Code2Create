@@ -634,10 +634,13 @@ const reviewerEvidenceView = v.object({
   figmaFileUrl: v.optional(v.string()),
 });
 
+const scoreScaleView = v.object({ minimum: v.number(), maximum: v.number() });
+
 const reviewerWorkspaceDataView = v.object({
   id: v.id("reviewSessions"),
   project: reviewerProjectView,
   evidence: reviewerEvidenceView,
+  scale: scoreScaleView,
   criteria: v.array(criterionView),
 });
 
@@ -669,6 +672,7 @@ const reviewerWorkspaceView = v.object({
   id: v.id("reviewSessions"),
   project: reviewerProjectView,
   evidence: reviewerEvidenceView,
+  scale: scoreScaleView,
   criteria: v.array(criterionView),
   teamContext: reviewerTeamContextView,
 });
@@ -1121,7 +1125,8 @@ export const now = query({
     );
     const submittedScorecardCount = submittedReviewerIds.size;
     const completionReady =
-      assignedRows.length === round.requiredPanelSize &&
+      assignedRows.length >= round.minimumScorersPerCriterion &&
+      assignedRows.length <= round.requiredPanelSize &&
       submittedScorecardCount === assignedRows.length &&
       (!round.requiresSharedCommitments ||
         Boolean(active.session.sharedFindings?.trim() && active.session.sharedCommitments?.trim()));
@@ -1189,6 +1194,8 @@ export const reviewWorkspaceData = internalQuery({
       throw new ConvexError({ code: "REVIEW_NOT_FOUND", message: "That review is unavailable.",
       });
     }
+    const rubric = await ctx.db.get(session.rubricVersionId);
+    if (!rubric) throw new Error("The review rubric is missing.");
     const assignment = await ctx.db
       .query("reviewAssignments")
       .withIndex("by_session_person", (index) =>
@@ -1324,6 +1331,7 @@ export const reviewWorkspaceData = internalQuery({
         github: githubEvidence,
         ...(evidence.figmaFileUrl ? { figmaFileUrl: evidence.figmaFileUrl } : {}),
       },
+      scale: { minimum: rubric.scoreMinimum, maximum: rubric.scoreMaximum },
       criteria: criteria.map((criterion) => ({
         id: criterion._id,
         stableKey: criterion.stableKey,
