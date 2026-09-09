@@ -40,6 +40,7 @@ import { DashboardScreen } from "../screens/DashboardScreen";
 import { MusicRoom } from "../screens/SynesthesiaScreen";
 import { ShowcaseScreen } from "../screens/ShowcaseScreen";
 import { showcaseSamples } from "./showcaseSamples";
+import { PhotoGalleryFixture } from "./PhotoGalleryFixture";
 import { ChillMode } from "../components/chill/ChillMode";
 import { DisplayView } from "../screens/DisplayScreen";
 import { IntegrationsScene } from "../screens/IntegrationsScreen";
@@ -1201,6 +1202,9 @@ const screens: Record<string, () => ReactNode> = Object.fromEntries([
   ["musicQuiet", () => <MusicRoomFixture key="quiet" quiet />],
   ["showcase", () => <ShowcaseScreen team={team} members={members} teamEditable onSignOut={noop} projects={showcaseSamples} />],
   ["showcaseEmpty", () => <ShowcaseScreen team={team} members={members} teamEditable onSignOut={noop} projects={[]} />],
+  ["photos", () => <PhotoGalleryFixture />],
+  ["photosUpload", () => <PhotoGalleryFixture canUpload />],
+  ["photosEmpty", () => <PhotoGalleryFixture empty />],
   ["integrations", () => <IntegrationsFixture key="linked" connected />],
   ["integrationsEmpty", () => <IntegrationsFixture key="empty" connected={false} />],
   ["chill", () => <><DashboardFixture variant="build" /><ChillMode active /></>],

@@ -19,6 +19,9 @@ const ParticipantApp = lazy(() =>
 const DisplayScreen = lazy(() =>
   import("./screens/DisplayScreen").then((module) => ({ default: module.DisplayScreen })),
 );
+const PhotosScreen = lazy(() =>
+  import("./screens/PhotosScreen").then((module) => ({ default: module.PhotosScreen })),
+);
 
 // Dev-only screen switcher. `import.meta.env.DEV` is statically false in a
 // production build, so the ternary collapses and the chunk is never emitted.
@@ -30,7 +33,7 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const publicState = useQuery(api.system.getPublicState, { eventSlug });
   const location = useLocation();
-  const startupReady = publicState !== undefined && !sessionPending;
+  const startupReady = publicState !== undefined && (location.pathname === "/photos" || !sessionPending);
 
   // Mounted outside the loading guard so the gallery is reachable even when the
   // backend is unreachable — which is when reviewing screens matters most.
@@ -49,6 +52,10 @@ export default function App({ authClient }: { authClient: Code2CreateAuthClient 
       <StartupCover ready={startupReady} />
       {publicState === undefined ? (
         <LoadingScreen />
+      ) : location.pathname === "/photos" ? (
+        <Suspense fallback={<LoadingScreen />}>
+          <PhotosScreen authClient={authClient} eventName={publicState.event?.name ?? null} />
+        </Suspense>
       ) : location.pathname === "/display" ? (
         <Suspense fallback={<LoadingScreen />}>
           <DisplayScreen publicState={publicState} />

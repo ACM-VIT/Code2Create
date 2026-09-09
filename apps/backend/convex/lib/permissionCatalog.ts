@@ -7,6 +7,7 @@ type PermissionDefinition = {
 };
 
 export const permissionCatalog = {
+  "photos.upload": { scopes: [], eventWide: true },
   "event.lifecycle.read": { scopes: [], eventWide: true },
   "event.lifecycle.manage": { scopes: [], eventWide: true },
   "participant.profile.read": { scopes: ["self"], eventWide: false },

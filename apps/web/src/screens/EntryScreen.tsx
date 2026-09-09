@@ -248,6 +248,7 @@ export function EntryScreen({
           <p className="mt-4 text-[11.5px] text-rose-light">{authUnavailableMessage}</p>
         ) : null}
         <PortalError message={error} reserve />
+        <a href="/photos" className="mt-5 inline-block text-[13px] text-rose-light underline underline-offset-4">Browse event photos, no sign-in needed</a>
       </div>
     </PortalScene>
   );

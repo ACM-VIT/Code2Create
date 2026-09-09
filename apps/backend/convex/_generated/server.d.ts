@@ -28,6 +28,11 @@ import type { DataModel } from "./dataModel.js";
  * `convex.config.ts`.
  */
 type Env = {
+  readonly PHOTO_R2_ACCOUNT_ID: string | undefined;
+  readonly PHOTO_R2_ACCESS_KEY_ID: string | undefined;
+  readonly PHOTO_R2_SECRET_ACCESS_KEY: string | undefined;
+  readonly PHOTO_R2_BUCKET: string | undefined;
+  readonly PHOTO_PUBLIC_ORIGIN: string | undefined;
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly DISCORD_SUPPORT_ACTOR_EMAIL: string | undefined;

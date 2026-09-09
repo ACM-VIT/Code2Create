@@ -16,7 +16,7 @@
     "deploy": "pnpm build:release && pnpm deploy:built",
     "deploy:built": "node ../backend/scripts/release/webEnvironment.ts participant deploy && node ../backend/scripts/release/deployCloudflareViteWorker.ts code2create-participant",
     "lint": "oxlint",
-    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/githubRepositorySelection.test.ts src/lib/googleAuthorization.test.ts src/lib/ideaSubmission.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/playerName.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts src/components/dashboard/dashboardLayout.test.ts src/components/dashboard/relevance.test.ts src/components/dashboard/format.test.ts src/components/guide/guideMessages.test.ts src/components/music/turntableMotion.test.ts src/lib/gameRounds.test.ts src/games/memory/game/engine.test.ts src/games/memory/game/pattern.test.ts src/games/stack/game/rules.test.ts src/games/pacman/game/score.test.ts src/games/pacman/game/ghosts.test.ts src/games/pacman/game/maze.test.ts src/games/pacman/game/tick.test.ts src/games/pacman/game/timing.test.ts src/lib/showcaseProduction.test.ts",
+    "test": "node --experimental-strip-types --test scripts/generateAttendanceBadges.test.ts src/lib/errors.test.ts src/lib/githubRepositorySelection.test.ts src/lib/googleAuthorization.test.ts src/lib/ideaSubmission.test.ts src/lib/intakeCollaboration.test.ts src/lib/noveltyPreview.test.ts src/lib/operations.test.ts src/lib/playerName.test.ts src/lib/proposalRevision.test.ts src/lib/sessionDraft.test.ts src/lib/submissionCelebration.test.ts src/lib/teamLeave.test.ts src/lib/time.test.ts src/components/dashboard/dashboardLayout.test.ts src/components/dashboard/relevance.test.ts src/components/dashboard/format.test.ts src/components/guide/guideMessages.test.ts src/components/music/turntableMotion.test.ts src/lib/gameRounds.test.ts src/games/memory/game/engine.test.ts src/games/memory/game/pattern.test.ts src/games/stack/game/rules.test.ts src/games/pacman/game/score.test.ts src/games/pacman/game/ghosts.test.ts src/games/pacman/game/maze.test.ts src/games/pacman/game/tick.test.ts src/games/pacman/game/timing.test.ts src/lib/showcaseProduction.test.ts src/lib/photoUpload.test.ts src/lib/photoDownload.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },
@@ -40,12 +40,14 @@
     "better-auth": "~1.6.30",
     "convex": "^1.45.0",
     "convex-helpers": "^0.1.123",
+    "fflate": "^0.8.3",
     "gsap": "^3.15.0",
     "matter-js": "^0.20.0",
     "poly-decomp": "^0.3.0",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-photo-album": "^3.6.1",
     "react-router-dom": "^7.18.2",
     "streamdown": "^2.6.0",
     "tailwindcss": "^4.3.3",
@@ -53,7 +55,8 @@
     "toqr": "0.1.1",
     "use-stick-to-bottom": "^1.1.6",
     "vaul": "^1.1.2",
-    "vgpu": "^0.3.1"
+    "vgpu": "^0.3.1",
+    "yet-another-react-lightbox": "^3.32.2"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "^1.54.1",
