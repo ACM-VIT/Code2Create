@@ -11,7 +11,7 @@ SharePoint to EC2 and S3. Supply the shared folder URLs as arguments:
 
 ```sh
 python3.12 -m venv venv
-venv/bin/pip install boto3 requests gdown pillow pillow-heif
+venv/bin/pip install boto3 requests gdown beautifulsoup4 pillow pillow-heif
 mkdir -p /opt/gallery-transfer/tmp
 TMPDIR=/opt/gallery-transfer/tmp venv/bin/python import.py --drive "$DRIVE_FOLDER" --sharepoint "$SHAREPOINT_FOLDER"
 ```
@@ -60,4 +60,5 @@ pnpm --filter @code2create/landing typecheck
 pnpm --filter @code2create/landing lint
 pnpm --filter @code2create/landing build
 node --test scripts/gallery/catalog.test.ts
+venv/bin/python -m unittest discover -s scripts/gallery -p 'test_*.py'
 ```

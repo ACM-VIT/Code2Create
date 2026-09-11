@@ -1,6 +1,6 @@
 """Run on a temporary EC2 host with a bucket-scoped role, never on a capped client.
 
-pip install boto3 requests gdown pillow pillow-heif
+pip install boto3 requests gdown beautifulsoup4 pillow pillow-heif
 python import.py --drive URL --sharepoint URL
 python import.py --catalog-only
 """
@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, quote, urlparse
 
 import boto3
 from botocore.exceptions import ClientError
+from bs4 import BeautifulSoup
 import gdown
 from PIL import Image, ImageOps, UnidentifiedImageError
 import pillow_heif
@@ -124,22 +125,32 @@ class SharePoint:
 
 
 def download_drive(item, destination):
-    # The public download link can return originals directly. gdown handles the
-    # confirmation form when Drive requires one for a larger file.
-    with requests.get("https://drive.google.com/uc", params={"id": item["id"]},
-                      stream=True, timeout=(30, 180)) as response:
+    # Follow Drive's actual confirmation form. Reconstructing an export URL
+    # loses the confirmation parameters on some publicly shared videos.
+    with requests.Session() as session:
+        response = session.get("https://drive.google.com/uc", params={"id": item["id"]},
+                               stream=True, timeout=(30, 180))
         response.raise_for_status()
-        if "text/html" not in response.headers.get("Content-Type", ""):
+        if "text/html" in response.headers.get("Content-Type", ""):
+            form = BeautifulSoup(response.text, "html.parser").find("form", id="download-form")
+            response.close()
+            if form is None or form.get("action") != "https://drive.usercontent.google.com/download":
+                raise RuntimeError("Drive did not provide a public download or confirmation form")
+            parameters = {field["name"]: field.get("value", "")
+                          for field in form.select("input[type=hidden][name]")}
+            if parameters.get("id") != item["id"]:
+                raise RuntimeError("Drive confirmation refers to a different file")
+            response = session.get(form["action"], params=parameters, stream=True, timeout=(30, 180))
+        with response:
+            response.raise_for_status()
+            if "text/html" in response.headers.get("Content-Type", ""):
+                raise RuntimeError("Drive returned a page instead of the original file")
             with destination.open("wb") as output:
                 for chunk in response.iter_content(1024 * 1024):
                     output.write(chunk)
             expected = response.headers.get("Content-Length")
             if expected and destination.stat().st_size != int(expected):
                 raise RuntimeError("Drive original size mismatch")
-            return
-    result = gdown.download(id=item["id"], output=str(destination), quiet=True, use_cookies=False)
-    if result is None:
-        raise RuntimeError("Drive download returned no file")
 
 
 def transfer(item, sharepoint):
