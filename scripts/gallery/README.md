@@ -43,8 +43,11 @@ Visitors only need `s3:GetObject`. The bucket policy allows public reads and
 denies non-TLS access; it does not grant public listing, uploads, or deletion.
 Public ACLs are blocked and ignored. CORS permits GET/HEAD so the Cloudflare
 landing page can fetch the catalog. Originals send `Content-Disposition:
-attachment`; downloading uses the browser directly without buffering originals
-in JavaScript memory.
+attachment`; individual downloads use the browser directly. The floating selection
+bar creates a ZIP of unchanged originals using lazy-loaded `client-zip`. Browsers
+with `showSaveFilePicker` stream the archive to disk. Other browsers buffer up to
+250 MiB, then ask visitors to select fewer photos rather than risk exhausting
+memory. Downloads can be cancelled or retried without losing selections.
 
 The temporary instance needs bucket-scoped `ListBucket`, `GetBucketLocation`,
 `GetObject`, `PutObject`, and `AbortMultipartUpload`, plus SSM management access.
@@ -59,6 +62,6 @@ Frontend verification:
 pnpm --filter @code2create/landing typecheck
 pnpm --filter @code2create/landing lint
 pnpm --filter @code2create/landing build
-node --test scripts/gallery/catalog.test.ts
+pnpm --filter @code2create/landing test
 venv/bin/python -m unittest discover -s scripts/gallery -p 'test_*.py'
 ```
