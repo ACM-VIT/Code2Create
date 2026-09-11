@@ -88,11 +88,11 @@ export default function Photos() {
   return (
     <div className="photos-page">
       <header className="photos-nav">
-        <a href="/" className="photos-brand">
+        <a href="/" className="navbar__brand">
           <img src="/assets/svg/logo.svg" alt="" width="34" height="38" />
           Code2Create
         </a>
-        <a href="/">
+        <a href="/" className="landing-link">
           Back to the event <span aria-hidden="true">↗</span>
         </a>
       </header>
@@ -176,10 +176,17 @@ export default function Photos() {
       </main>
       <footer className="photos-footer">
         <span>A little bit of Code2Create, kept forever.</span>
-        <a href="https://acmvit.in">ACM-VIT ↗</a>
+        <a className="landing-link" href="https://acmvit.in">
+          ACM-VIT ↗
+        </a>
       </footer>
       {status === "ready" && photos.length > 0 && index < 0 && (
-        <div className="photos-dock" role="region" aria-label="Photo selection">
+        <div
+          className="photos-dock"
+          data-selecting={selecting || undefined}
+          role="region"
+          aria-label="Photo selection"
+        >
           {downloadMessage && (
             <p className="photos-download-message" role="status">
               {downloadMessage}
@@ -191,7 +198,19 @@ export default function Photos() {
                 className="photos-dock-primary"
                 onClick={() => setSelecting(true)}
               >
-                <span aria-hidden="true">☑</span> Select photos
+                <svg
+                  aria-hidden="true"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                >
+                  <rect x="4" y="4" width="16" height="16" rx="3" />
+                  <path d="m8 12 3 3 5-6" />
+                </svg>
+                Select photos
               </button>
             ) : progress !== null ? (
               <>

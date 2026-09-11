@@ -217,13 +217,22 @@ ul {
   color: var(--paper);
 }
 
-.navbar__links a {
+.landing-link {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(12px, 1.05vw, 15px);
+  color: var(--paper);
+}
+
+.navbar__links a,
+.landing-link {
   position: relative;
   padding-block: 4px;
   transition: color 0.25s ease;
 }
 
-.navbar__links a::after {
+.navbar__links a::after,
+.landing-link::after {
   content: "";
   position: absolute;
   inset: auto 0 0;
@@ -234,11 +243,15 @@ ul {
   transition: transform 0.28s ease;
 }
 
-.navbar__links a:hover {
+.navbar__links a:hover,
+.landing-link:hover,
+.landing-link:focus-visible {
   color: var(--rose-light);
 }
 
-.navbar__links a:hover::after {
+.navbar__links a:hover::after,
+.landing-link:hover::after,
+.landing-link:focus-visible::after {
   transform: scaleX(1);
 }
 
