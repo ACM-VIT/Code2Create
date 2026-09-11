@@ -9,11 +9,6 @@ import { v } from "convex/values";
 
 const app = defineApp({
   env: {
-    PHOTO_R2_ACCOUNT_ID: v.optional(v.string()),
-    PHOTO_R2_ACCESS_KEY_ID: v.optional(v.string()),
-    PHOTO_R2_SECRET_ACCESS_KEY: v.optional(v.string()),
-    PHOTO_R2_BUCKET: v.optional(v.string()),
-    PHOTO_PUBLIC_ORIGIN: v.optional(v.string()),
     DISCORD_SUPPORT_ACTOR_EMAIL: v.optional(v.string()),
     DISCORD_SUPPORT_BRIDGE_SECRET: v.optional(v.string()),
   },

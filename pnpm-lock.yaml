@@ -111,18 +111,12 @@ importers:
       convex-helpers:
         specifier: ^0.1.123
         version: 0.1.123(patch_hash=58486477019cfed1ca449b362f8d13c39a3f04463609e659aced4d0808fa5c17)(@standard-schema/spec@1.1.0)(convex@1.45.0(react@19.2.8))(hono@4.13.5)(react@19.2.8)(typescript@7.0.2)(zod@4.4.3)
-      exifr:
-        specifier: ^7.1.3
-        version: 7.1.3
       fflate:
         specifier: ^0.8.2
         version: 0.8.3
       firebase-admin:
         specifier: ^14.3.0
         version: 14.3.0(supports-color@10.2.2)
-      image-size:
-        specifier: ^2.0.2
-        version: 2.0.2
       jose:
         specifier: ^6.2.10
         version: 6.2.10
@@ -307,6 +301,12 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
+      react-photo-album:
+        specifier: ^3.6.1
+        version: 3.6.1(@types/react@19.2.18)(react@19.2.8)
+      yet-another-react-lightbox:
+        specifier: ^3.32.2
+        version: 3.32.2(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.54.1
@@ -739,9 +739,6 @@ importers:
       convex-helpers:
         specifier: ^0.1.123
         version: 0.1.123(patch_hash=58486477019cfed1ca449b362f8d13c39a3f04463609e659aced4d0808fa5c17)(@standard-schema/spec@1.1.0)(convex@1.45.0(react@19.2.8))(hono@4.13.5)(react@19.2.8)(typescript@7.0.2)(zod@4.4.3)
-      fflate:
-        specifier: ^0.8.3
-        version: 0.8.3
       gsap:
         specifier: ^3.15.0
         version: 3.15.0
@@ -760,9 +757,6 @@ importers:
       react-dom:
         specifier: ^19.2.8
         version: 19.2.8(react@19.2.8)
-      react-photo-album:
-        specifier: ^3.6.1
-        version: 3.6.1(@types/react@19.2.18)(react@19.2.8)
       react-router-dom:
         specifier: ^7.18.2
         version: 7.18.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -787,9 +781,6 @@ importers:
       vgpu:
         specifier: ^0.3.1
         version: 0.3.1(supports-color@10.2.2)
-      yet-another-react-lightbox:
-        specifier: ^3.32.2
-        version: 3.32.2(@types/react-dom@19.2.5(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: ^1.54.1
@@ -6180,9 +6171,6 @@ packages:
     resolution: {integrity: sha512-8uSpZZocAZRBAPIEINJj3Lo9HyGitllczc27Eh5YYojjMFMn8yHMDMaUHE2Jqfq05D/wucwI4JGURyXt1vchyg==}
     engines: {node: '>=10'}
 
-  exifr@7.1.3:
-    resolution: {integrity: sha512-g/aje2noHivrRSLbAUtBPWFbxKdKhgj/xr1vATDdUXPOFYJlQ62Ft0oy+72V6XLIpDJfHs6gXLbBLAolqOXYRw==}
-
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
     engines: {node: '>=12.0.0'}
@@ -6975,11 +6963,6 @@ packages:
   ignore@7.0.6:
     resolution: {integrity: sha512-BAg6QkE8W+TuQLrrw0Ugr7HegXduRuuj8/ti2kSOc+jz1dmx8/WNcjr6XGnq5YpDWxFwwaavqD0+jIUOKelTsw==}
     engines: {node: '>= 4'}
-
-  image-size@2.0.2:
-    resolution: {integrity: sha512-IRqXKlaXwgSMAMtpNzZa1ZAe8m+Sa1770Dhk8VkSsP9LS+iHD62Zd8FQKs8fbPiagBE7BzoFX23cxFnwshpV6w==}
-    engines: {node: '>=16.x'}
-    hasBin: true
 
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
@@ -16623,8 +16606,6 @@ snapshots:
       signal-exit: 3.0.7
       strip-final-newline: 2.0.0
 
-  exifr@7.1.3: {}
-
   expect-type@1.4.0: {}
 
   expo-application@57.0.2(expo@57.0.18):
@@ -17882,8 +17863,6 @@ snapshots:
   ignore@7.0.5: {}
 
   ignore@7.0.6: {}
-
-  image-size@2.0.2: {}
 
   import-fresh@3.3.1:
     dependencies:

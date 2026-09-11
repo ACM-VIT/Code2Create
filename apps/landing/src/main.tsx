@@ -1,15 +1,17 @@
-import { StrictMode } from "react";
+import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { ClientObservabilityProvider } from "@code2create/client-observability";
 
 // Base tokens first so section stylesheets (pulled in via App) can override.
 import "./styles/base.css";
 import "./styles/botanical.css";
-import App from "./App.js";
 import { clientConfiguration } from "./lib/config.js";
 
 const rootElement = document.querySelector("#root");
 if (!rootElement) throw new Error("The landing page root element is missing.");
+const Photos = lazy(() => import("./photos/Photos.js"));
+const App = lazy(() => import("./App.js"));
+const isPhotos = window.location.pathname.replace(/\/$/, "") === "/photos";
 
 createRoot(rootElement).render(
   <ClientObservabilityProvider
@@ -23,7 +25,9 @@ createRoot(rootElement).render(
     }}
   >
     <StrictMode>
-      <App />
+      <Suspense fallback={<p role="status">Loading…</p>}>
+        {isPhotos ? <Photos /> : <App />}
+      </Suspense>
     </StrictMode>
   </ClientObservabilityProvider>,
 );

@@ -303,36 +303,6 @@ const retiredVenueResponseSummary = v.object({
 });
 
 export default defineSchema({
-  galleryPhotos: defineTable({
-    eventId: v.id("events"),
-    uploaderId: v.id("people"),
-    clientOperationId: v.string(),
-    fileName: v.string(),
-    caption: v.string(),
-    contentType: v.string(),
-    byteCount: v.number(),
-    sha256: v.string(),
-    status: v.union(v.literal("pending"), v.literal("published"), v.literal("expired")),
-    width: v.optional(v.number()),
-    height: v.optional(v.number()),
-    publishedAt: v.optional(v.number()),
-    capturedAt: v.optional(v.number()),
-    day: v.optional(v.union(v.literal("6"), v.literal("7"), v.literal("8"), v.literal("other"))),
-    uploaderName: v.optional(v.string()),
-    expiresAt: v.number(),
-  })
-    .index("by_eventId_and_status", ["eventId", "status"])
-    .index("by_capture", ["eventId", "status", "capturedAt"])
-    .index("by_day_capture", ["eventId", "status", "day", "capturedAt"])
-    .index("by_uploader_capture", ["eventId", "status", "uploaderId", "capturedAt"])
-    .index("by_uploader_day_capture", ["eventId", "status", "uploaderId", "day", "capturedAt"])
-    .index("by_name_capture", ["eventId", "status", "uploaderName", "capturedAt"])
-    .index("by_day_name_capture", ["eventId", "status", "day", "uploaderName", "capturedAt"])
-    .index("by_uploaderId_and_clientOperationId", ["uploaderId", "clientOperationId"]),
-  galleryPhotoFacets: defineTable({
-    eventId: v.id("events"), uploaderId: v.id("people"), uploaderName: v.string(),
-    counts: v.object({ "6": v.number(), "7": v.number(), "8": v.number(), other: v.number() }),
-  }).index("by_event_uploader", ["eventId", "uploaderId"]),
   events: defineTable({
     slug: v.string(),
     name: v.string(),

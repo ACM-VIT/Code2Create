@@ -9,8 +9,6 @@
  */
 
 import type * as access from "../access.js";
-import type * as photos from "../photos.js";
-import type * as photoActions from "../photoActions.js";
 import type * as accessInvitations from "../accessInvitations.js";
 import type * as accessRoles from "../accessRoles.js";
 import type * as accessSubjects from "../accessSubjects.js";
@@ -338,8 +336,6 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
-  photos: typeof photos;
-  photoActions: typeof photoActions;
   access: typeof access;
   accessInvitations: typeof accessInvitations;
   accessRoles: typeof accessRoles;

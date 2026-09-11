@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-export type Room = "home" | "music" | "games" | "showcase" | "photos";
+export type Room = "home" | "music" | "games" | "showcase";
 
 /**
  * The room icons.
@@ -82,16 +82,6 @@ const rooms: readonly { key: Room; label: string; to: string; icon: React.ReactN
         />
       </svg>
     ),
-  },
-  {
-    key: "photos",
-    label: "Photos",
-    to: "/photos",
-    icon: <svg viewBox="0 0 24 24" className="size-[20px] lg:size-[24px]" aria-hidden>
-      <rect x="3" y="5" width="18" height="15" rx="2" {...iconStroke} />
-      <path d="m4 17 5-5 4 4 3-3 4 4" {...iconStroke} />
-      <circle cx="16" cy="9" r="1.5" fill="currentColor" />
-    </svg>,
   },
 ];
 
