@@ -1,3 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@600&display=swap");
+
 .photos-page {
   min-height: 100svh;
   background: var(--ink);
@@ -24,17 +26,32 @@
   margin-bottom: 36px;
 }
 .photos-heading h1 {
-  font-family: var(--font-display);
-  font-size: clamp(68px, 10vw, 160px);
-  font-weight: 500;
-  line-height: 0.85;
-  letter-spacing: -0.04em;
-  color: var(--rose);
+  display: flex;
+  width: max-content;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
+  font-size: clamp(48px, 12vw, 196px);
+  font-weight: 600;
+  line-height: 0.9;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  user-select: none;
+  overflow: clip;
   margin: 0;
 }
 .photos-heading h1 span {
   color: transparent;
-  -webkit-text-stroke: 1px var(--rose-deep);
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--rose) 26%, transparent);
+  transition: color 900ms ease;
+}
+.photos-heading h1 span.is-lit {
+  color: var(--rose-light);
+  transition-duration: 120ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .photos-heading h1 span {
+    transition: none;
+  }
 }
 .photos-caption {
   display: flex;
@@ -63,17 +80,14 @@
   font-family: var(--font-display);
   font-weight: 500;
   color: var(--paper);
-  background: transparent;
+  background: url("/assets/svg/btn-box.svg") center / 100% 100% no-repeat;
   padding: 12px 24px;
-  border: 1px solid var(--rose);
-  border-radius: 20px 4px 20px 4px;
-  transition:
-    background 0.25s ease,
-    box-shadow 0.3s ease;
+  border: 0;
+  transition: filter 0.3s ease;
 }
 .photos-more button:hover,
 .photos-message button:hover {
-  background: var(--rose-deep);
+  filter: drop-shadow(0 0 14px rgba(216, 132, 162, 0.55));
 }
 .photos-more p {
   font-size: 12px;
@@ -132,8 +146,8 @@
   max-width: calc(100vw - 24px);
   width: max-content;
   padding: 6px;
-  border: 2px solid var(--rose);
-  border-radius: 30px 5px 30px 5px;
+  border: 1px solid var(--rose-deep);
+  border-radius: 4px;
   background: color-mix(in srgb, var(--ink) 94%, transparent);
   backdrop-filter: blur(8px);
   box-shadow: 0 4px 20px color-mix(in srgb, var(--ink) 50%, transparent);
@@ -141,6 +155,10 @@
 }
 .photos-dock:not([data-selecting]) {
   padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 .photos-dock-controls {
   display: flex;
@@ -155,33 +173,24 @@
   justify-content: center;
   gap: 10px;
   min-height: 44px;
-  padding: 10px 14px;
+  padding: 10px 20px;
   border: 0;
-  border-radius: 20px 3px 20px 3px;
-  background: transparent;
+  background: url("/assets/svg/btn-box.svg") center / 100% 100% no-repeat;
   color: var(--paper-warm);
   white-space: nowrap;
   font-weight: 500;
-  transition:
-    color 0.25s ease,
-    background 0.25s ease,
-    box-shadow 0.3s ease;
+  transition: filter 0.3s ease;
 }
 .photos-dock button:hover:not(:disabled) {
-  color: var(--rose-light);
-  background: color-mix(in srgb, var(--rose-deep) 35%, transparent);
+  filter: drop-shadow(0 0 14px rgba(216, 132, 162, 0.55));
 }
 .photos-dock button.photos-dock-primary {
-  border: 1px solid var(--rose);
   color: var(--paper-warm);
 }
 .photos-dock:not([data-selecting]) button.photos-dock-primary {
+  width: 202px;
+  min-height: 44px;
   padding: 12px 24px;
-  border: 0;
-  border-radius: 28px 3px 28px 3px;
-}
-.photos-dock button.photos-dock-primary:hover:not(:disabled) {
-  box-shadow: 0 0 14px color-mix(in srgb, var(--rose) 35%, transparent);
 }
 .photos-dock button:disabled {
   opacity: 0.4;
@@ -219,7 +228,7 @@
     font-size: 12px;
   }
   .photos-dock button {
-    padding: 10px;
+    padding: 10px 12px;
   }
   .photos-footer {
     align-items: flex-start;

@@ -4,6 +4,7 @@ import Lightbox from "yet-another-react-lightbox";
 import Download from "yet-another-react-lightbox/plugins/download";
 import { parseCatalog, photoUrl, type GalleryPhoto } from "./catalog.js";
 import { downloadPhotos } from "./download.js";
+import { OutlineHeading } from "./OutlineHeading.js";
 import "react-photo-album/rows.css";
 import "yet-another-react-lightbox/styles.css";
 import "./photos.css";
@@ -93,15 +94,13 @@ export default function Photos() {
           Code2Create
         </a>
         <a href="/" className="landing-link">
-          Back to the event <span aria-hidden="true">↗</span>
+          back
         </a>
       </header>
       <main className="photos-main">
         <div className="photos-heading">
           <div>
-            <h1 aria-label="Photos">
-              PH<span>OTOS</span>
-            </h1>
+            <OutlineHeading word="Photos" />
           </div>
         </div>
         {status === "loading" && (
@@ -198,18 +197,6 @@ export default function Photos() {
                 className="photos-dock-primary"
                 onClick={() => setSelecting(true)}
               >
-                <svg
-                  aria-hidden="true"
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                >
-                  <rect x="4" y="4" width="16" height="16" rx="3" />
-                  <path d="m8 12 3 3 5-6" />
-                </svg>
                 Select photos
               </button>
             ) : progress !== null ? (
