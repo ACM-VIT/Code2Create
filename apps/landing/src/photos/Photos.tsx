@@ -51,7 +51,6 @@ export default function Photos() {
       <main className="photos-main">
         <div className="photos-heading">
           <div>
-            <p className="photos-eyebrow">Code2Create / The album</p>
             <h1 aria-label="Photos">
               PH<span>OTOS</span>
             </h1>

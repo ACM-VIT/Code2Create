@@ -34,13 +34,6 @@
   gap: 24px;
   margin-bottom: 36px;
 }
-.photos-eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--rose);
-  font-size: 11px;
-  margin: 0 0 16px;
-}
 .photos-heading h1 {
   font-family: var(--font-ui);
   font-size: clamp(68px, 10vw, 160px);
