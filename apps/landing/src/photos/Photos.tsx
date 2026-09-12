@@ -5,6 +5,7 @@ import Download from "yet-another-react-lightbox/plugins/download";
 import { parseCatalog, photoUrl, type GalleryPhoto } from "./catalog.js";
 import { downloadPhotos } from "./download.js";
 import { OutlineHeading } from "./OutlineHeading.js";
+import { DelayedBonsai } from "./DelayedBonsai.js";
 import "react-photo-album/rows.css";
 import "yet-another-react-lightbox/styles.css";
 import "./photos.css";
@@ -104,9 +105,7 @@ export default function Photos() {
           </div>
         </div>
         {status === "loading" && (
-          <p className="photos-message" role="status">
-            Loading the album…
-          </p>
+          <DelayedBonsai label="Loading photos" />
         )}
         {status === "error" && (
           <div className="photos-message" role="alert">
