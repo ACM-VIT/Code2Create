@@ -27,7 +27,6 @@ import {
   STAR_REACH,
 } from "./cardLayout.js";
 import { Plant, createBloomTimeline } from "../timeline/botanical.js";
-import { ideaSubmissionUrl } from "../lib/config.js";
 import { JOURNEY_LEAP_EVENT, type JourneyLeapDetail } from "../lib/journeyLeap.js";
 import FaqBoard from "./FaqBoard.js";
 import type { PetalFieldHandle } from "./Petals.js";
@@ -983,11 +982,6 @@ export default function Journey({ petalsRef }: JourneyProps) {
             <img src="/assets/svg/wordmark.svg" alt="Code2Create" width="669" height="85" />
           </h1>
           <p className="hero-tagline">Don’t just code for the vibes, Code2Create.</p>
-          <a className="hero-cta" href={ideaSubmissionUrl}>
-            <img src="/assets/svg/btn-box.svg" alt="" aria-hidden="true" />
-            <span>Submit idea</span>
-          </a>
-          <p className="hero-venue">6th September, 2026 · Anna Auditorium, VIT Vellore</p>
         </div>
 
         {/* ---------- about chapters ---------- */}

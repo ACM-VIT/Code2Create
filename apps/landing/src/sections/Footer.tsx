@@ -1,7 +1,6 @@
 import type { MouseEvent } from "react";
 
 import { JOURNEY_STOPS, leapTo } from "../lib/journeyLeap.js";
-import { ideaSubmissionUrl } from "../lib/config.js";
 import "./footer.css";
 
 /* Journey links stay on the page; external links open in a new tab. */
@@ -26,10 +25,6 @@ const groups: {
       { label: "ExamCooker", href: "https://examcooker.acmvit.in" },
       { label: "TAGRED", href: "https://github.com/ACM-VIT/TAGRED" },
     ],
-  },
-  {
-    title: "Submit",
-    items: [{ label: "Submit idea", href: ideaSubmissionUrl }],
   },
   {
     title: "ACM-VIT",
