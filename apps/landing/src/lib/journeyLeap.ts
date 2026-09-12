@@ -23,8 +23,6 @@ export const JOURNEY_STOPS = {
   about: journeyScrollProgress(35),
   stats: journeyScrollProgress(90),
   sponsors: journeyScrollProgress(109),
-  timeline: journeyScrollProgress(158),
-  faqs: journeyScrollProgress(283),
 } as const;
 
 /** Jump directly to a fraction of the journey (0 = hero, 1 = its end). */

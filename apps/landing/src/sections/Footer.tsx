@@ -13,8 +13,6 @@ const groups: {
     items: [
       { label: "About", at: JOURNEY_STOPS.about },
       { label: "Stats", at: JOURNEY_STOPS.stats },
-      { label: "Timeline", at: JOURNEY_STOPS.timeline },
-      { label: "FAQs", at: JOURNEY_STOPS.faqs },
     ],
   },
   {

@@ -1,12 +1,11 @@
-export const JOURNEY_MASTER_DURATION = 290;
+export const JOURNEY_MASTER_DURATION = 151;
 
 export const JOURNEY_SCROLL_SEGMENTS = [
   { from: 0, to: 14, distanceScale: 1 },
   { from: 14, to: 71, distanceScale: 2 },
   { from: 71, to: 103, distanceScale: 1 },
   { from: 103, to: 142, distanceScale: 2 },
-  { from: 142, to: 150, distanceScale: 1 },
-  { from: 150, to: JOURNEY_MASTER_DURATION, distanceScale: 1 },
+  { from: 142, to: JOURNEY_MASTER_DURATION, distanceScale: 1 },
 ] as const;
 
 export function journeyScrollTime(masterTime: number) {

@@ -26,15 +26,7 @@ createRoot(rootElement).render(
     }}
   >
     <StrictMode>
-      <Suspense
-        fallback={
-          isPhotos ? (
-            <DelayedBonsai label="Loading photos" />
-          ) : (
-            <p role="status">Loading…</p>
-          )
-        }
-      >
+      <Suspense fallback={<DelayedBonsai />}>
         {isPhotos ? <Photos /> : <App />}
       </Suspense>
     </StrictMode>

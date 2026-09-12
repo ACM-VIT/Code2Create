@@ -6,8 +6,6 @@ const links = [
   { label: "About", at: JOURNEY_STOPS.about },
   { label: "Stats", at: JOURNEY_STOPS.stats },
   { label: "Sponsors", at: JOURNEY_STOPS.sponsors },
-  { label: "Timeline", at: JOURNEY_STOPS.timeline },
-  { label: "FAQs", at: JOURNEY_STOPS.faqs },
 ];
 
 export default function Navbar() {
