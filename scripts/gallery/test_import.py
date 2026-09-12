@@ -4,6 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
+from PIL import Image
 
 with patch("boto3.client"):
     spec = importlib.util.spec_from_file_location("gallery_import", Path(__file__).with_name("import.py"))
@@ -51,6 +52,19 @@ class DriveDownloadTests(unittest.TestCase):
     def test_incomplete_original_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "size mismatch"):
             self.download([response(b"partial", "image/jpeg", 100)])
+
+    def test_duplicate_is_skipped_before_any_s3_upload(self):
+        gallery = MagicMock()
+        gallery.reserve.return_value = False
+        def download(item, destination):
+            Image.new("RGB", (64, 48), "red").save(destination, "PNG")
+        with patch.object(importer, "exists", return_value=None), \
+             patch.object(importer, "download_drive", side_effect=download), \
+             patch.object(importer, "S3") as s3:
+            result = importer.transfer({"source": "drive", "id": "new-id", "path": "renamed.png"}, None, gallery)
+        self.assertEqual(result, ("skipped", 0))
+        s3.put_object.assert_not_called()
+        gallery.add.assert_not_called()
 
 
 if __name__ == "__main__":

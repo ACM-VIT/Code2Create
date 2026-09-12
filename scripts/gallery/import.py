@@ -1,6 +1,6 @@
 """Run on a temporary EC2 host with a bucket-scoped role, never on a capped client.
 
-pip install boto3 requests gdown beautifulsoup4 pillow pillow-heif
+pip install boto3 requests gdown beautifulsoup4 pillow pillow-heif ImageHash
 python import.py --drive URL --sharepoint URL
 python import.py --catalog-only
 """
@@ -24,6 +24,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 import pillow_heif
 import requests
 
+from dedup import Gallery, fingerprint, import_lock
+
 BUCKET = "code2create-photos-963957629631"
 S3 = boto3.client("s3", region_name="ap-south-1")
 pillow_heif.register_heif_opener()
@@ -40,24 +42,6 @@ def exists(key):
         if error.response["Error"]["Code"] in ("404", "NoSuchKey"):
             return None
         raise
-
-
-def put_json(key, value, cache="public, max-age=60"):
-    S3.put_object(Bucket=BUCKET, Key=key, Body=json.dumps(value).encode(),
-                  ContentType="application/json", CacheControl=cache)
-
-
-def publish_catalog():
-    """Enumerate all imported entries using private, paginated S3 listing."""
-    pages = S3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix="gallery/entries/")
-    keys = [obj["Key"] for page in pages for obj in page.get("Contents", [])]
-    def read(key):
-        return json.loads(S3.get_object(Bucket=BUCKET, Key=key)["Body"].read())
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        entries = list(pool.map(read, keys))
-    photos = sorted((entry for entry in entries if entry is not None), key=lambda photo: photo["key"])
-    put_json("gallery/manifest.json", {"photos": photos})
-    emit(event="catalog_published", photos=len(photos), imported_files=len(entries))
 
 
 class SharePoint:
@@ -153,7 +137,7 @@ def download_drive(item, destination):
                 raise RuntimeError("Drive original size mismatch")
 
 
-def transfer(item, sharepoint):
+def transfer(item, sharepoint, gallery):
     identity = hashlib.sha256((item["source"] + ":" + item["id"]).encode()).hexdigest()
     entry_key = f"gallery/entries/{identity}.json"
     if exists(entry_key):
@@ -161,6 +145,8 @@ def transfer(item, sharepoint):
     # Include stable source ID to preserve distinct files with identical names.
     key = f"originals/{item['source']}/{identity[:16]}/{item['path']}"
     name = Path(item["path"]).name
+    if Path(name).suffix.lower() not in {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".tif", ".tiff", ".bmp", ".avif"}:
+        return "skipped", 0
     with tempfile.TemporaryDirectory(prefix="c2c-photo-") as directory:
         original = Path(directory) / "original"
         head = exists(key)
@@ -173,41 +159,46 @@ def transfer(item, sharepoint):
         size = original.stat().st_size
         with original.open("rb") as contents:
             digest = hashlib.file_digest(contents, "sha256").hexdigest()
+        try:
+            with Image.open(original) as opened:
+                preview = ImageOps.exif_transpose(opened).convert("RGB")
+                icc = opened.info.get("icc_profile", b"")
+                preview.thumbnail((1600, 1600))
+                preview_file = Path(directory) / "preview.webp"
+                preview.save(preview_file, "WEBP", quality=82, icc_profile=icc)
+                preview_bytes = preview_file.read_bytes()
+                width, height = preview.size
+                preview.thumbnail((800, 800))
+                preview.save(preview_file, "WEBP", quality=78, icc_profile=icc)
+                thumbnail = preview_file.read_bytes()
+        except UnidentifiedImageError:
+            return "skipped", 0
+        pixels, perceptual = fingerprint(thumbnail)
+        if not gallery.reserve(key, name, digest, pixels, perceptual):
+            emit(event="duplicate_or_uncertain_skipped", source=item["source"], path=item["path"])
+            return "skipped", 0
         if not head:
-            S3.upload_file(str(original), BUCKET, key, ExtraArgs={
-                "ContentType": mimetypes.guess_type(name)[0] or "application/octet-stream",
-                "ContentDisposition": "attachment; filename*=UTF-8''" + quote(name, safe=""),
-                "CacheControl": "public, max-age=31536000, immutable",
-                "Metadata": {"sha256": digest}, "ChecksumAlgorithm": "SHA256",
-            })
+            with original.open("rb") as contents:
+                S3.put_object(Bucket=BUCKET, Key=key, Body=contents, IfNoneMatch="*",
+                    ContentType=mimetypes.guess_type(name)[0] or "application/octet-stream",
+                    ContentDisposition="attachment; filename*=UTF-8''" + quote(name, safe=""),
+                    CacheControl="public, max-age=31536000, immutable",
+                    Metadata={"sha256": digest}, ChecksumAlgorithm="SHA256")
         verified = S3.head_object(Bucket=BUCKET, Key=key)
         if verified["ContentLength"] != size or verified.get("Metadata", {}).get("sha256") != digest:
             raise RuntimeError("S3 original verification failed")
-        entry = None
-        if name.lower().endswith(".thm"):
-            put_json(entry_key, None)
-            return "uploaded", size
-        try:
-            with Image.open(original) as opened:
-                preview = ImageOps.exif_transpose(opened)
-                preview.thumbnail((1600, 1600))
-                preview = preview.convert("RGB")
-                preview_file = Path(directory) / "preview.webp"
-                preview.save(preview_file, "WEBP", quality=82, icc_profile=opened.info.get("icc_profile", b""))
-                preview_key = f"previews/{identity}.webp"
-                S3.upload_file(str(preview_file), BUCKET, preview_key, ExtraArgs={
-                    "ContentType": "image/webp", "CacheControl": "public, max-age=31536000, immutable"})
-                entry = {"key": key, "preview": preview_key, "name": name,
-                         "width": preview.width, "height": preview.height}
-                preview.thumbnail((800, 800))
-                preview.save(preview_file, "WEBP", quality=78, icc_profile=opened.info.get("icc_profile", b""))
-                thumbnail_key = f"previews/{identity}-800.webp"
-                S3.upload_file(str(preview_file), BUCKET, thumbnail_key, ExtraArgs={
-                    "ContentType": "image/webp", "CacheControl": "public, max-age=31536000, immutable"})
-                entry["thumbnail"] = thumbnail_key
-        except UnidentifiedImageError:
-            emit(event="non_image_preserved", source=item["source"], path=item["path"])
-        put_json(entry_key, entry)
+        preview_key, thumbnail_key = f"previews/{identity}.webp", f"previews/{identity}-800.webp"
+        for object_key, body in ((preview_key, preview_bytes), (thumbnail_key, thumbnail)):
+            if not exists(object_key):
+                S3.put_object(Bucket=BUCKET, Key=object_key, Body=body, IfNoneMatch="*",
+                    ContentType="image/webp", CacheControl="public, max-age=31536000, immutable")
+            elif S3.get_object(Bucket=BUCKET, Key=object_key)["Body"].read() != body:
+                raise RuntimeError("Existing preview differs; manual review required")
+        entry = {"key": key, "preview": preview_key, "thumbnail": thumbnail_key,
+                 "name": name, "width": width, "height": height}
+        S3.put_object(Bucket=BUCKET, Key=entry_key, Body=json.dumps(entry).encode(),
+                      ContentType="application/json", IfNoneMatch="*")
+        gallery.add(entry, thumbnail)
         return "uploaded", size
 
 
@@ -216,11 +207,23 @@ def main():
     parser.add_argument("--drive")
     parser.add_argument("--sharepoint")
     parser.add_argument("--catalog-only", action="store_true")
+    parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--inventory-only", action="store_true")
     args = parser.parse_args()
-    if args.catalog_only:
-        publish_catalog()
-        return
+    if args.audit_only:
+        emit(event="catalog_audited", photos=Gallery(S3, BUCKET).publish(dry_run=True))
+    elif args.inventory_only:
+        run(args, None)
+    else:
+        with import_lock(S3, BUCKET):
+            gallery = Gallery(S3, BUCKET)
+            if args.catalog_only:
+                emit(event="catalog_published", photos=gallery.publish())
+            else:
+                run(args, gallery)
+
+
+def run(args, gallery):
     files = []
     if args.drive:
         drive_files = gdown.download_folder(url=args.drive, quiet=True, skip_download=True, use_cookies=False)
@@ -243,7 +246,7 @@ def main():
     def run(item):
         for attempt in range(5):
             try:
-                return transfer(item, sharepoint)
+                return transfer(item, sharepoint, gallery)
             except Exception:
                 if attempt == 4:
                     raise
@@ -261,8 +264,8 @@ def main():
                 emit(event="file_failed", **failures[-1])
             if number % 40 == 0:
                 emit(event="progress", completed=number, total=len(files), bytes=total_bytes, **counts)
-                publish_catalog()
-    publish_catalog()
+                gallery.publish()
+    gallery.publish()
     report = {"files": len(files), "bytes": total_bytes, **counts, "failures": failures}
     Path(f"report-{label}.json").write_text(json.dumps(report))
     emit(event="complete", **report)
