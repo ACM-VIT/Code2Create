@@ -96,47 +96,47 @@ const TIMELINE_PHASES = [
   {
     title: "Code2Create 7.0",
     when: "Hackathon format",
-    line: "An online idea submission, then a 48-hour offline build at VIT Vellore for the shortlisted teams.",
+    line: "An online idea round was followed by a 48-hour offline build at VIT Vellore for shortlisted teams.",
   },
   {
     title: "Round 0: Idea Submission",
     when: "31 Aug – 5 Sep 2026 · online",
-    line: "Choose a problem statement and submit your solution with implementation details on the portal. External entries close 3 Sep, 11:59 PM IST, leaving time to plan travel; internal entries close 5 Sep. Shortlisted teams are invited to VIT Vellore.",
+    line: "Teams submitted solutions and implementation details for their chosen problem statements online. External entries closed on 3 Sep at 11:59 PM IST; internal entries closed on 5 Sep. Shortlisted teams were invited to VIT Vellore.",
   },
   {
     title: "Opening Ceremony",
     when: "6 Sep · 2:00 – 3:00 PM IST",
-    line: "The hackathon opens with the ceremony, followed by a walkthrough of the rules, judging criteria and important event information.",
+    line: "The hackathon opened with the ceremony, followed by a walkthrough of the rules, judging criteria and important event information.",
   },
   {
     title: "Round 1: Ideation & Early Build",
     when: "6 Sep, 3:00 PM – 7 Sep, 12:00 AM IST",
-    line: "Teams refine their ideas and start building their initial implementation and designs in preparation for the first review.",
+    line: "Teams refined their ideas and started building their initial implementation and designs in preparation for the first review.",
   },
   {
     title: "Round 2: Progress Review",
     when: "7 Sep · 1:00 – 5:00 AM IST",
-    line: "Teams present their idea, progress and implementation plan to mentors and judges and receive feedback.",
+    line: "Teams presented their ideas, progress and implementation plans to mentors and judges and received feedback.",
   },
   {
     title: "Round 3: Hacking Session",
     when: "7 Sep · 8:00 AM – 7:00 PM IST",
-    line: "Teams continue building and improving their projects based on feedback from the previous review.",
+    line: "Teams continued building and improving their projects based on feedback from the previous review.",
   },
   {
     title: "Round 4: Final Review Prep",
     when: "7 Sep, 9:00 PM – 8 Sep, 12:00 AM IST",
-    line: "Teams keep working on their projects and prepare their prototype and demo for the final evaluation round.",
+    line: "Teams kept working on their projects and prepared their prototype and demo for the final evaluation round.",
   },
   {
     title: "Round 5: Prototype Evaluation",
     when: "8 Sep · 1:00 – 5:00 AM IST · eliminatory",
-    line: "Teams demonstrate a functional prototype, its core features and their overall technical implementation. The highest-performing teams qualify for the final judging round.",
+    line: "Teams demonstrated a functional prototype, its core features and their overall technical implementation. The highest-performing teams qualified for the final judging round.",
   },
   {
     title: "Round 6: Final Pitches & Judging",
     when: "8 Sep · 9:00 AM – 3:00 PM IST",
-    line: "Finalists complete and deploy their solutions, then present them to the judging panel through a live demo and pitch. Winners are announced and felicitated at the closing ceremony.",
+    line: "Finalists completed and deployed their solutions, then presented them to the judging panel through a live demo and pitch. Winners were announced and felicitated at the closing ceremony.",
   },
 ];
 
@@ -156,64 +156,54 @@ const EMBERS = [
    does not change when the breakpoint does. */
 const FAQ = [
   {
-    id: "register",
-    q: "Who can submit an idea?",
-    a: "Students from all over the country are eligible to participate in Code2Create. Everybody is welcome to make a difference.",
-  },
-  {
     id: "cost",
-    q: "What will the hackathon cost me?",
-    a: "Nothing, it’s absolutely free. You cannot put a price on groundbreaking ideas.",
+    q: "Was there a participation fee?",
+    a: "No, participation in Code2Create 7.0 was free.",
   },
   {
     id: "hardware",
-    q: "Can I implement my idea in hardware?",
-    a: "Sure! There’s no bias between software and hardware. But you’ll have to bring your own hardware.",
+    q: "Were hardware projects allowed?",
+    a: "Both software and hardware projects were welcome. Teams were responsible for bringing their own hardware.",
   },
   {
     id: "kind",
-    q: "What kind of hackathon is Code2Create?",
-    a: "Code2Create is a tech-based hackathon.",
+    q: "What kind of hackathon was Code2Create 7.0?",
+    a: "Code2Create 7.0 was a tech-based hackathon with an online idea round followed by a 48-hour offline build at VIT Vellore.",
   },
   {
     id: "team",
-    q: "How many members can constitute a team?",
-    a: "A team must have 2 to 5 members. Each member needs their own account on the Code2Create participant portal.",
+    q: "How large were the teams?",
+    a: "Teams had 2 to 5 members.",
   },
   {
     id: "stay",
-    q: "Will there be accommodation for external participants?",
-    a: "Yes, we will provide accommodation at VIT.",
-  },
-  {
-    id: "how",
-    q: "How do I submit an idea?",
-    a: "Open the Code2Create participant portal, sign in, complete your team, and submit your idea.",
+    q: "Was accommodation available for external participants?",
+    a: "Accommodation at VIT was included in the event arrangements for external participants.",
   },
   {
     id: "early",
-    q: "Can I start working on my hack before the hackathon?",
-    a: "No, you are not permitted to work on pre-existing projects in the hackathon. To maintain fair standards of judgment you will begin working on your hack after reporting to the venue.",
+    q: "Were pre-existing projects allowed?",
+    a: "No. The rules required teams to begin building after reporting to the venue, so projects could be judged on equal terms.",
   },
   {
     id: "tech",
-    q: "Is the hackathon only about technology?",
-    a: "We are tech enthusiasts but we believe “all work and no play makes Jack a dull boy.” We have numerous fun activities planned for you.",
+    q: "Was the event only about technology?",
+    a: "The programme also included fun activities alongside the technical sessions.",
   },
   {
     id: "judging",
-    q: "What will be the judging criteria?",
+    q: "What were the judging criteria?",
     a: "Innovation, relevance to the problem, technical complexity, implementation and functionality, UI/UX, scalability and future scope, novelty and presentation.",
   },
   {
     id: "benefit",
-    q: "How will I benefit from attending this hackathon?",
-    a: "Code2Create is a place for innovators to create and make a difference. You will get an opportunity to interact with ingenious minds. In addition, we have cash prizes, licenses, schwags, cloud credits and goodies for the winner.",
+    q: "What did the event offer participants?",
+    a: "The programme brought together students to build projects, exchange ideas, and receive feedback from mentors and judges. The announced prizes included cash, licenses, swag, cloud credits and goodies.",
   },
   {
     id: "travel",
-    q: "Will there be travel reimbursements provided?",
-    a: "Travel reimbursement is not provided for external participants.",
+    q: "Did the event cover travel costs?",
+    a: "Travel reimbursement was not included for external participants.",
   },
 ];
 
