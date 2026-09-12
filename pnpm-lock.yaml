@@ -292,9 +292,6 @@ importers:
       '@gsap/react':
         specifier: ^2.1.2
         version: 2.1.2(gsap@3.15.0)(react@19.2.8)
-      client-zip:
-        specifier: ^2.5.0
-        version: 2.5.0
       gsap:
         specifier: ^3.15.0
         version: 3.15.0
@@ -5383,9 +5380,6 @@ packages:
 
   client-only@0.0.1:
     resolution: {integrity: sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==}
-
-  client-zip@2.5.0:
-    resolution: {integrity: sha512-ydG4nDZesbFurnNq0VVCp/yyomIBh+X/1fZPI/P24zbnG4dtC4tQAfI5uQsomigsUMeiRO2wiTPizLWQh+IAyQ==}
 
   cliui@6.0.0:
     resolution: {integrity: sha512-t6wbgtoCXvAzst7QgXxJYqPt0usEfbgQdftEPbLL/cvv6HPE5VgvqCuAIDR0NgU52ds6rFwqrgakNLrHEjCbrQ==}
@@ -15730,8 +15724,6 @@ snapshots:
       string-width: 8.2.2
 
   client-only@0.0.1: {}
-
-  client-zip@2.5.0: {}
 
   cliui@6.0.0:
     dependencies:
