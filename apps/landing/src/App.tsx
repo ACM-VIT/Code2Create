@@ -6,12 +6,7 @@ import Petals, { type PetalFieldHandle } from "./journey/Petals.js";
 import Footer from "./sections/Footer.js";
 
 export default function App() {
-  /*
-   * One petal field for the whole page. The boughs in the FAQ act and the
-   * drift in the footer are the same particles — nothing is emitted at the
-   * footer's top edge, so the fall reads as continuous across the two. The
-   * journey drives it; the footer is where it lands.
-   */
+  // One petal field shared by the hero and stats sequence.
   const petalsRef = useRef<PetalFieldHandle>(null);
 
   return (

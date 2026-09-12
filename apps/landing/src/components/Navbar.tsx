@@ -6,8 +6,6 @@ const links = [
   { label: "About", at: JOURNEY_STOPS.about },
   { label: "Stats", at: JOURNEY_STOPS.stats },
   { label: "Sponsors", at: JOURNEY_STOPS.sponsors },
-  { label: "Timeline", at: JOURNEY_STOPS.timeline },
-  { label: "FAQs", at: JOURNEY_STOPS.faqs },
 ];
 
 export default function Navbar() {
@@ -51,6 +49,7 @@ export default function Navbar() {
         </button>
 
         <div className="navbar__links" data-open={open ? "true" : "false"}>
+          <a href="/photos">Photos</a>
           {links.map((link) => (
             <a key={link.label} href="#top" onClick={(event) => goTo(event, link.at)}>
               {link.label}
