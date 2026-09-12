@@ -51,6 +51,7 @@ export default function Navbar() {
         </button>
 
         <div className="navbar__links" data-open={open ? "true" : "false"}>
+          <a href="/photos">Photos</a>
           {links.map((link) => (
             <a key={link.label} href="#top" onClick={(event) => goTo(event, link.at)}>
               {link.label}
