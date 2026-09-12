@@ -5,7 +5,6 @@
   background: var(--ink);
   color: var(--paper-warm);
   font-family: var(--font-body);
-  padding-bottom: 100px;
 }
 .photos-nav,
 .photos-footer {
@@ -110,102 +109,6 @@
 .photos-page .react-photo-album--button {
   overflow: hidden;
   position: relative;
-  scroll-margin-bottom: 120px;
-}
-.photos-page .react-photo-album--button[aria-pressed="true"] {
-  outline: 3px solid var(--rose);
-  outline-offset: -3px;
-}
-.photos-page .react-photo-album--button[aria-pressed="true"] img {
-  opacity: 0.7;
-}
-.photos-check {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border: 2px solid var(--paper);
-  border-radius: 50%;
-  color: var(--ink);
-  background: color-mix(in srgb, var(--ink) 55%, transparent);
-  pointer-events: none;
-}
-[aria-pressed="true"] .photos-check {
-  border-color: var(--rose);
-  background: var(--rose);
-}
-.photos-dock {
-  position: fixed;
-  z-index: 50;
-  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: calc(100vw - 24px);
-  width: max-content;
-  padding: 6px;
-  border: 1px solid var(--rose-deep);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--ink) 94%, transparent);
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 20px color-mix(in srgb, var(--ink) 50%, transparent);
-  font-family: var(--font-display);
-}
-.photos-dock:not([data-selecting]) {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-.photos-dock-controls {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.photos-dock button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 44px;
-  padding: 10px 20px;
-  border: 0;
-  background: url("/assets/svg/btn-box.svg") center / 100% 100% no-repeat;
-  color: var(--paper-warm);
-  white-space: nowrap;
-  font-weight: 500;
-  transition: filter 0.3s ease;
-}
-.photos-dock button:hover:not(:disabled) {
-  filter: drop-shadow(0 0 14px rgba(216, 132, 162, 0.55));
-}
-.photos-dock button.photos-dock-primary {
-  color: var(--paper-warm);
-}
-.photos-dock:not([data-selecting]) button.photos-dock-primary {
-  width: 202px;
-  min-height: 44px;
-  padding: 12px 24px;
-}
-.photos-dock button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.photos-selection-count {
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.photos-download-message {
-  max-width: 340px;
-  padding: 8px 12px;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
 }
 @media (max-width: 640px) {
   .photos-nav {
@@ -219,16 +122,6 @@
   .photos-caption {
     font-size: 11px;
     align-items: center;
-  }
-  .photos-dock {
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-  }
-  .photos-dock-controls {
-    gap: 2px;
-    font-size: 12px;
-  }
-  .photos-dock button {
-    padding: 10px 12px;
   }
   .photos-footer {
     align-items: flex-start;
