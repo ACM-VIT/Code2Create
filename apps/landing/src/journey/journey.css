@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------------ *
  * The journey: one pinned stage that carries hero → about → stats →
- * timeline → FAQs, scrubbed by a single master timeline.
+ * sponsors → footer, scrubbed by a single master timeline.
  *
  * Sizing rule: anything that has to line up with something else is a %
  * of the stage. Type is clamped against vw so it stays readable as the
@@ -8,12 +8,12 @@
  * tablets and phones rather than just scaling it down.
  * ------------------------------------------------------------------ */
 
-/* ~2513vh of travel over the weighted 386-unit scroll track. About and the
+/* ~1608vh of travel over the weighted 247-unit scroll track. About and the
    sponsor reveals receive twice the runway; the sponsor exit and every other
    act keep their original physical scroll pace. */
 .journey {
   position: relative;
-  height: 2613vh;
+  height: 1708vh;
 }
 
 .journey__stage {
