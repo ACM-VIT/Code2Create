@@ -253,7 +253,10 @@ export default function Journey({ petalsRef }: JourneyProps) {
     return () => query.removeEventListener("change", sync);
   }, []);
 
-  const ladderColumns = useMemo(() => (narrow ? [FAQ] : [FAQ.slice(0, 6), FAQ.slice(6)]), [narrow]);
+  const ladderColumns = useMemo(
+    () => (narrow ? [FAQ] : [FAQ.slice(0, Math.ceil(FAQ.length / 2)), FAQ.slice(Math.ceil(FAQ.length / 2))]),
+    [narrow],
+  );
 
   useGSAP(
     () => {
