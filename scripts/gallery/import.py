@@ -174,32 +174,33 @@ def transfer(item, sharepoint, gallery):
         except UnidentifiedImageError:
             return "skipped", 0
         pixels, perceptual = fingerprint(thumbnail)
-        if not gallery.reserve(key, name, digest, pixels, perceptual):
-            emit(event="duplicate_or_uncertain_skipped", source=item["source"], path=item["path"])
-            return "skipped", 0
-        if not head:
-            with original.open("rb") as contents:
-                S3.put_object(Bucket=BUCKET, Key=key, Body=contents, IfNoneMatch="*",
-                    ContentType=mimetypes.guess_type(name)[0] or "application/octet-stream",
-                    ContentDisposition="attachment; filename*=UTF-8''" + quote(name, safe=""),
-                    CacheControl="public, max-age=31536000, immutable",
-                    Metadata={"sha256": digest}, ChecksumAlgorithm="SHA256")
-        verified = S3.head_object(Bucket=BUCKET, Key=key)
-        if verified["ContentLength"] != size or verified.get("Metadata", {}).get("sha256") != digest:
-            raise RuntimeError("S3 original verification failed")
-        preview_key, thumbnail_key = f"previews/{identity}.webp", f"previews/{identity}-800.webp"
-        for object_key, body in ((preview_key, preview_bytes), (thumbnail_key, thumbnail)):
-            if not exists(object_key):
-                S3.put_object(Bucket=BUCKET, Key=object_key, Body=body, IfNoneMatch="*",
-                    ContentType="image/webp", CacheControl="public, max-age=31536000, immutable")
-            elif S3.get_object(Bucket=BUCKET, Key=object_key)["Body"].read() != body:
-                raise RuntimeError("Existing preview differs; manual review required")
-        entry = {"key": key, "preview": preview_key, "thumbnail": thumbnail_key,
-                 "name": name, "width": width, "height": height}
-        S3.put_object(Bucket=BUCKET, Key=entry_key, Body=json.dumps(entry).encode(),
-                      ContentType="application/json", IfNoneMatch="*")
-        gallery.add(entry, thumbnail)
-        return "uploaded", size
+        with gallery.reserve(key, name, digest, pixels, perceptual) as reserved:
+            if not reserved:
+                emit(event="duplicate_or_uncertain_skipped", source=item["source"], path=item["path"])
+                return "skipped", 0
+            if not head:
+                with original.open("rb") as contents:
+                    S3.put_object(Bucket=BUCKET, Key=key, Body=contents, IfNoneMatch="*",
+                        ContentType=mimetypes.guess_type(name)[0] or "application/octet-stream",
+                        ContentDisposition="attachment; filename*=UTF-8''" + quote(name, safe=""),
+                        CacheControl="public, max-age=31536000, immutable",
+                        Metadata={"sha256": digest}, ChecksumAlgorithm="SHA256")
+            verified = S3.head_object(Bucket=BUCKET, Key=key)
+            if verified["ContentLength"] != size or verified.get("Metadata", {}).get("sha256") != digest:
+                raise RuntimeError("S3 original verification failed")
+            preview_key, thumbnail_key = f"previews/{identity}.webp", f"previews/{identity}-800.webp"
+            for object_key, body in ((preview_key, preview_bytes), (thumbnail_key, thumbnail)):
+                if not exists(object_key):
+                    S3.put_object(Bucket=BUCKET, Key=object_key, Body=body, IfNoneMatch="*",
+                        ContentType="image/webp", CacheControl="public, max-age=31536000, immutable")
+                elif S3.get_object(Bucket=BUCKET, Key=object_key)["Body"].read() != body:
+                    raise RuntimeError("Existing preview differs; manual review required")
+            entry = {"key": key, "preview": preview_key, "thumbnail": thumbnail_key,
+                     "name": name, "width": width, "height": height}
+            S3.put_object(Bucket=BUCKET, Key=entry_key, Body=json.dumps(entry).encode(),
+                          ContentType="application/json", IfNoneMatch="*")
+            gallery.add(entry)
+            return "uploaded", size
 
 
 def main():

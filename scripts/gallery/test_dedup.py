@@ -58,27 +58,89 @@ class DedupTests(unittest.TestCase):
 
     def gallery(self):
         gallery = Gallery.__new__(Gallery)
-        gallery.mutex = threading.Lock()
+        gallery.mutex = threading.Condition()
+        gallery.pending, gallery.photos = {}, []
         gallery.hashes, gallery.names, gallery.identities = {}, {}, {}
         return gallery
 
     def test_concurrent_duplicate_uploads_have_only_one_reservation(self):
         gallery = self.gallery()
+        def upload(index):
+            key = str(index)
+            with gallery.reserve(key, key, "same", "same", 0) as reserved:
+                if reserved:
+                    gallery.add(photo(key))
+                return reserved
         with ThreadPoolExecutor(max_workers=8) as pool:
-            results = list(pool.map(lambda i: gallery.reserve(str(i), str(i), "same", "same", 0), range(32)))
+            results = list(pool.map(upload, range(32)))
         self.assertEqual(sum(results), 1)
+        self.assertEqual(len(gallery.photos), 1)
+        self.assertEqual(gallery.pending, {})
 
     def test_recompressed_or_uncertain_new_image_is_skipped(self):
         gallery = self.gallery()
-        self.assertTrue(gallery.reserve("a", "a.jpg", "sha1", "pixels1", 0))
-        self.assertFalse(gallery.reserve("b", "b.jpg", "sha2", "pixels2", 7))
-        self.assertFalse(gallery.reserve("c", "A.JPG", "sha3", "pixels3", (1 << 64) - 1))
-        self.assertTrue(gallery.reserve("d", "d.jpg", "sha4", "pixels4", (1 << 64) - 1))
+        with gallery.reserve("a", "a.jpg", "sha1", "pixels1", 0) as reserved:
+            self.assertTrue(reserved)
+            gallery.add(photo("a"))
+        with gallery.reserve("b", "b.jpg", "sha2", "pixels2", 7) as reserved:
+            self.assertFalse(reserved)
+        with gallery.reserve("c", "A.JPG", "sha3", "pixels3", (1 << 64) - 1) as reserved:
+            self.assertFalse(reserved)
+        with gallery.reserve("d", "d.jpg", "sha4", "pixels4", (1 << 64) - 1) as reserved:
+            self.assertTrue(reserved)
 
     def test_same_original_can_resume_after_failed_upload(self):
         gallery = self.gallery()
-        self.assertTrue(gallery.reserve("a", "a.jpg", "sha", "pixels", 0))
-        self.assertTrue(gallery.reserve("a", "a.jpg", "sha", "pixels", 0))
+        with self.assertRaisesRegex(RuntimeError, "upload failed"):
+            with gallery.reserve("a", "a.jpg", "sha", "pixels", 0) as reserved:
+                self.assertTrue(reserved)
+                raise RuntimeError("upload failed")
+        self.assertEqual((gallery.hashes, gallery.names, gallery.identities, gallery.pending), ({}, {}, {}, {}))
+        with gallery.reserve("a", "a.jpg", "sha", "pixels", 0) as reserved:
+            self.assertTrue(reserved)
+
+    def test_failed_resume_preserves_indexes_for_preexisting_original(self):
+        gallery = self.gallery()
+        gallery.hashes, gallery.names = {"sha": {"a"}}, {"a.jpg": {"a"}}
+        with self.assertRaises(RuntimeError), gallery.reserve("a", "a.jpg", "sha", "pixels", 0):
+            raise RuntimeError("upload failed")
+        self.assertEqual(gallery.hashes, {"sha": {"a"}})
+        self.assertEqual(gallery.names, {"a.jpg": {"a"}})
+        self.assertEqual(gallery.identities, {})
+
+    def test_matching_worker_waits_for_commit_or_failure(self):
+        for commit in (False, True):
+            with self.subTest(commit=commit):
+                gallery = self.gallery()
+                waiting = threading.Event()
+                original_wait = gallery.mutex.wait
+                def wait():
+                    waiting.set()
+                    return original_wait()
+                def upload():
+                    with gallery.reserve("b", "b.jpg", "sha", "pixels", 0) as reserved:
+                        if reserved:
+                            gallery.add(photo("b"))
+                        return reserved
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    with gallery.reserve("a", "a.jpg", "sha", "pixels", 0):
+                        with patch.object(gallery.mutex, "wait", side_effect=wait):
+                            future = pool.submit(upload)
+                            self.assertTrue(waiting.wait(5), "Matching worker did not wait")
+                            self.assertFalse(future.done())
+                            if commit:
+                                gallery.add(photo("a"))
+                    self.assertEqual(future.result(timeout=5), not commit)
+                self.assertEqual(gallery.photos, [photo("a" if commit else "b")])
+                self.assertEqual(gallery.pending, {})
+
+    def test_unrelated_reservations_can_upload_concurrently(self):
+        gallery = self.gallery()
+        with gallery.reserve("a", "a.jpg", "sha1", "pixels1", 0):
+            with gallery.reserve("b", "b.jpg", "sha2", "pixels2", (1 << 64) - 1) as reserved:
+                self.assertTrue(reserved)
+                gallery.add(photo("b"))
+        self.assertEqual(gallery.photos, [photo("b")])
 
     def test_publishing_twice_is_idempotent_and_uses_compare_and_swap(self):
         gallery = self.gallery()

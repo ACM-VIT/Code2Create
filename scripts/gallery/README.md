@@ -30,6 +30,11 @@ collisions, and perceptually similar images (64-bit pHash distance at most 10) a
 skipped conservatively. This can skip distinct burst shots; uncertain files require
 manual review instead of automatic upload. Reservations serialize concurrent
 workers, and an S3 compare-and-swap lock admits only one importer at a time.
+Matching workers wait for a pending transfer to finish. Its identity becomes
+committed only after the original, previews, and entry are stored; any failure
+releases the reservation so a waiting healthy copy can proceed. Unrelated
+photos can still upload concurrently, and failed retries leave indexes for
+previously stored originals intact.
 
 `inventory-*.json` and `report-*.json` stay
 on the transfer machine; inspect the report before terminating it. A nonzero

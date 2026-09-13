@@ -81,7 +81,8 @@ def unique_photos(photos, identities):
 class Gallery:
     def __init__(self, s3, bucket):
         self.s3, self.bucket = s3, bucket
-        self.mutex = threading.Lock()
+        self.mutex = threading.Condition()
+        self.pending = {}
         self.manifest, self.etag = read_json(s3, bucket, "gallery/manifest.json")
         self.manifest = self.manifest or {"photos": []}
         objects = [obj["Key"] for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket)
@@ -140,27 +141,42 @@ class Gallery:
                 current_keys.add(photo["key"])
         self.photos.extend(photo for key, photo in by_key.items() if key not in current_keys)
 
+    @contextmanager
     def reserve(self, key, name, digest, pixels, perceptual):
-        """Atomically check and reserve before any upload, including concurrent workers."""
+        """Wait for matching transfers; release provisional identity on every exit."""
+        name = name.casefold()
         with self.mutex:
-            if self.hashes.get(digest, set()) - {key}:
-                return False
-            if self.names.get(name.casefold(), set()) - {key}:
-                return False
-            if any(other != key and (pixels == identity[1] or
-                   (perceptual ^ identity[2]).bit_count() <= 10)
-                   for other, identity in self.identities.items()):
-                return False
-            self.hashes.setdefault(digest, set()).add(key)
-            self.names.setdefault(name.casefold(), set()).add(key)
-            self.identities[key] = (digest, pixels, perceptual)
-            return True
+            while any(other == key or name == pending_name or digest == pending_digest or
+                      pixels == pending_pixels or (perceptual ^ pending_perceptual).bit_count() <= 10
+                      for other, (pending_name, pending_digest, pending_pixels, pending_perceptual)
+                      in self.pending.items()):
+                self.mutex.wait()
+            accepted = not (
+                key in self.identities or
+                self.hashes.get(digest, set()) - {key} or
+                self.names.get(name, set()) - {key} or
+                any(other != key and (pixels == identity[1] or
+                    (perceptual ^ identity[2]).bit_count() <= 10)
+                    for other, identity in self.identities.items())
+            )
+            if accepted:
+                self.pending[key] = (name, digest, pixels, perceptual)
+        try:
+            yield accepted
+        finally:
+            if accepted:
+                with self.mutex:
+                    del self.pending[key]
+                    self.mutex.notify_all()
 
-    def add(self, photo, thumbnail):
-        pixels, perceptual = fingerprint(thumbnail)
+    def add(self, photo):
+        """Commit identity only after the original, previews and entry are stored."""
         with self.mutex:
-            digest = self.identities[photo["key"]][0]
-            self.identities[photo["key"]] = (digest, pixels, perceptual)
+            key = photo["key"]
+            name, digest, pixels, perceptual = self.pending[key]
+            self.hashes.setdefault(digest, set()).add(key)
+            self.names.setdefault(name, set()).add(key)
+            self.identities[key] = (digest, pixels, perceptual)
             self.photos.append(photo)
 
     def publish(self, dry_run=False):
