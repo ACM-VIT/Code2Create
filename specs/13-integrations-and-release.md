@@ -254,6 +254,8 @@ GitHub delivers webhooks to the intelligence Worker at
 5. forwards that event over the signed `/intelligence/github/webhooks` callback;
 6. returns GitHub's 2xx only after Convex has deduplicated `X-GitHub-Delivery`, resolved the repository binding, recorded the small provider event, advanced that repository plus the one current team summary projection, and requested reconciliation.
 
+When the callback times out, the Worker answers 504. When Convex is unreachable, rejects the callback, or returns an invalid receipt, the Worker answers 502. GitHub then records a failed delivery that an operator can redeliver. The Worker records a content-free `c2c_server_failure` with the failure reason, the GitHub event name, and the upstream status.
+
 A `push` payload supplies `ref`, `before`, `after`, `created`, `deleted`, `forced`, and up to 2,048 pushed commits. The fast path updates the team card without waiting for another API request. Events can arrive out of order, so reconciliation compares provider timestamps and ancestry instead of treating delivery order as commit order.
 
 Invalid signatures, unknown repositories, repeated deliveries, unsupported event types, and oversized payloads do not change project evidence. Convex holds no GitHub webhook secret.

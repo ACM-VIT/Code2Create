@@ -3,6 +3,7 @@ import {
   githubSyncIngressContext,
   githubWebhookProtocolVersion,
   verifyServiceBody,
+  type GithubWebhookReceipt,
 } from "@code2create/domain";
 import { Hono } from "hono";
 import * as v from "valibot";
@@ -15,8 +16,16 @@ import {
 } from "../lib/boundedHttpBody.ts";
 import { githubSyncRequestSchema, normalizedGithubWebhookEvent } from "../lib/githubProtocol.ts";
 import { reconcileRepository } from "../lib/githubSync.ts";
-import { forwardGithubWebhook, publishRepositorySync } from "../lib/githubTransport.ts";
+import {
+  forwardGithubWebhook,
+  GithubCallbackError,
+  publishRepositorySync,
+} from "../lib/githubTransport.ts";
 import { payloadHash, verifyGithubWebhookSignature } from "../lib/githubWebhookSignature.ts";
+import {
+  captureIntelligenceFailure,
+  postHogIntelligenceObservabilityConfigured,
+} from "../lib/posthogObservability.ts";
 import { requireStrongServiceSecret } from "../lib/serviceSecret.ts";
 
 const syncRequestMaximumBytes = 16 * 1024;
@@ -117,15 +126,36 @@ githubRoutes.post("/v1/github/webhook", async (context) => {
   const event = normalizedGithubWebhookEvent(eventName, payload);
   if (event === null) return context.body(null, 204);
   if (event === "invalid") return context.json({ error: "invalid_payload" }, 400);
-  const receipt = await forwardGithubWebhook(
-    {
-      protocolVersion: githubWebhookProtocolVersion,
-      deliveryId,
-      eventName,
-      payloadHash: await payloadHash(body),
-      event,
-    },
-    context.env,
-  );
+  let receipt: GithubWebhookReceipt;
+  try {
+    receipt = await forwardGithubWebhook(
+      {
+        protocolVersion: githubWebhookProtocolVersion,
+        deliveryId,
+        eventName,
+        payloadHash: await payloadHash(body),
+        event,
+      },
+      context.env,
+    );
+  } catch (error) {
+    if (!(error instanceof GithubCallbackError)) throw error;
+    if (postHogIntelligenceObservabilityConfigured(context.env)) {
+      context.executionCtx.waitUntil(
+        captureIntelligenceFailure(context.env, `github_webhook_callback_${error.reason}`, {
+          c2c_route: "/v1/github/webhook",
+          c2c_github_event: eventName,
+          ...(error.upstreamStatus === undefined
+            ? {}
+            : { c2c_upstream_status: error.upstreamStatus }),
+        }),
+      );
+    }
+    // A non-2xx keeps the delivery failed in GitHub so it can be redelivered.
+    return context.json(
+      { error: "convex_callback_failed" },
+      error.reason === "timeout" ? 504 : 502,
+    );
+  }
   return context.json(receipt, 202);
 });

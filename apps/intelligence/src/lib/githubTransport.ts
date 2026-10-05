@@ -25,6 +25,23 @@ const webhookReceipt = v.strictObject({
   state: v.picklist(["accepted", "ignored", "duplicate"]),
 });
 
+export type GithubCallbackFailure = "timeout" | "unreachable" | "rejected" | "invalid_receipt";
+
+/** A Convex callback that did not settle; configuration faults are thrown as plain errors. */
+export class GithubCallbackError extends Error {
+  constructor(
+    readonly reason: GithubCallbackFailure,
+    readonly upstreamStatus?: number,
+  ) {
+    super(`The Convex GitHub callback failed: ${reason}.`);
+    this.name = "GithubCallbackError";
+  }
+}
+
+function timedOut(error: unknown) {
+  return error instanceof DOMException && error.name === "TimeoutError";
+}
+
 async function deliver(
   path: string,
   context: string,
@@ -44,12 +61,13 @@ async function deliver(
     timestamp,
     body,
   });
-  const response = await request(
-    new URL(
-      path,
-      serviceUrl(bindings.CONVEX_INTELLIGENCE_CALLBACK_URL, "Convex intelligence callback"),
-    ),
-    {
+  const url = new URL(
+    path,
+    serviceUrl(bindings.CONVEX_INTELLIGENCE_CALLBACK_URL, "Convex intelligence callback"),
+  );
+  let response: Response;
+  try {
+    response = await request(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -58,9 +76,19 @@ async function deliver(
       },
       body,
       signal: AbortSignal.timeout(timeoutMs),
-    },
-  );
-  return { status: response.status, value: await readBoundedJsonResponse(response, 8_192) };
+    });
+  } catch (error) {
+    throw new GithubCallbackError(timedOut(error) ? "timeout" : "unreachable");
+  }
+  if (response.status !== 202) {
+    await response.body?.cancel();
+    throw new GithubCallbackError("rejected", response.status);
+  }
+  try {
+    return await readBoundedJsonResponse(response, 8_192);
+  } catch (error) {
+    throw new GithubCallbackError(timedOut(error) ? "timeout" : "invalid_receipt", 202);
+  }
 }
 
 /** Settles one repository reconciliation; Convex applies it at most once per revision. */
@@ -69,7 +97,7 @@ export async function publishRepositorySync(
   bindings: CallbackBindings,
   request: typeof fetch = fetch,
 ): Promise<GithubRepositorySyncReceipt> {
-  const delivered = await deliver(
+  const value = await deliver(
     "/intelligence/github/repository-syncs",
     githubSyncCallbackContext,
     payload,
@@ -77,10 +105,8 @@ export async function publishRepositorySync(
     request,
     20_000,
   );
-  const receipt = v.safeParse(syncReceipt, delivered.value);
-  if (delivered.status !== 202 || !receipt.success) {
-    throw new Error("The repository sync callback was rejected.");
-  }
+  const receipt = v.safeParse(syncReceipt, value);
+  if (!receipt.success) throw new GithubCallbackError("invalid_receipt", 202);
   return receipt.output;
 }
 
@@ -90,7 +116,7 @@ export async function forwardGithubWebhook(
   bindings: CallbackBindings,
   request: typeof fetch = fetch,
 ): Promise<GithubWebhookReceipt> {
-  const delivered = await deliver(
+  const value = await deliver(
     "/intelligence/github/webhooks",
     githubWebhookCallbackContext,
     payload,
@@ -99,9 +125,7 @@ export async function forwardGithubWebhook(
     // GitHub abandons a delivery after ten seconds; fail fast so it can redeliver.
     8_000,
   );
-  const receipt = v.safeParse(webhookReceipt, delivered.value);
-  if (delivered.status !== 202 || !receipt.success) {
-    throw new Error("The GitHub webhook callback was rejected.");
-  }
+  const receipt = v.safeParse(webhookReceipt, value);
+  if (!receipt.success) throw new GithubCallbackError("invalid_receipt", 202);
   return receipt.output;
 }

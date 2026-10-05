@@ -137,13 +137,18 @@ export function captureIntelligenceRequest(
   );
 }
 
-export function captureIntelligenceFailure(env: Cloudflare.Env, code: string) {
+export function captureIntelligenceFailure(
+  env: Cloudflare.Env,
+  code: string,
+  properties: SafeProperties = {},
+) {
   return deliver(
     env,
     "c2c_server_failure",
     "code2create-intelligence",
     {
       ...commonProperties(env),
+      ...properties,
       c2c_error_code: code,
     },
     false,

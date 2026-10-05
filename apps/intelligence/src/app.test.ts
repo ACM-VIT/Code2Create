@@ -1727,4 +1727,52 @@ describe("GitHub provider ingress", () => {
       fetchSpy.mockRestore();
     }
   });
+
+  test("answers a handled gateway failure when the Convex forward does not settle", async () => {
+    const body = new TextEncoder().encode(JSON.stringify({ zen: "Keep it logically awesome." }));
+    const signature = await githubWebhookSignature(environment.GITHUB_WEBHOOK_SECRET, body);
+    const send = (deliveryId: string) =>
+      app.request(
+        "/v1/github/webhook",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-github-delivery": deliveryId,
+            "x-github-event": "ping",
+            "x-hub-signature-256": signature,
+          },
+          body,
+        },
+        environment,
+      );
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    try {
+      fetchSpy.mockRejectedValueOnce(new DOMException("The operation timed out.", "TimeoutError"));
+      const timedOut = await send("delivery-timeout");
+      expect(timedOut.status).toBe(504);
+      expect(await timedOut.json()).toEqual({ error: "convex_callback_failed" });
+
+      fetchSpy.mockRejectedValueOnce(new TypeError("Network connection lost."));
+      expect((await send("delivery-unreachable")).status).toBe(502);
+
+      fetchSpy.mockResolvedValueOnce(
+        new Response("<html>Bad gateway</html>", {
+          status: 502,
+          headers: { "content-type": "text/html" },
+        }),
+      );
+      expect((await send("delivery-rejected")).status).toBe(502);
+
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ state: "unknown" }), {
+          status: 202,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      expect((await send("delivery-invalid-receipt")).status).toBe(502);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
