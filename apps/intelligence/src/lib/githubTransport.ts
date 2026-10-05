@@ -25,12 +25,10 @@ const webhookReceipt = v.strictObject({
   state: v.picklist(["accepted", "ignored", "duplicate"]),
 });
 
-export type GithubCallbackFailure = "timeout" | "unreachable" | "rejected" | "invalid_receipt";
-
 /** A Convex callback that did not settle; configuration faults are thrown as plain errors. */
 export class GithubCallbackError extends Error {
   constructor(
-    readonly reason: GithubCallbackFailure,
+    readonly reason: "timeout" | "unreachable" | "rejected" | "invalid_receipt",
     readonly upstreamStatus?: number,
   ) {
     super(`The Convex GitHub callback failed: ${reason}.`);
