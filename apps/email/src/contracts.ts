@@ -74,7 +74,6 @@ export const cloudflareEmailSendingEventSchema = z.discriminatedUnion("type", [
 
 export type CloudflareEmailSendingEvent = z.infer<typeof cloudflareEmailSendingEventSchema>;
 
-// oxlint-disable-next-line typescript/consistent-return -- The Zod discriminant is exhaustive; an impossible fallback would weaken that invariant.
 export function normalizeCloudflareEmailEvent(
   event: CloudflareEmailSendingEvent,
   expectedDomain: string,

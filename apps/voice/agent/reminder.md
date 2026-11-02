@@ -54,15 +54,15 @@ contain caller turns and appropriate agent replies. A verbal yes never changes
 RSVP status; the team lead still confirms in the portal.
 
 The provider's [conversation settings](https://docs.sarvam.ai/conversations/build/conversation-settings)
-separate the volume threshold from response eagerness. Moderate sensitivity was
-chosen after the previous call transcript included unrelated background speech.
+separate the volume threshold from response eagerness. Moderate sensitivity keeps
+unrelated background speech from being treated as caller turns.
 Keep the background sound off for intelligibility. Confirm both caller turns and
 agent replies before changing the Worker's pinned agent version.
 
 ## Telephony
 
 The Sarvam-managed number `+918071581635` uses connection
-`296b2513-0f-31c14748-b2ba`. At setup on 5 September 2026, the account listed
-20 calls per minute and four concurrent channels. These are shared account
+`296b2513-0f-31c14748-b2ba`. The account was provisioned with 20 calls per
+minute and four concurrent channels. These are shared account
 limits; renting another number does not increase them. Verify current limits
 with Sarvam before increasing outbound volume.

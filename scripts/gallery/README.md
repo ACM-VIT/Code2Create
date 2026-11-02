@@ -63,8 +63,8 @@ catalog change stop publication. Inspect and retain these reports before cleanup
 
 The lock at `gallery/import-lock.json` fails closed after an interrupted process.
 Only reset its `active` field after confirming that the previous transfer host has
-terminated; use `If-Match` with its current ETag. Do not run legacy or standalone
-import scripts that bypass `dedup.py`.
+terminated; use `If-Match` with its current ETag. Do not run standalone import
+scripts that bypass `dedup.py`.
 
 Visitors only need `s3:GetObject`. The bucket policy allows public reads and
 denies non-TLS access; it does not grant public listing, uploads, or deletion.

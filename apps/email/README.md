@@ -42,7 +42,7 @@ The signed `/readiness` endpoint checks the selected provider's required Worker 
 
    Optional SES values are `AWS_SES_SESSION_TOKEN`, `AWS_SES_REPLY_TO`, and `AWS_SES_CONFIGURATION_SET`. The IAM identity needs only `ses:SendEmail` for the approved SES identity. Verify the sender identity in the selected region and request production access before sending to arbitrary recipients.
 
-   To retain Cloudflare Email Sending as an alternative:
+   For Cloudflare Email Sending:
 
    ```sh
    pnpm --filter @code2create/email exec wrangler secret put CLOUDFLARE_EMAIL_ACCOUNT_ID --env staging --config wrangler.jsonc
@@ -66,7 +66,7 @@ The signed `/readiness` endpoint checks the selected provider's required Worker 
    pnpm --filter @code2create/email deploy:staging
    ```
 
-6. Create the Cloudflare Email Sending Event Subscription on `code2create-email-events-staging` if Cloudflare remains enabled:
+6. If Cloudflare Email Sending is configured, create its Event Subscription on `code2create-email-events-staging`:
 
    ```sh
    pnpm --filter @code2create/email subscription:create:staging
@@ -92,7 +92,7 @@ The signed `/readiness` endpoint checks the selected provider's required Worker 
 
 Cloudflare sends a verification message before a new forwarding destination becomes active. Do not enable the route until that verification is complete.
 
-Cloudflare lifecycle events continue to update delivered, delayed, bounced, failed, suppressed, and complaint states for Cloudflare sends. SES acceptance records the SES message ID and a queued state. Configure an SES event destination separately before treating SES provider events as delivery confirmation; this Worker does not ingest SES events yet.
+Cloudflare lifecycle events update delivered, delayed, bounced, failed, suppressed, and complaint states for Cloudflare sends. SES acceptance records the SES message ID and a queued state. Configure an SES event destination separately before treating SES provider events as delivery confirmation; this Worker does not ingest SES events.
 
 ## Production setup
 

@@ -24,7 +24,7 @@ The configure commands generate a different 48-byte token in each ignored enviro
 
 Cloudflare commands use an explicit `CLOUDFLARE_API_TOKEN` when present. Otherwise they refresh the authenticated `cf` CLI session and pass its access token to the Wrangler child process in memory. The repository does not copy that Cloudflare credential into an environment file.
 
-Current endpoints:
+Endpoints:
 
 - staging: `https://code2create-updates-staging.acmvit.workers.dev/manifest`
 - production: `https://updates.c2c.sh/manifest`

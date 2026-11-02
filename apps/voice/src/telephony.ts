@@ -479,7 +479,6 @@ function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) {
     // These are raw bytes for btoa, not Unicode scalar values.
-    // oxlint-disable-next-line unicorn/prefer-code-point
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
@@ -492,7 +491,6 @@ function constantTimeEqual(left: string, right: string) {
   let difference = 0;
   for (let index = 0; index < left.length; index += 1) {
     // These inputs are ASCII Base64 signatures, so comparing UTF-16 code units is deliberate.
-    // oxlint-disable-next-line unicorn/prefer-code-point
     difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
   return difference === 0;

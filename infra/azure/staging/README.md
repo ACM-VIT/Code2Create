@@ -1,6 +1,6 @@
 # Azure staging backend
 
-The idea-submission staging environment uses:
+The staging environment uses:
 
 - one Central India VM for self-hosted Convex and Caddy;
 - private Azure Database for PostgreSQL Flexible Server;
@@ -16,10 +16,9 @@ Azure inventory:
 - Key Vault: `kv-c2c-stg-b88416`; and
 - public origin IP: `104.211.94.181`.
 
-South India was not used for staging compute because Azure reported both an
-offer restriction for PostgreSQL Flexible Server and live capacity restrictions
-for the tested small VM families. The subscription's vCPU quota was not the
-constraint. Production placement remains a separate release decision.
+Staging runs in Central India because South India had an offer restriction for
+PostgreSQL Flexible Server and capacity restrictions for the tested small VM
+families.
 
 Public origins:
 
@@ -41,8 +40,8 @@ inventory. Do not expose port 6791 in the Azure network security group.
 The VM system identity reads only the staging Key Vault secrets. The database
 has private VNet access only and seven days of managed backups. The participant
 GitHub OAuth App must be configured separately from the read-only team GitHub App.
-Figma, voice, and native-push integrations remain deliberately unconfigured
-until their staging registrations are approved. Before testing external email
+Figma, voice, and native-push integrations each need their own staging
+registration before they work in staging. Before testing external email
 sign-in, deploy the staging email Worker, configure one SES or Cloudflare
 provider in that Worker, and set Convex `EMAIL_SERVICE_URL`,
 `EMAIL_SEND_INGRESS_SECRET`, and `AUTHENTICATION_EMAIL_PROVIDER`. The HMAC must
@@ -67,11 +66,6 @@ Your Code2Create verification code is {{code}}. It expires in 10 minutes. Do not
 @code2create-participant-staging.acmvit.workers.dev #{{code}}
 ```
 
-The participant and operations Workers were deployed manually with the Azure
-origins above. Cloudflare currently reports no Git build trigger for either
-Worker, so a repository push cannot replace these deployments until those
-connections are deliberately created.
-
 Server-side PostHog ingestion uses the staging `posthog-project-token` from the
 staging Key Vault and the first-party `https://i.c2c.sh` ingest proxy. Apply the
 two Convex values without printing the token by running:
@@ -81,25 +75,24 @@ infra/azure/configure-posthog-environment.sh staging
 ```
 
 Backend functions deploy automatically after backend checks pass on a push to
-the `staging` branch. `.github/workflows/backend-deploy.yml` signs in to Azure
+the `dev` branch. `.github/workflows/backend-staging-deploy.yml` signs in to Azure
 through the staging GitHub environment's OIDC identity, reads only the staging
 `convex-admin-key`, and runs `deploy-convex.sh` against
 `https://realtime-staging.c2c.sh`. GitHub stores no Azure client secret or
 Convex admin key.
 
-## Remaining idea-round activation
+## Event activation
 
 1. Create or update the staging Google Web OAuth client.
 2. Add `https://api-staging.c2c.sh/api/auth/callback/google` as its exact redirect URI.
 3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the staging Convex environment.
-4. Sign in as `technicaldirector.acmvit@gmail.com`, create the event, publish the
+4. Sign in with an `INITIAL_SUPREME_EMAILS` account, create the event, publish the
    participant and intake policies, publish the reviewed novelty corpus, and open
    applications.
 
 Until those steps are complete, the public backend intentionally reports
-`googleConfigured: false` and no event. The OpenAI key, embedding dimensions,
-follow-up generation code, and novelty runtime are deployed; novelty remains
-inactive until a reviewed corpus is published.
+`googleConfigured: false` and no event. Novelty remains inactive until a
+reviewed corpus is published.
 
 ## Operations
 

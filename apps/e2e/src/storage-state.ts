@@ -18,7 +18,6 @@ type StorageState = {
   origins: readonly JsonObject[];
 };
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters
 function validateJsonValue(value: unknown): JsonValidation {
   const pending: Array<{ depth: number; value: unknown }> = [{ depth: 0, value }];
 
@@ -45,7 +44,6 @@ function validateJsonValue(value: unknown): JsonValidation {
   return "valid";
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters
 function isJsonObject(value: unknown): value is JsonObject {
   return (
     typeof value === "object" &&

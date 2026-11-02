@@ -253,9 +253,9 @@ OperationsAutopilot.durability = { maxAttempts: 2 };
 
 /**
  * Private artifact cleanup is scheduled on the run Durable Object itself so
- * an abort intent cannot race a still-settling tool. Native Flue history stays
- * in its separately approved restricted retention class; this removes every
- * application-owned read, finding, candidate, and support table.
+ * an abort intent cannot race a still-settling tool. Native Flue history keeps
+ * its own restricted retention; this removes every application-owned read,
+ * finding, candidate, and support table.
  */
 export const cloudflare = extend({
   base: (Base) =>

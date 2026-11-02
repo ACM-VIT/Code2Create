@@ -2,17 +2,17 @@
 
 This Cloudflare Worker places one phone call for one accepted delivery ID. Convex decides whether a call is allowed. The Worker cannot read event data or create a page.
 
-Only an accepted departure explicitly marked Washroom / short break can automatically call once when its 15-minute return deadline passes. Meals, organizer tasks, other movements and departures without explicit short-break evidence cannot trigger this call. Convex owns the deadline, source deduplication, eligibility and return checks; its recovery sweep covers existing overdue outings. The request carries `requiredProvider: "sarvam"`, so it uses the pinned event reminder agent even when Twilio is the environment's primary provider, and never falls back to Twilio. Through `call_message`, the existing agent explains that the participant has exceeded their 15-minute break and other people are waiting, then asks them to come back now. The spoken reminder does not ask for an ID scan. No new agent version or agent credentials are needed. Call outcomes appear beside overdue participants in ops. Phone answers and provider completion do not change attendance or release capacity.
+Only an accepted departure explicitly marked Washroom / short break can automatically call once when its 15-minute return deadline passes. Meals, organizer tasks, other movements and departures without explicit short-break evidence cannot trigger this call. Convex owns the deadline, source deduplication, eligibility and return checks; its recovery sweep also covers overdue outings. The request carries `requiredProvider: "sarvam"`, so it uses the pinned event reminder agent even when Twilio is the environment's primary provider, and never falls back to Twilio. Through `call_message`, the agent explains that the participant has exceeded their 15-minute break and other people are waiting, then asks them to come back now. The spoken reminder does not ask for an ID scan. Call outcomes appear beside overdue participants in ops. Phone answers and provider completion do not change attendance or release capacity.
 
-Release the voice Worker before the backend that emits this request field, then release the ops and participant web clients. Local verification uses mocked provider requests and callbacks; it does not place participant calls.
+Local verification uses mocked provider requests and callbacks; it does not place participant calls.
 
-The current reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered reminder can call. Its delay is half the page response window, capped at 30 seconds: a default 30-second page can escalate after 15 seconds. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page.
+The reviewer flow is push first. A missing push address can call immediately; otherwise the first unanswered reminder can call. Its delay is half the page response window, capped at 30 seconds: a default 30-second page can escalate after 15 seconds. The reviewer must have current phone-call consent. The page chain must still hold its exact call authority. A call asks the reviewer to open the app and never accepts or declines the page.
 
 The Worker uses:
 
 - one Durable Object per delivery ID for idempotency and callback recovery;
-- Twilio Programmable Voice and Sarvam Voice Agents Instant Outbound over the
-  Vobiz connection already managed in Sarvam;
+- Twilio Programmable Voice and Sarvam Voice Agents Instant Outbound over a
+  Vobiz connection managed in Sarvam;
 - separate HMAC secrets for Convex requests and Worker callbacks.
 
 `OUTBOUND_CALL_PRIMARY_PROVIDER` selects `twilio` or `sarvam` as the first

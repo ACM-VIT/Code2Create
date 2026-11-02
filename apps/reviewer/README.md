@@ -57,4 +57,4 @@ Each command requires a clean commit, derives its release ID from that commit, r
 
 Reviewer paging uses native device tokens. Android messages go directly through Firebase Cloud Messaging; iOS messages go directly through APNs. Push attracts attention only. Convex remains the source of truth for the live page and assignment.
 
-Version 1.1.1 adds native reads of Android full-screen alert and battery-exemption settings. Rebuild/sign the Android fleet before distributing this runtime; do not publish it to 1.1.0 binaries. Camera and paging checks refresh after permission prompts and when returning from Settings on both Android and iOS. Notification permission and push-token registration are shown separately, and optional call-consent failures stay inside paging setup.
+The app reads Android full-screen alert and battery-exemption settings natively. Camera and paging checks refresh after permission prompts and when returning from Settings on both Android and iOS. Notification permission and push-token registration are shown separately, and optional call-consent failures stay inside paging setup.

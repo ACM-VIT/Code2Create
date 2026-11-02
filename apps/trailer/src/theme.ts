@@ -38,7 +38,7 @@ export const CLAMP = {
   extrapolateRight: "clamp",
 } as const;
 
-// R.snap sits on the music drop: sakura.mp3 is trimmed so its hit lands at 8s.
+// Reel timings, also absolute frames at 30 fps. R.snap (8 s) is where a music drop should land.
 export const R = {
   flight: 150,
   snap: 240,
