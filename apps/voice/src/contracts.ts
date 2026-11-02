@@ -1,7 +1,4 @@
-import {
-  outboundCallEventTypes,
-  outboundCallProtocolVersion,
-} from "@code2create/domain";
+import { outboundCallProtocolVersion } from "@code2create/domain";
 import type { OutboundCallRequest } from "@code2create/domain";
 import { z } from "zod";
 
@@ -19,18 +16,6 @@ export const outboundCallRequestSchema: z.ZodType<OutboundCallRequest> = z
     script: z.string().min(8).max(600),
     callbackUrl,
     requiredProvider: z.literal("sarvam").optional(),
-  })
-  .strict();
-
-export const outboundCallEventSchema = z
-  .object({
-    protocolVersion: z.literal(outboundCallProtocolVersion),
-    eventId: z.uuid(),
-    deliveryId,
-    eventType: z.enum(outboundCallEventTypes),
-    providerAt: z.number().int().nonnegative(),
-    providerCallId: z.string().min(1).max(128).optional(),
-    providerErrorCode: z.string().min(1).max(120).optional(),
   })
   .strict();
 
@@ -105,7 +90,3 @@ export const sarvamOutboundWebhookSchema = z
       .optional(),
   })
   .loose();
-
-export const callAcceptedResponseSchema = z
-  .object({ accepted: z.literal(true), deliveryId })
-  .strict();

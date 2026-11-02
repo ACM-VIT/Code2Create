@@ -215,7 +215,7 @@ function CopyCode({ code }: { code: string }) {
  * sealed line with the team-page link. The cluster shows it as its popover;
  * the mobile menu takeover shows the same card full-width.
  */
-export function TeamRosterPanel({
+function TeamRosterPanel({
   team,
   members,
   editable = true,

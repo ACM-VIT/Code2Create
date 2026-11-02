@@ -21,7 +21,7 @@ export const githubSyncRequestSchema = v.strictObject({
 
 const providerId = v.object({ id: v.pipe(v.number(), v.integer(), v.minValue(1)) });
 
-export const githubPushPayloadSchema = v.object({
+const githubPushPayloadSchema = v.object({
   installation: providerId,
   repository: providerId,
   ref: text(1_024),
@@ -34,19 +34,19 @@ export const githubPushPayloadSchema = v.object({
   head_commit: v.nullish(v.object({ timestamp: text(80) })),
 });
 
-export const githubInstallationPayloadSchema = v.object({
+const githubInstallationPayloadSchema = v.object({
   action: text(80),
   installation: providerId,
 });
 
-export const githubInstallationRepositoriesPayloadSchema = v.object({
+const githubInstallationRepositoriesPayloadSchema = v.object({
   action: text(80),
   installation: providerId,
   repositories_added: v.pipe(v.array(providerId), v.maxLength(500)),
   repositories_removed: v.pipe(v.array(providerId), v.maxLength(500)),
 });
 
-export const githubPingPayloadSchema = v.object({ zen: v.optional(v.string()) });
+const githubPingPayloadSchema = v.object({ zen: v.optional(v.string()) });
 
 function providerTime(value: string | null | undefined) {
   if (!value) return undefined;

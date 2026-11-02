@@ -75,7 +75,7 @@ export type VersionedReviewAssignment = {
   state: AdmissionReviewAssignmentState;
 };
 
-export const applicationStageOrder: readonly ApplicationQueueStage[] = [
+const applicationStageOrder: readonly ApplicationQueueStage[] = [
   "submitted",
   "under_review",
   "recorded",
@@ -105,10 +105,6 @@ export function visibleStages(
   return applicationStageOrder.filter(
     (stage) => stage === "recorded" || stage === selected || (counts.get(stage) ?? 0) > 0,
   );
-}
-
-export function parseApplicationStage(value: string): ApplicationQueueStage {
-  return applicationStageOrder.find((stage) => stage === value) ?? "submitted";
 }
 
 export function reviewProgressLeadSentence(

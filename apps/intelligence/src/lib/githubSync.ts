@@ -64,7 +64,7 @@ function encodedPath(path: string) {
 }
 
 /** Reads one repository at its tracked head and compares it with the baseline commit. */
-export async function observeRepository(
+async function observeRepository(
   request: GithubRepositorySyncRequest,
   requester: GithubRequester,
 ): Promise<GithubRepositoryObservation> {

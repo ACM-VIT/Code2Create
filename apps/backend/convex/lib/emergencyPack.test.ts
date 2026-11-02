@@ -20,7 +20,7 @@ const snapshot: EmergencyPackSnapshot = {
   roster: [
     {
       participantReference: "member-1",
-      name: "Ishaan <script>alert(1)</script>",
+      name: "Asha <script>alert(1)</script>",
       phone: "+91 90000 00000",
       vitRegistrationNumber: "22BCE0001",
       vitHostelResidence: "Ladies' hostel · S block",
@@ -145,7 +145,7 @@ test("escapes identifiable and configuration text in the self-contained document
   });
 
   assert.doesNotMatch(result.html, /<script>alert\(1\)<\/script>/);
-  assert.match(result.html, /Ishaan &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(result.html, /Asha &lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(result.html, /<meta name="referrer" content="no-referrer">/);
   assert.match(result.html, /Content-Security-Policy/);
   assert.match(result.html, /noindex,nofollow,noarchive/);

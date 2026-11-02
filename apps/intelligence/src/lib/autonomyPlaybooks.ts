@@ -1,5 +1,4 @@
 import type { OperationsAutonomyReadTool, OperationsHealthArea } from "@code2create/domain";
-import * as v from "valibot";
 
 export const autonomyPlaybookNames = [
   "health-triage",
@@ -29,7 +28,7 @@ type AutonomyPlaybook = {
   counterHypothesis: string;
 };
 
-export const autonomyPlaybooks = {
+const autonomyPlaybooks = {
   "health-triage": {
     name: "health-triage",
     areas: [
@@ -232,9 +231,7 @@ export const autonomyPlaybooks = {
   },
 } as const satisfies Record<AutonomyPlaybookName, AutonomyPlaybook>;
 
-export const autonomyPlaybookNameSchema = v.picklist(autonomyPlaybookNames);
-
-export function candidateAutonomyPlaybooks(
+function candidateAutonomyPlaybooks(
   snapshot: { signals: readonly { area: OperationsHealthArea }[] },
   mode: "observe" | "recommend",
 ) {

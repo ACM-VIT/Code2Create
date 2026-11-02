@@ -187,7 +187,7 @@ export function AccordionItemHeader({
 }
 
 /** A plus that becomes a minus: the bar fades, the stem turns. */
-export function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
+function AnimatedPlusMinusMark({ size = 18 }: { size?: number }) {
   const { open } = useAccordionItemContext("AnimatedPlusMinusMark");
   return (
     <span aria-hidden className="flex flex-none items-center justify-center text-rose-light">

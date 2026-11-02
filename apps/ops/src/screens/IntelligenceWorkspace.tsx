@@ -14,7 +14,7 @@ import { IntelligenceDecisions } from "./IntelligenceDecisions";
 import { IntelligenceOverview } from "./IntelligenceOverview";
 import { IntelligenceSituations } from "./IntelligenceSituations";
 
-export const intelligencePath = "/intelligence";
+const intelligencePath = "/intelligence";
 
 type IntelligenceTab = {
   badge?: string | undefined;

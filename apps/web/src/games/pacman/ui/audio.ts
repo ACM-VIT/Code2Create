@@ -46,7 +46,7 @@ export const sound = (name: string) => {
   return a;
 };
 
-export const play = (name: string) => {
+const play = (name: string) => {
   void sound(name).play().catch(() => {});
 };
 

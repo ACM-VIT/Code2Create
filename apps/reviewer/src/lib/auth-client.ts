@@ -25,5 +25,3 @@ export function createReviewerAuthClient(baseURL: string, scheme: string) {
     ],
   });
 }
-
-export type ReviewerAuthClient = ReturnType<typeof createReviewerAuthClient>;

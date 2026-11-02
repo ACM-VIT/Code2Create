@@ -43,11 +43,11 @@ export function initPortalTheme() {
   });
 }
 
-export function getPortalTheme(): PortalTheme {
+function getPortalTheme(): PortalTheme {
   return currentTheme;
 }
 
-export function setPortalTheme(theme: PortalTheme) {
+function setPortalTheme(theme: PortalTheme) {
   if (theme === currentTheme) return;
   try {
     localStorage.setItem(storageKey, theme);

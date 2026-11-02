@@ -6,4 +6,3 @@
 export const tileBody = "tile-body";
 export const hiddenWhenShort = "tile-short-hidden";
 export const clampWhenShort = "tile-short-clamp";
-export const shortTile = "tile-short";

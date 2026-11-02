@@ -50,5 +50,3 @@ export const GALLERY_SCREENS = [
   { id: "loading", label: "Loading" },
   { id: "notice", label: "Access notice" },
 ] as const;
-
-export type GalleryScreenId = (typeof GALLERY_SCREENS)[number]["id"];

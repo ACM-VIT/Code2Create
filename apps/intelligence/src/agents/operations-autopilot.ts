@@ -42,8 +42,8 @@ import {
 import { classifyAutonomyShellSettlement } from "../lib/autonomyShell.ts";
 import { admissionControllerForRun } from "../lib/autonomyAdmissionController.ts";
 
-export const operationsAutopilotModel = operationsIntelligenceModel;
-export const operationsAutopilotAgentVersion =
+const operationsAutopilotModel = operationsIntelligenceModel;
+const operationsAutopilotAgentVersion =
   intelligenceAgentDefinition("operations-autopilot").version;
 
 const completedOutputSchema = v.strictObject({

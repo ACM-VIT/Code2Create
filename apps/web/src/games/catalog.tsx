@@ -99,8 +99,3 @@ export const games: readonly GameEntry[] = gameCatalog
     Board: boards[game.key],
     ...(modes[game.key] ? { modes: modes[game.key] } : {}),
   }))
-
-/** The catalogue entry for `key`, or null when the key is not a published game. */
-export function gameEntry(key: string): GameEntry | null {
-  return games.find((game) => game.key === key) ?? null
-}

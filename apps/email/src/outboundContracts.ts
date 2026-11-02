@@ -41,7 +41,3 @@ export const participantEmailSendRequestSchema = z.object({
     ...(attachment.contentId !== undefined ? { contentId: attachment.contentId } : {}),
   }))).max(32),
 });
-
-export type ValidatedParticipantEmailSendRequest = z.infer<
-  typeof participantEmailSendRequestSchema
->;

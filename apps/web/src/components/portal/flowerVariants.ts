@@ -1,5 +1,5 @@
-export const BLOOM_COUNT = 5;
-export const TINT_COUNT = 4;
+const BLOOM_COUNT = 5;
+const TINT_COUNT = 4;
 export const VARIANT_COUNT = BLOOM_COUNT * TINT_COUNT;
 
 export function hashSeed(seed: string) {

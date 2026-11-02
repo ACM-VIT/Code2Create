@@ -26,7 +26,7 @@ export const supportFilters = [
 ] as const satisfies readonly (readonly [SupportFilter, string])[];
 
 /** A request owed a reply counts as stale once the desk has been silent this long. */
-export const supportStaleAfterMs = 60 * 60 * 1000;
+const supportStaleAfterMs = 60 * 60 * 1000;
 
 const guideHandoffPrefix = "Guide handoff:";
 const guideActorName = "Code2Create Guide";
@@ -54,7 +54,7 @@ const queueGroupOrder: readonly SupportQueueGroup[] = [
   "closed",
 ];
 
-export const supportQueueGroupLabels: Record<SupportQueueGroup, string> = {
+const supportQueueGroupLabels: Record<SupportQueueGroup, string> = {
   safety: "Safety first",
   reply: "Owed a reply",
   working: "Replied, still open",
@@ -67,15 +67,15 @@ export type SupportRowTone = "critical" | "attention" | "watch" | "quiet";
 export type SupportMessageRole = "reporter" | "staff" | "internal" | "guide" | "system";
 export type SupportComposerMode = "reply" | "note";
 
-export function isLiveSupportState(state: SupportCaseState) {
+function isLiveSupportState(state: SupportCaseState) {
   return state === "open" || state === "investigating" || state === "waiting";
 }
 
-export function supportLiveCount(totals: SupportTotals) {
+function supportLiveCount(totals: SupportTotals) {
   return totals.open + totals.investigating + totals.waiting;
 }
 
-export function supportEveryCount(totals: SupportTotals) {
+function supportEveryCount(totals: SupportTotals) {
   return supportLiveCount(totals) + totals.resolved + totals.closed;
 }
 
@@ -232,10 +232,6 @@ export function supportCaseRefreshPending(
   return committedVersion !== null && observedVersion < committedVersion;
 }
 
-export function parseSupportFilter(value: string): SupportFilter {
-  return supportFilters.find(([filter]) => filter === value)?.[0] ?? "active";
-}
-
 export function supportMessageRole(
   action: Pick<SupportAction, "kind" | "actorName">,
 ): SupportMessageRole {
@@ -332,7 +328,7 @@ export function supportFirstReply(createdAt: number, firstResponseAt: number | u
   return `First reply ${formatSupportDuration(firstResponseAt - createdAt)} after it was reported`;
 }
 
-export function formatSupportDuration(milliseconds: number) {
+function formatSupportDuration(milliseconds: number) {
   const minutes = Math.max(0, Math.round(milliseconds / 60_000));
   if (minutes < 1) return "under a minute";
   if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;

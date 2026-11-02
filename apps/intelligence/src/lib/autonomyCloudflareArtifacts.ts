@@ -32,7 +32,7 @@ import {
 
 type SqlStore = ReturnType<typeof getCloudflareContext>["storage"]["sql"];
 
-export const autonomyPrivateArtifactTableNames = [
+const autonomyPrivateArtifactTableNames = [
   "c2c_autonomy_evidence_artifacts",
   "c2c_autonomy_evidence_targets",
   "c2c_autonomy_seen_cursors",

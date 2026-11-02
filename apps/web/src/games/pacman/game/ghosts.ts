@@ -1,14 +1,6 @@
-import { CELL, MAZE_COLS, MAZE_ROWS, firstTile, house, key, step, tilesOf, type Dir, type Tile } from "./maze.ts";
+import { MAZE_COLS, MAZE_ROWS, house, key, step, type Dir, type Tile } from "./maze.ts";
 import { SEC } from "./timing.ts";
 import type { Game } from "./state.ts";
-
-/**
- * Ghost house: the two 4x2 pockets either side of centre — rows 8-9 (cols 10-13,
- * open to the left via col 9) and rows 11-12 (cols 11-14, open to the right via
- * col 15). GHOST_SPAWN is the single marker tile below them (row 18, col 12).
- */
-export const GHOST_HOUSE: Tile[] = tilesOf(CELL.GHOST_HOUSE);
-export const GHOST_SPAWN: Tile = firstTile(CELL.GHOST_SPAWN);
 
 /**
  * Arcade ghosts. `tile`: start (all inside the house), `door`: the tile they

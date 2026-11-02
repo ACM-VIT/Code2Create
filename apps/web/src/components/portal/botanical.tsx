@@ -635,7 +635,7 @@ const stamenSpecs: [number, number][] = [
   [278, 8.9],
 ];
 
-export function Blossom({ bloom, index, part = "head" }: BlossomProps) {
+function Blossom({ bloom, index, part = "head" }: BlossomProps) {
   const motionSpec = requiredIndex(flowerMotions, index, "flower motion");
   const dx = bloom.x - bloom.ax;
   const dy = bloom.y - bloom.ay;

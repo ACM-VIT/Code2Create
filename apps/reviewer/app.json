@@ -48,16 +48,6 @@
       "expo-notifications",
       "expo-secure-store",
       [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "Allow Code2Create to check whether you are at the venue while reviewing. Precise coordinates are not saved.",
-          "locationAlwaysAndWhenInUsePermission": "Allow Code2Create to check venue presence during the event, including with the app in the background, and remind you about unreported departures.",
-          "isIosBackgroundLocationEnabled": true,
-          "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
-        }
-      ],
-      [
         "expo-camera",
         {
           "cameraPermission": "Allow Code2Create Ops to scan VIT IDs and event QR codes.",

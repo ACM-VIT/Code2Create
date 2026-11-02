@@ -10,7 +10,7 @@ import { z } from "zod";
 const sha256Pattern = /^[a-f0-9]{64}$/;
 const jsonValueSchema = z.json();
 
-export const archiveEntrySchema = z
+const archiveEntrySchema = z
   .object({
     path: z.string().min(1),
     kind: z.enum(["jsonl", "binary"]),

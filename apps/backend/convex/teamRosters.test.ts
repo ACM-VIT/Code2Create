@@ -315,7 +315,7 @@ describe("team roster backfill", () => {
         {
           rowNumber: 2,
           identity: "24BIT0423",
-          displayName: "Divyam Agrawal",
+          displayName: "Rohan Mehta",
           teamName: "DESYNC",
           role: "lead",
         },

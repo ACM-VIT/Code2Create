@@ -55,7 +55,7 @@ export class TelephonyConfigurationError extends Error {
   }
 }
 
-export const OUTBOUND_CALL_INTRODUCTION =
+const OUTBOUND_CALL_INTRODUCTION =
   "hi, i'm calling on behalf of the code2create team";
 
 export function withOutboundCallIntroduction(script: string) {
@@ -80,7 +80,7 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
-export function requiredHttpsBaseUrl(value: string) {
+function requiredHttpsBaseUrl(value: string) {
   const base = value.trim().replace(/\/+$/u, "");
   if (!base.startsWith("https://")) {
     throw new Error("PUBLIC_BASE_URL must be an HTTPS URL.");
@@ -143,7 +143,7 @@ export function sarvamConfigured(environment: TelephonyEnvironment) {
   );
 }
 
-export function twilioRouteUrl(
+function twilioRouteUrl(
   environment: Pick<TelephonyEnvironment, "PUBLIC_BASE_URL">,
   route: "voice" | "status" | "fallback",
   deliveryId: string,

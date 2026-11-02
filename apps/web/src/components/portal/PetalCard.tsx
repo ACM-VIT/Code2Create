@@ -13,6 +13,3 @@ export function PetalCard({
     </div>
   );
 }
-export function PetalDivider({ className = "" }: { className?: string }) {
-  return <div aria-hidden className={`border-t border-petal-line ${className}`} />;
-}

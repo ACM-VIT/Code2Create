@@ -16,7 +16,6 @@ export const MOTIFS: readonly Motif[] = [
 ];
 
 export const PAIR_COUNT = MOTIFS.length;
-export const PERFECT_MOVES = PAIR_COUNT;
 
 export type Card = {
   readonly id: string;
@@ -57,7 +56,7 @@ function shuffle<T>(items: readonly T[], random: () => number): T[] {
   return shuffled;
 }
 
-export function createDeck(random: () => number = Math.random): Card[] {
+function createDeck(random: () => number = Math.random): Card[] {
   const cards = MOTIFS.flatMap(({ motif, asset }) =>
     Array.from({ length: 2 }, (_, copy) => ({
       id: `${motif}-${copy}`,

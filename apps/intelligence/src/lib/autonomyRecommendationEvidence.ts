@@ -56,7 +56,7 @@ export function findAutonomyTargetSourceLeaf(args: {
   );
 }
 
-export async function autonomyEvidenceSetId(args: { runId: string; proposalKey: string }) {
+async function autonomyEvidenceSetId(args: { runId: string; proposalKey: string }) {
   return autonomyOperationId("recommendation", [args.runId, args.proposalKey, "evidence-set"]);
 }
 

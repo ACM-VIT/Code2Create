@@ -10,7 +10,7 @@ type AccessTokenRetryOptions = {
 };
 
 const retryDelaysMs = [250, 500, 1_000, 2_000, 5_000] as const;
-export const accessTokenRefreshLeewayMs = 60_000;
+const accessTokenRefreshLeewayMs = 60_000;
 
 function wait(delayMs: number) {
   return new Promise<void>((resolve) => {

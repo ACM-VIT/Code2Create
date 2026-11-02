@@ -348,7 +348,7 @@ function StandingsColumnLive({ boards }: { boards: readonly BoardRef[] }) {
  * grid always holds five places, empty ones drawn faint, so the panel keeps
  * its height whichever board is showing.
  */
-export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
+function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
   const entries = board?.entries.slice(0, leaderboardDepth) ?? []
   const slots = Array.from({ length: leaderboardDepth }, (_, index) => entries[index] ?? null)
   const note =

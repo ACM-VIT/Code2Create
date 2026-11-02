@@ -5,8 +5,8 @@ import {
 } from "@code2create/domain";
 import { z } from "zod";
 
-export const supportStates = ["open", "investigating", "waiting", "resolved", "closed"] as const;
-export const supportCategories = [
+const supportStates = ["open", "investigating", "waiting", "resolved", "closed"] as const;
+const supportCategories = [
   "identity",
   "team",
   "project_intake",

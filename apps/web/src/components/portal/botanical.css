@@ -198,13 +198,6 @@
   stroke-linecap: round;
 }
 
-.flower-heart path {
-  fill: none;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.flower-heart,
 .heart-motion,
 .nectar-plane {
   transform-box: fill-box;

@@ -30,8 +30,8 @@ import {
 import { operationsIntelligenceModel } from "../lib/model.ts";
 
 /** Shared by model execution and proposal attribution. */
-export const operationsCopilotModel = operationsIntelligenceModel;
-export const operationsCopilotAgentVersion =
+const operationsCopilotModel = operationsIntelligenceModel;
+const operationsCopilotAgentVersion =
   intelligenceAgentDefinition("operations-copilot").version;
 
 const readDescriptions: Record<OperationsIntelligenceReadName, string> = {

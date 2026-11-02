@@ -44,13 +44,10 @@
  * ------------------------------------------------------------------ */
 @theme {
   --color-ink: #0c0004;
-  --color-ink-deep: #060002;
   --color-rose: #d884a2;
   --color-rose-light: #feb4cb;
   --color-rose-deep: #a04263;
-  --color-blush: #e3a9bf;
   --color-paper: #f8f8f8;
-  --color-paper-warm: #fefdfe;
   --color-avatar: #2a0e18;
   --color-avatar-lead: #3a1522;
 
@@ -100,13 +97,10 @@
   --radius-btn: 12px;
   --radius-btn-sm: 10px;
 
-  --animate-petal-fall: c2cfall 9s linear infinite;
-  --animate-petal-pulse: c2cpulse 1.1s steps(2) infinite;
   --animate-dot-pulse: c2cpulse 2s ease-in-out infinite;
   --animate-sway: c2csway 9s ease-in-out infinite;
-  /* The Guide: the ring of orbs while it thinks, the caret while it streams,
-     and the rise every new turn arrives with. */
-  --animate-orb: c2corb 1.6s ease-in-out infinite;
+  /* The Guide: the caret while it streams, and the rise every new turn
+     arrives with. */
   --animate-caret: c2ccaret 1s steps(2) infinite;
   --animate-turn-in: c2cturnin 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
   --animate-pixel: c2cpixel 650ms ease-in-out infinite;
@@ -201,15 +195,6 @@
       transform: translateX(1px);
     }
   }
-  @keyframes c2corb {
-    0%,
-    100% {
-      opacity: 0.2;
-    }
-    40% {
-      opacity: 1;
-    }
-  }
   @keyframes c2ccaret {
     0%,
     100% {
@@ -293,7 +278,6 @@
      marks are also white SVGs; those daybreak re-inks in plum. */
   --wordmark-filter: drop-shadow(0 8px 50px rgb(0 0 0 / 0.6));
   --mark-filter: none;
-  --balloon-logo-filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.18));
 
   /* Depth shadows (1 soft, 2 strong) and the rose glows that become warm
      sunlight at daybreak. */
@@ -332,7 +316,6 @@
     radial-gradient(ellipse 90% 45% at 50% -8%, rgb(58 21 34 / 0.55), transparent 60%),
     linear-gradient(180deg, #0c0004, #130409);
   --roster-bg: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.55));
-  --confirm-bg: linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.55));
 }
 
 /* Every navigation uses the startup handoff: the destination is already
@@ -459,7 +442,6 @@
   --color-rose: #b7527b;
   --color-rose-light: #96375c;
   --color-rose-deep: #83304f;
-  --color-blush: #c97795;
   --color-avatar: #f9e3ea;
   --color-avatar-lead: #fdf0f4;
   --color-petal-a: #cd7395;
@@ -471,7 +453,6 @@
   --color-petal-edge: rgb(169 77 114 / 0.62);
   --color-petal-edge-soft: rgb(169 77 114 / 0.42);
   --color-glass-edge: rgb(169 77 114 / 0.6);
-  --balloon-logo-filter: invert(1) drop-shadow(0 1px 1px rgb(255 255 255 / 0.2));
 
   --scene-sky: linear-gradient(
     180deg,
@@ -520,7 +501,6 @@
     radial-gradient(ellipse 90% 45% at 50% -8%, rgb(238 205 219 / 0.8), transparent 60%),
     linear-gradient(180deg, #f9ecee, #fff3e3);
   --roster-bg: linear-gradient(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.9));
-  --confirm-bg: linear-gradient(rgb(255 255 255 / 0.9), rgb(255 255 255 / 0.9));
 }
 
 /* The theme toggle crossfades the whole page; slow the default down to a
@@ -702,15 +682,11 @@
   --surface-raised: #1b1b1d;
   --text: #ececee;
   --muted: #a0a0a5;
-  --faint: #6d6d72;
   --border: #2c2c2f;
   --border-strong: #444449;
   --accent: #8fb99f;
-  --accent-soft: #18221c;
   --danger: #c9827c;
   --danger-border: #694643;
-  --warn: #baa571;
-  --primary-hover: #fff;
 }
 
 /* The panelled shell's semantic set at daybreak: warm paper instead of
@@ -723,15 +699,11 @@
   --surface-raised: #ffffff;
   --text: #2b1420;
   --muted: #79606c;
-  --faint: #a18c96;
   --border: #e3cfd4;
   --border-strong: #c2a3ad;
   --accent: #3f7458;
-  --accent-soft: #e2efe6;
   --danger: #a4524b;
   --danger-border: #d3a49e;
-  --warn: #86713f;
-  --primary-hover: #46243a;
 }
 
 * {
@@ -1239,7 +1211,6 @@ p {
   .tile-body { gap: 6px; padding: 12px; }
   .tile-short-hidden { display: none; }
   .tile-short-clamp { -webkit-line-clamp: 1; }
-  .queue-meta { display: none; }
   .queue-lane { gap: 2px; }
   .queue-action { height: 22px; min-width: 0; padding-inline: 7px; }
   .integration-orb-mark { width: 28px; height: 28px; }

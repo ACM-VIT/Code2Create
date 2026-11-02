@@ -50,7 +50,7 @@ export type PendingAttendanceSummary = {
 };
 
 /** A recoverable queue-capacity error with operator-facing text. */
-export class PendingAttendanceQueueFullError extends OperatorError {
+class PendingAttendanceQueueFullError extends OperatorError {
   constructor() {
     super(
       "This phone is holding as many unsent scans as it can. Move to a door with signal so they can go through.",

@@ -67,7 +67,7 @@ export async function createScannerDevice(args: {
   return record;
 }
 
-export async function saveScannerDevice(eventSlug: string, record: ScannerDeviceRecord) {
+async function saveScannerDevice(eventSlug: string, record: ScannerDeviceRecord) {
   await SecureStore.setItemAsync(storageKey(eventSlug), JSON.stringify(record));
   notifyInstallationChanged(eventSlug);
 }

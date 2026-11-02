@@ -78,12 +78,8 @@ export const suggestedReviewQuestionsSchema = v.strictObject({
     v.maxLength(12),
   ),
 });
-export type ReviewQuestionPayload = v.InferOutput<
-  typeof reviewQuestionRequestSchema
->;
-export const reviewQuestionInputSchema = reviewQuestionRequestSchema;
 export type ReviewQuestionInput = v.InferOutput<
-  typeof reviewQuestionInputSchema
+  typeof reviewQuestionRequestSchema
 >;
 
 export const evidenceAnalysisSchema = v.strictObject({

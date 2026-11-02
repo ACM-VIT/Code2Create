@@ -67,7 +67,7 @@ export const operationsIntelligenceRequestSchema = v.strictObject({
   snapshot: operationsHealthSnapshotSchema,
 });
 
-export const operationsBriefPrioritySchema = v.strictObject({
+const operationsBriefPrioritySchema = v.strictObject({
   severity: v.picklist(operationsBriefPrioritySeverities),
   title: boundedText(3, 120),
   why: boundedText(8, 300),
@@ -142,8 +142,6 @@ export const operationsCopilotRequestSchema = v.strictObject({
   eventSlug: v.pipe(boundedText(1, 120), v.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)),
   message: boundedText(1, 4_000),
 });
-
-export type OperationsCopilotRequest = v.InferOutput<typeof operationsCopilotRequestSchema>;
 
 export const operationsCopilotInitialDataSchema = v.strictObject({
   conversationId: v.pipe(v.string(), v.regex(/^cv_[a-f0-9]{64}$/u)),
@@ -609,7 +607,7 @@ export const copilotRecommendationArgumentsSchema = v.variant("kind", [
   }),
 ]);
 
-export const copilotCitationSchema = v.strictObject({
+const copilotCitationSchema = v.strictObject({
   read: v.picklist([...operationsIntelligenceReadNames, ...admissionIntelligenceReadNames]),
   generatedAt: nonNegativeInteger,
   keys: v.pipe(v.array(boundedText(1, 200)), v.minLength(1), v.maxLength(16)),

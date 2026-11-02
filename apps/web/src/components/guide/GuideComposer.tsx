@@ -2,7 +2,7 @@ import { LiveNumber } from "../LiveNumber";
 import type { KeyboardEvent, ReactNode, RefObject } from "react";
 import { PortalButton, PortalTextButton } from "../portal/PortalButton";
 
-export const messageMaximum = 1_600;
+const messageMaximum = 1_600;
 const composerMaximumHeight = 176;
 
 export type ComposerConfirm = {

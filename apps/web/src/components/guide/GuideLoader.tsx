@@ -10,7 +10,7 @@ const chevron = Array.from({ length: 9 }, (_, index) => {
   return (column + Math.abs(row - 1)) * 90;
 });
 
-export function PixelLoader({ round = false }: { round?: boolean }) {
+function PixelLoader({ round = false }: { round?: boolean }) {
   return (
     <span aria-hidden className="grid shrink-0 grid-cols-[repeat(3,4px)] gap-[1.5px]">
       {chevron.map((delay, index) => (

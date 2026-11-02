@@ -39,7 +39,7 @@ const testFiles = ["convex", "scripts"]
   // forward slashes, while `relative` follows the host and gives backslashes on
   // Windows.
   .map((file) => relative(backendRoot, file).replaceAll("\\", "/"))
-  .toSorted();
+  .toSorted((left, right) => left.localeCompare(right));
 
 test("every backend test file is owned by the main test command", () => {
   const unowned = testFiles.filter((file) => !mainTests.has(file));
