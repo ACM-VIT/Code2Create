@@ -71,7 +71,7 @@ export const claim = internalMutation({
       expiresAt = request.closesAt;
     }
     if (notification.purpose === "shift_reminder") {
-      // Reviewer shift reminders were retired; a queued notification never sends.
+      // Nothing sends reviewer shift reminders; a stored notification is cancelled.
       await ctx.db.patch(notification._id, { state: "cancelled", updatedAt: now });
       return null;
     }

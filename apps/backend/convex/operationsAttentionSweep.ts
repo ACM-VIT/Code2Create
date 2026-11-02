@@ -44,7 +44,7 @@ import {
   type StoredAttentionCommand,
 } from "./values";
 
-/** Minimum sample size for a useful review-duration median. */
+/** Most recent completed reviews that feed the review-duration median. */
 const paceSampleLimit = 9;
 /** Ignore older reviews when chasing outstanding scorecards. */
 const scorecardChaseWindowMs = 4 * 60 * 60 * 1_000;

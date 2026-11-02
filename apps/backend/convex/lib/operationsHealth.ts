@@ -216,7 +216,7 @@ const signalDefinitions = {
     owner: "Review desk",
     nextAction: "Run the next substitute step or close the page chain.",
   },
-  // Retired on 2026-09-08; nothing emits it, stored rows may still carry it.
+  // Nothing emits it; kept because stored rows may still carry it.
   stale_reviewer_heartbeats: {
     area: "reviews",
     severity: "watch",

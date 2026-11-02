@@ -123,7 +123,7 @@ export async function ensureApplicationNotification(
   ) {
     throw new Error("Participant membership is missing for participant notification.");
   }
-  // External admissions are communicated by the registration team, outside this release.
+  // The registration team communicates external admissions; these participants get only their event pass here.
   if (
     membership.participantClass === "external_participant" &&
     args.templateKey !== "external_event_pass"

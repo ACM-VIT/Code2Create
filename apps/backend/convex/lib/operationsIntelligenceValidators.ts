@@ -20,7 +20,7 @@ export const operationsHealthSignalKey = v.union(
   v.literal("panels_needing_reviewer"),
   v.literal("overdue_reviews"),
   v.literal("expired_reviewer_pages"),
-  // Retired on 2026-09-08; kept so stored snapshots and briefs stay readable.
+  // Nothing emits it; kept so stored snapshots and briefs stay readable.
   v.literal("stale_reviewer_heartbeats"),
   v.literal("stale_scanner_stations"),
   v.literal("scanner_queues_awaiting_replay"),
