@@ -1,31 +1,62 @@
-# Code2Create 7.0
+# Code2Create
 
-Code2Create is the event platform for participant intake, team management, attendance, hall operations, judging, integrations, communications, and organizer workflows.
+Code2Create is the event platform built by [ACM-VIT](https://github.com/ACM-VIT) for Code2Create 7.0, a 48-hour hackathon for about a thousand people in one venue. It runs the whole event: registration and team formation, proposal intake and admission, venue attendance, review panels and judging, participant support, communications, and organizer operations.
 
-The product specification lives in [`specs/`](./specs). The canonical private reader is [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site). The repository does not deploy a second handbook application.
+## What it does
 
-The current event work list is [Event follow-up plan](./specs/16-event-follow-up-plan.md). It separates implementation work, reviewer preparation, event-day setup, and rehearsal.
+- **Participant portal**: Google sign-in, profiles, realtime team formation, proposal intake with AI-assisted follow-up questions, admission offers and RSVP, attendance QR codes, live review-queue status, support cases, and audience music requests.
+- **Operations dashboard**: permission-scoped tools for admissions, event setup, attendance stations, panel and queue management, judging, support, communications, integrations, and incident recovery.
+- **Reviewer app**: a native iOS and Android app for reviewers and floor staff, covering availability, panel paging, QR check-in, offline-safe scorecards, and attendance scanning.
+- **Intelligence worker**: Cloudflare-hosted agents that prepare operations briefs, admission recommendations, and source-linked review questions. They only propose actions; staff decide.
+- **Landing page and trailer**: the public event site, photo gallery, and promotional video.
 
-## Prerequisites
+Every surface shares one Google identity and one Convex deployment. Permissions are exact grants scoped to an event or resource. Role labels only bundle default grants and never authorize anything on their own.
 
-- Node.js `22.22.0`
-- pnpm `11.18.0`
-- Xcode for the iOS reviewer app
-- Android Studio for Android reviewer builds
-- Wrangler authenticated to the event-owned Cloudflare account
+## Repository layout
 
-Use the checked-in Node version and install the workspace:
+| Path                            | Responsibility                                                             |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| `apps/backend`                  | Convex data, authorization, transactions, jobs, and provider orchestration |
+| `apps/web`                      | Participant portal (Vite, React)                                           |
+| `apps/ops`                      | Operations dashboard (Vite, React)                                         |
+| `apps/reviewer`                 | Native reviewer and floor-operations app (Expo, React Native)              |
+| `apps/landing`                  | Public landing page and photo gallery                                      |
+| `apps/intelligence`             | Flue-based operations intelligence Worker                                  |
+| `apps/updates`                  | Self-hosted Expo Updates Worker backed by R2                               |
+| `apps/email`                    | Outbound email (SES/Cloudflare) and email-routing Worker                   |
+| `apps/voice`                    | Outbound call and synthesized-audio Worker                                 |
+| `apps/discord`                  | Discord support bridge                                                     |
+| `apps/e2e`                      | Playwright browser verification                                            |
+| `apps/trailer`                  | Event trailer (Remotion)                                                   |
+| `packages/domain`               | Shared domain contracts and presentation vocabulary                        |
+| `packages/web-auth`             | Shared Better Auth browser integration                                     |
+| `packages/client-observability` | Shared client analytics and error tracking                                 |
+| `packages/web-forms`            | Shared form validation                                                     |
+| `specs/`                        | Product specification                                                      |
+| `infra/`                        | Self-hosted Convex deployment for staging and production                   |
+| `templates/participant-emails`  | Participant email templates                                                |
+
+Most apps have their own `README.md` with setup and deployment details.
+
+## Getting started
+
+### Prerequisites
+
+- Node.js `22.22.0` (see `.nvmrc`)
+- pnpm `11.18.0` through Corepack
+- Xcode and Android Studio, only for building the reviewer app
+- Wrangler, only for deploying Cloudflare Workers
 
 ```sh
 corepack enable
 pnpm install
 ```
 
-Do not use npm, Yarn, EAS Build, EAS Update, or Expo Push Service.
+The workspace uses pnpm only. Native apps are built and signed locally, and over-the-air updates are served by `apps/updates`. The project does not use EAS Build, EAS Update, or the Expo Push Service.
 
-## Local development
+### Configuration
 
-Copy [`apps/backend/.env.example`](./apps/backend/.env.example) to `apps/backend/.env.local` and set the credentials needed by the flow you are testing. Google authentication requires:
+Copy [`apps/backend/.env.example`](./apps/backend/.env.example) to `apps/backend/.env.local` and fill in the credentials for the flows you want to test. Google sign-in needs:
 
 ```text
 AUTH_SITE_URL=http://localhost:3211
@@ -37,17 +68,17 @@ INITIAL_SUPREME_EMAILS=...
 INITIAL_EVENT_SLUG=code2create-7
 ```
 
-Register `http://localhost:3211/api/auth/callback/google` as the Google OAuth redirect URI. Register `http://localhost:5180` and `http://localhost:5181` as browser origins.
+Register `http://localhost:3211/api/auth/callback/google` as the Google OAuth redirect URI, and `http://localhost:5180` and `http://localhost:5181` as browser origins.
 
-The mandatory SGLang onboarding step uses a classic GitHub OAuth App with the `public_repo` scope. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and register `http://localhost:5180/onboarding/github/callback` as its exact callback URL. Use a separate OAuth App for each environment because GitHub OAuth Apps have one callback URL. After the participant connects GitHub, the backend stars SGLang and immediately revokes the OAuth grant. These credentials are separate from the read-only GitHub App used for team repository evidence.
+Participant onboarding includes a GitHub step that uses a classic GitHub OAuth App with the `public_repo` scope. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and register `http://localhost:5180/onboarding/github/callback` as its callback URL. GitHub OAuth Apps allow one callback URL, so use a separate app per environment. These credentials are separate from the read-only GitHub App used for team repository evidence.
 
-Start the ordinary product loop:
+### Running locally
 
 ```sh
 pnpm dev
 ```
 
-This starts the local Convex backend, participant portal, and operations dashboard. It applies local service configuration but does not create product records or synthetic provider results.
+This starts the local Convex backend, the participant portal, and the operations dashboard. It applies local service configuration but creates no product records.
 
 For a disposable event playground, wait for `Local stack ready`, then run:
 
@@ -56,26 +87,17 @@ pnpm dev:seed
 pnpm dev:playground
 ```
 
-The seed creates eight teams (six admitted, one awaiting admission, one drafting), six panels of five reviewers, four reserves, confirmed availability, five queued teams, and entry/exit stations. Panel 1 has three teams so queue position and ETA can be exercised. Reviews use the seven-minute rubric with mandatory final comments. Re-running preserves existing teams and review progress. The seed refuses hosted deployments; its backend helpers also require the local development environment.
+The seed creates eight teams in different admission states, six five-reviewer panels with reserves, confirmed availability, queued teams, and entry and exit stations. Re-running it keeps existing teams and review progress. It refuses to run against hosted deployments.
 
-Open `http://127.0.0.1:5190/web` for the QueueCraft participant and `http://127.0.0.1:5190/ops` for the local operator. These use the normal one-time-token sign-in flow. The loopback helper keeps the simulated reviewer phones online; the actual iOS reviewer owns its own device and heartbeat. Scoring remains manual. Local account sessions are stored in the ignored, private `outputs/dev/accounts.json` file and expire after seven days. Keep the playground process running during review tests. Live calls and external provider results are not seeded.
+Open `http://127.0.0.1:5190/web` for a seeded participant and `http://127.0.0.1:5190/ops` for a seeded operator. The playground keeps simulated reviewer phones online; scoring stays manual. Local sessions are stored in the ignored `outputs/dev/accounts.json` file.
 
-After changing Expo native plugins, regenerate the native project before building the simulator app:
-
-```sh
-pnpm --filter @code2create/reviewer exec expo prebuild --platform ios --no-install
-pnpm --filter @code2create/reviewer ios
-```
-
-Reviewer Metro signs development manifests with the existing update key at `~/.config/code2create/updates/private-key.pem`; set `C2C_UPDATE_PRIVATE_KEY_PATH` to use another matching key. Start it with `pnpm dev:reviewer` when using a separately built simulator app.
-
-Start every runtime only for a complete rehearsal:
+To start every runtime, including reviewer Metro and all Workers:
 
 ```sh
 pnpm dev:full
 ```
 
-The full command additionally starts reviewer Metro, intelligence, Expo Updates, email, and voice workers. Prefer individual commands while working on one surface:
+Or start one surface at a time:
 
 ```sh
 pnpm dev:web
@@ -93,7 +115,7 @@ pnpm dev:voice
 | -------------------- | ------------------------------ |
 | Participant portal   | `http://localhost:5180`        |
 | Operations dashboard | `http://localhost:5181`        |
-| Public landing page  | `http://localhost:5182`        |
+| Landing page         | `http://localhost:5182`        |
 | Convex HTTP/auth     | `http://localhost:3211`        |
 | Reviewer Metro       | `http://localhost:8082`        |
 | Intelligence Worker  | `http://localhost:8791/health` |
@@ -101,53 +123,39 @@ pnpm dev:voice
 | Email Worker         | `http://localhost:8793/health` |
 | Voice Worker         | `http://localhost:8794/health` |
 
-Run `pnpm dev:prepare` after changing local backend or worker environment while the backend is already running.
+Run `pnpm dev:prepare` after changing backend or Worker environment variables while the backend is running.
 
-## Applications and packages
+### Reviewer app
 
-| Path                            | Responsibility                                                             |
-| ------------------------------- | -------------------------------------------------------------------------- |
-| `apps/web`                      | Participant portal                                                         |
-| `apps/ops`                      | Organizer operations dashboard                                             |
-| `apps/landing`                  | Public Code2Create landing page                                            |
-| `apps/reviewer`                 | Native reviewer and floor-operations app                                   |
-| `apps/backend`                  | Convex data, authorization, transactions, jobs, and provider orchestration |
-| `apps/intelligence`             | Flue-based operations intelligence worker                                  |
-| `apps/updates`                  | Event-owned Expo Updates Worker and R2 delivery                            |
-| `apps/email`                    | SES/Cloudflare outbound email and Cloudflare routing worker                 |
-| `apps/voice`                    | Outbound call and synthesized-audio worker                                 |
-| `apps/discord`                  | Discord support bridge                                                    |
-| `apps/e2e`                      | Browser verification                                                      |
-| `apps/trailer`                  | Event promotional video composition                                       |
-| `packages/domain`               | Shared domain contracts and presentation vocabulary                        |
-| `packages/web-auth`             | Shared Better Auth browser integration                                     |
-| `packages/client-observability` | Shared client analytics and error tracking                                 |
-| `packages/web-forms`            | Shared product form validation                                            |
+After changing Expo native plugins, regenerate the native project and build the simulator app:
 
-All product surfaces use the same Google identity and Convex deployment. Permissions are exact grants scoped to an event or resource. Role labels provide default permission bundles; they are not authorization shortcuts.
+```sh
+pnpm --filter @code2create/reviewer exec expo prebuild --platform ios --no-install
+pnpm --filter @code2create/reviewer ios
+```
 
-The reviewer app is built and signed locally. Native updates come from `apps/updates` and event-owned R2.
+Development manifests are signed with the update key at `~/.config/code2create/updates/private-key.pem`; set `C2C_UPDATE_PRIVATE_KEY_PATH` to use another key. See [`apps/reviewer/README.md`](./apps/reviewer/README.md) and [`apps/updates/README.md`](./apps/updates/README.md) for signing and update delivery.
 
 ## Checks
 
-Use focused package checks while editing:
+Run focused package checks while editing:
 
 ```sh
 pnpm --filter @code2create/backend typecheck
-pnpm --filter @code2create/ops typecheck
 pnpm --filter @code2create/web typecheck
+pnpm --filter @code2create/ops typecheck
 pnpm --filter @code2create/landing typecheck
 pnpm --filter @code2create/reviewer typecheck
 ```
 
-Participant interaction tests use local browser fixtures without a backend:
+Participant interaction tests run against local browser fixtures without a backend:
 
 ```sh
 pnpm --filter @code2create/e2e install:browser
 pnpm --filter @code2create/e2e test:interactions
 ```
 
-Run the complete product checks before release:
+Run the full product checks before a release:
 
 ```sh
 pnpm check:product
@@ -156,14 +164,9 @@ pnpm build
 pnpm check:release
 ```
 
-Backend provider and key checks are explicit:
+## Specification
 
-```sh
-pnpm check:providers:staging
-pnpm --filter @code2create/backend keys:check
-```
-
-## Specification map
+The [`specs/`](./specs) directory defines product behavior and invariants. Code and generated Convex API types define implementation detail.
 
 - [Product brief](./specs/00-product-brief.md)
 - [Domain and access](./specs/01-domain-and-access.md)
@@ -181,6 +184,5 @@ pnpm --filter @code2create/backend keys:check
 - [Integrations and release](./specs/13-integrations-and-release.md)
 - [Attendance and presence](./specs/14-attendance-and-presence.md)
 - [Event review readiness](./specs/15-event-review-readiness.md)
-- [Event follow-up plan](./specs/16-event-follow-up-plan.md)
 
-The specifications define product behavior and invariants. Code and generated API types define implementation detail; do not manually duplicate the full schema or endpoint inventory in this file.
+Contributor and coding-agent conventions are in [`AGENTS.md`](./AGENTS.md).
