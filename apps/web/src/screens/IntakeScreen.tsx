@@ -229,7 +229,7 @@ function IntakeStage({
   teamEditable: boolean;
   title: ReactNode;
   hint?: string;
-  /** The centred live-presence line the mockup puts between title and card. */
+  /** The centred live-presence line between title and card. */
   presence?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
@@ -429,8 +429,7 @@ function IntakeWorkspace({
   const [peekQuestionId, setPeekQuestionId] = useState<string | null>(null);
   const [pendingFollowUp, setPendingFollowUp] = useState<PendingFollowUp | null>(null);
   const [pendingReviewAnswer, setPendingReviewAnswer] = useState<PendingReviewAnswer | null>(null);
-  // The mockup splits the old single review screen into reading the proposal
-  // (f5) and confirming the lock (f6).
+  // Review is two steps: reading the proposal, then confirming the lock.
   const [confirming, setConfirming] = useState(false);
   const [openSections, setOpenSections] = useState<readonly string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -536,7 +535,6 @@ function IntakeWorkspace({
     if (!ideaDirty) {
       ideaBase.current = { value: savedValue, version: savedVersion };
       ideaWorkingRevision.current = serverWorkingRevision;
-      // oxlint-disable-next-line react/set-state-in-effect -- This reconciles the collaborative server working copy after its version changes.
       setIdea(serverWorkingValue);
       setIdeaDirty(false);
       setIdeaConflict(false);
@@ -686,7 +684,6 @@ function IntakeWorkspace({
     if (reconciliation.kind === "unchanged") return;
     if (reconciliation.kind === "conflict") {
       if (reviewAnswerEdit.conflict) return;
-      // oxlint-disable-next-line react/set-state-in-effect -- Preserve the local answer and mark the remote revision conflict explicitly.
       setReviewAnswerEdit((current) => (current ? { ...current, conflict: true } : null));
       setError(null);
       return;
@@ -723,7 +720,6 @@ function IntakeWorkspace({
     if (reconciliation.kind === "unchanged") return;
     if (reconciliation.kind === "conflict") {
       if (additionalInformationEdit.conflict) return;
-      // oxlint-disable-next-line react/set-state-in-effect -- Preserve the local answer and mark the remote revision conflict explicitly.
       setAdditionalInformationEdit((current) => (current ? { ...current, conflict: true } : null));
       setError(null);
       return;
@@ -867,7 +863,6 @@ function IntakeWorkspace({
       serverValue: workingReviewFollowUp.value,
     });
     if (reconciliation.kind === "unchanged") return;
-    // oxlint-disable-next-line react/set-state-in-effect -- Preserve divergent local text and surface the collaborative working-copy conflict.
     if (reconciliation.kind === "conflict") {
       setReviewAnswerEdit((current) => (current ? { ...current, conflict: true } : null));
       setError(null);
@@ -879,7 +874,6 @@ function IntakeWorkspace({
       return;
     }
     if (reconciliation.kind === "adopt") {
-      // oxlint-disable-next-line react/set-state-in-effect -- Adopt a teammate's working copy only when this editor has no local change.
       setReviewAnswerEdit((current) =>
         current ? { ...current, value: reconciliation.value, conflict: false } : null,
       );
@@ -1304,7 +1298,7 @@ function IntakeWorkspace({
     );
   }
 
-  // ---- f2 · the idea -------------------------------------------------------
+  // ---- the idea ------------------------------------------------------------
   if (!draft || draft.stage === "opening" || editingIdea) {
     if (opening === undefined) {
       return (
@@ -1441,7 +1435,7 @@ function IntakeWorkspace({
     );
   }
 
-  // ---- f3 / f4 · the follow-ups -------------------------------------------
+  // ---- the follow-ups ------------------------------------------------------
   if (draft.stage === "follow_up") {
     // While the next question is generated the card stays on stage — only the
     // title shimmers and the editor waits — so answering never swaps screens.
@@ -1616,7 +1610,7 @@ function IntakeWorkspace({
     );
   }
 
-  // ---- f4.5 · optional supporting details ---------------------------------
+  // ---- optional supporting details -----------------------------------------
   if (draft.stage === "additional_information") {
     const value = additionalInformationEdit?.value ?? draft.additionalInformation ?? "";
     return (
@@ -1700,7 +1694,7 @@ function IntakeWorkspace({
     );
   }
 
-  // ---- f5 / f6 · review, then confirm --------------------------------------
+  // ---- review, then confirm ------------------------------------------------
   if (draft.stage === "review") {
     if (preview === undefined || preview === null) {
       return (
@@ -1907,7 +1901,7 @@ function IntakeWorkspace({
       );
     }
 
-    // f6 · confirm
+    // Confirm the lock.
     if (confirming || submissionInProgress) {
       return (
         <IntakeStage
@@ -2117,7 +2111,7 @@ function IntakeWorkspace({
       );
     }
 
-    // f5 · the proposal, together
+    // The proposal, read together.
     const ideaSectionId = "idea";
     const revealSection = (id: string) =>
       setOpenSections((open) => (open.includes(id) ? open : [...open, id]));

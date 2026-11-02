@@ -86,7 +86,7 @@ export function parseRosterCsv(text: string): RosterCsvRow[] {
           }
         : {}),
     };
-    // The survey capped hour selections at three. Those answers are deliberately not imported.
+    // The form's availability answers (capped hour selections) are deliberately not imported.
     byEmail.set(email, { row, submittedAt });
   }
   const rows = [...byEmail.values()]

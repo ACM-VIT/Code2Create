@@ -119,7 +119,7 @@ const SVG_GEOMETRY: Record<ShapeType, SvgGeometry> = {
     ]]
   },
   lantern: {
-    // The replacement lantern.svg uses a 520 x 620 viewBox.
+    // lantern.svg uses a 520 x 620 viewBox.
     // Keep this outline in that same coordinate space so the visible bottom
     // of the lantern and its Matter.js support point line up.
     width: 520,

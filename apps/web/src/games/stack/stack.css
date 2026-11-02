@@ -1,11 +1,9 @@
 /*
  * The stacking game's styles, scoped to the board.
  *
- * Upstream this was a standalone app's global stylesheet: it painted
- * `body`, set a page font size and claimed generic class names like
- * `.action-button`. Inside the portal that would restyle every screen, so
- * every rule here is nested under `.stack-game`, the palette moved off
- * `:root` onto the board, and the `html`/`body`/`*` rules are gone.
+ * Every rule is nested under `.stack-game` and the palette lives on the
+ * board rather than `:root`, so generic class names like `.action-button`
+ * never restyle the rest of the portal.
  */
 
 .stack-game {

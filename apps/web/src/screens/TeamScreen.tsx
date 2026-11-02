@@ -30,7 +30,7 @@ function TeamCard({
   );
 }
 
-/** Onboarding step three (mockup f0c): create a team, or join with a code. */
+/** Onboarding step three: create a team, or join with a code. */
 export function TeamScreen({ header }: { header?: ReactNode }) {
   const params = useParams<{ code?: string }>();
   const navigate = useNavigate();

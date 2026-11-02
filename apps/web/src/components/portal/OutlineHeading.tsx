@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * A page's heading drawn as outline letters — the 2021 site's stroked
- * marquee type, in the portal's rose. As on that site, a letter fills with
- * colour when the pointer crosses it (or a finger taps it) and fades back
- * over a second. Static otherwise: no filter, no motion.
+ * A page's heading drawn as outline letters: stroked marquee type in the
+ * portal's rose. A letter fills with colour when the pointer crosses it (or
+ * a finger taps it) and fades back over a second. Static otherwise: no
+ * filter, no motion.
  */
 export function OutlineHeading({ word }: { word: string }) {
   const [lit, setLit] = useState<ReadonlySet<number>>(() => new Set());

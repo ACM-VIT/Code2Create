@@ -31,7 +31,7 @@ import "./journey.css";
 
 gsap.registerPlugin(useGSAP, ScrollTrigger);
 
-/* The embedded preview loads the page with the document hidden, so rAF — and
+/* Embedded previews can load the page with the document hidden, so rAF — and
    with it the ticker, the scrub and every cue — never fires there. Handing
    the internals to the console lets a test drive time by hand, the same way
    the petal field's __step does. */
@@ -302,11 +302,10 @@ export default function Journey({ petalsRef }: JourneyProps) {
       });
 
       /* E — each ray becomes a card AT THE MARK'S OWN SIZE, and only then
-         flies down to the fan. The morph and the flight used to overlap,
-         and on a phone — where a fan card is far smaller than the mark —
-         the still-morphing triangles visibly shrank mid-unfold. Now the
-         triangle keeps the logo's scale until it is fully a card, and any
-         resize happens on the way to the hand. */
+         flies down to the fan. If the morph and the flight overlapped, the
+         still-morphing triangles would visibly shrink mid-unfold on a phone,
+         where a fan card is far smaller than the mark; any resize happens on
+         the way to the hand instead. */
       cards.forEach((card, index) => {
         tl.to(
           card,
@@ -340,8 +339,8 @@ export default function Journey({ petalsRef }: JourneyProps) {
       );
 
       /* D/E/F — each chapter lifts its card out of the fan, holds, returns.
-         Five chapters now, so the beat is 7s rather than 9s — the last
-         card is back in the hand at 68.6, before the drop at 70. */
+         Each beat is 7s, so the last card is back in the hand at 68.6,
+         before the drop at 70. */
       CHAPTERS.forEach((chapter, index) => {
         const at = 32 + index * 7;
         const card = cards[chapter.card];
@@ -516,9 +515,9 @@ export default function Journey({ petalsRef }: JourneyProps) {
         }
       };
 
-      /* The scroll timeline carries a weighted playhead over the unchanged
-         choreography. This doubles the wheel distance for About and the
-         sponsor reveals, while the sponsor exit returns to normal speed. */
+      /* The scroll timeline carries a weighted playhead over the master
+         timeline, doubling the wheel distance for About and the sponsor
+         reveals (see JOURNEY_SCROLL_SEGMENTS). */
       tl.pause(0);
       const playhead = { at: 0 };
       const syncMaster = () => tl.time(playhead.at);

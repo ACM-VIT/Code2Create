@@ -30,11 +30,9 @@ export function SynesthesiaScreen(props: SceneProps) {
 }
 
 /**
- * The music room, named for Octave, the 2021 edition's music site, which put
- * "You choose what plays" over a now-playing card and a queue with a big "+"
- * search box; this is that page on the hanami scene: a record for the track on
- * the speakers and the queue on a glass sheet. The turntable can still be
- * explored between music windows, with the arm parked and the motor stopped.
+ * The music room on the hanami scene: a record for the track on the speakers
+ * and the queue on a glass sheet. The turntable can still be explored between
+ * music windows, with the arm parked and the motor stopped.
  */
 export function MusicRoom({
   team,

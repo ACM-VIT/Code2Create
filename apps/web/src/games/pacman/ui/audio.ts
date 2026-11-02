@@ -57,7 +57,7 @@ export const stopAll = () => {
 };
 
 /**
- * Ticks the chomp loop keeps playing after a dot. Ticks are frames now, and a
+ * Ticks the chomp loop keeps playing after a dot. Ticks are frames, and a
  * dot lands every ~9 of them while eating, so "a dot this tick" alone would
  * flicker between tiles; 12 bridges the gap without trailing on.
  */
@@ -91,7 +91,7 @@ export function useSounds(game: Game) {
     if (game.t < p.t) ate.current = -Infinity; // a death reset the clock
     if (game.eaten.size > p.eaten.size) ate.current = game.t;
     loop("eating.mp3", game.t - ate.current < CHOMP_HOLD);
-    loop("siren.mp3", game.t > 0 && game.lives > 0 && !cleared(game) && !game.bite); // ponytail: no separate frightened siren
+    loop("siren.mp3", game.t > 0 && game.lives > 0 && !cleared(game) && !game.bite); // one siren throughout: the arcade's frightened siren is not reproduced
   }, [game]);
   useEffect(() => () => Object.values(loops.current).forEach((a) => a.pause()), []);
 }

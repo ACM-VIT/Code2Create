@@ -1,6 +1,5 @@
 /* ------------------------------------------------------------------ *
- * Code2Create 2026 — design tokens taken from the Figma file
- * "Code2Create-2026 / RSVP Final Screens".
+ * Design tokens
  * ------------------------------------------------------------------ */
 
 :root {
@@ -15,8 +14,7 @@
   --paper: #f8f8f8;
   --paper-warm: #fefdfe;
 
-  /* Type. Recoleta Alt is a licensed face used in the Figma source;
-     Fraunces stands in for it here. */
+  /* Type. Fraunces stands in for the licensed Recoleta Alt display face. */
   --font-display: "Fraunces", "Recoleta Alt", ui-serif, Georgia, serif;
   --font-body: "Do Hyeon", "Trebuchet MS", sans-serif;
   --font-ui: "Geist", ui-sans-serif, system-ui, sans-serif;
@@ -116,7 +114,7 @@ ul {
 }
 
 /* ------------------------------------------------------------------ *
- * Navbar  (Figma 1808:2814 — 1177×75, 2px #d884a2, rgba(0,0,0,.25))
+ * Navbar
  * ------------------------------------------------------------------ */
 
 .navbar {

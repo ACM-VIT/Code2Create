@@ -56,7 +56,7 @@ function Row({
 }
 
 /**
- * Mockup f12: everything else, one quiet list. Sign-out lives in the header
+ * Everything else, one quiet list. Sign-out lives in the header
  * badge or cluster like everywhere else, so the list is only destinations.
  */
 export function MoreScreen({

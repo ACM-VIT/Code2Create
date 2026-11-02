@@ -593,8 +593,8 @@ function RoundPublisher({
   const publishPending = publishAttempt.hasPending("review-round-publish");
   const [rubricName, setRubricName] = useState(initialPreset.name);
   const [spreadThreshold, setSpreadThreshold] = useState("2");
-  // Automatic replacement, JC rotation, arrival deadlines, and shift reminders
-  // were retired; operators staff panels and page substitutes explicitly.
+  // Automatic replacement, junior rotation, arrival deadlines, and shift
+  // reminders stay off; operators staff panels and page substitutes explicitly.
   const automaticReplacement = false;
   const juniorRotationReviews = "0";
   const reviewerArrivalSeconds = "90";

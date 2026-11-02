@@ -32,8 +32,7 @@
 }
 
 /* ------------------------------------------------------------------ *
- * Night-hanami portal palette — from Claude Design "Portal Mockups"
- * (t11 f0a-f7). Palette is shared with apps/landing's base.css so the
+ * Night-hanami portal palette. Shared with apps/landing's base.css so the
  * landing page and the portal read as one event.
  *
  * The portal paints the same scene in two lights. 'night' (these values)
@@ -67,8 +66,8 @@
      as a black outline. */
   --color-ring-lead: #feb4cb;
 
-  /* Petal-card washes and hairlines. The mockup builds every surface from
-     a white-to-ink gradient over a translucent rose edge. */
+  /* Petal-card hairlines and edges: the translucent rose every surface is
+     framed in. */
   --color-petal-line: rgb(216 132 162 / 0.25);
   --color-petal-edge: rgb(254 180 203 / 0.55);
   --color-petal-edge-soft: rgb(216 132 162 / 0.4);
@@ -82,8 +81,6 @@
   /* The arcade cabinet face, used only by the games at /games. */
   --font-arcade: "Press Start 2P", ui-monospace, Menlo, monospace;
 
-  /* The updated mockup rounds every corner symmetrically: cards 18/16,
-     fields 10, buttons 12/10. */
   /* Every box on the portal is cut the same way: curved at the top-left and
      bottom-right, square at the other two. `box` and `box-sm` are the curve
      sizes on their own, for the one-corner cases (a sheet's top edge);
@@ -491,8 +488,7 @@
   --scrollbar-thumb-hover: rgb(150 55 92 / 0.65);
 
   /* The same glass, frosted white. The blur is what keeps the sky's warm
-     horizon band from reading as a stain; the old gradient fills did not
-     have it. */
+     horizon band from reading as a stain. */
   --petal-card-bg: linear-gradient(rgb(255 255 255 / 0.62), rgb(255 255 255 / 0.62));
   --tile-bg: linear-gradient(rgb(255 255 255 / 0.58), rgb(255 255 255 / 0.58));
   --tile-bg-active: linear-gradient(rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.8));
@@ -713,7 +709,7 @@
 /* The document wears the scene's own ground, not the app-shell grey. Phone
    browsers resize the viewport a beat after their toolbars animate, and in
    that beat whatever is painted behind the scene shows as a band along the
-   bottom; in the wash it is invisible, in grey it was a "chin". */
+   bottom; in the wash it is invisible, where grey would show as a "chin". */
 html {
   background: var(--color-wash);
 }
@@ -722,8 +718,8 @@ body {
   margin: 0;
   min-width: 320px;
   /* The dynamic viewport, like the scene: on phones 100vh is the toolbars-
-     collapsed height, and the gap between the two showed as a black band
-     under the hills whenever a tap moved the browser chrome. */
+     collapsed height, and the gap between the two shows as a black band
+     under the hills whenever a tap moves the browser chrome. */
   min-height: 100dvh;
   background: var(--color-wash);
 }
@@ -1088,8 +1084,8 @@ p {
 }
 
 /* Outline heading: a page title in stroked letters. Each letter fills rose
-   while the pointer is on it and fades back over a second, as the 2021
-   marquee did. The stroke mixes from the rose token so daybreak repaints it. */
+   while the pointer is on it and fades back over a second. The stroke
+   mixes from the rose token so daybreak repaints it. */
 .outline-heading {
   position: relative;
   left: 50%;
@@ -1105,8 +1101,8 @@ p {
   white-space: nowrap;
   user-select: none;
   /* Text hit-testing follows the font's content area, not the line box; at
-     this line-height that reached 60px past the letters and swallowed the
-     link underneath. Clipping keeps hover and taps to the word itself. */
+     this line-height that reaches 60px past the letters and would swallow
+     the link underneath. Clipping keeps hover and taps to the word itself. */
   overflow: clip;
 }
 

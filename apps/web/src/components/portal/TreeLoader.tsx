@@ -20,7 +20,7 @@ export function TreeLoader({
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   /* The wave dots below are the label's ellipsis; strip any the caller wrote
-     so old "Loading…" strings don't end up double-dotted. */
+     so "Loading…" doesn't end up double-dotted. */
   const labelBase = label.replace(/[.…\s]+$/u, "");
 
   useEffect(() => {

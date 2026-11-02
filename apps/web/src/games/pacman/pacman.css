@@ -1,9 +1,8 @@
 /*
- * The Pac-Man board's own styles, ported from the standalone game's
- * `globals.css`.
+ * The Pac-Man board's own styles.
  *
  * Everything is scoped under `.pacman-game` and the keyframes are prefixed:
- * the upstream names (`.sprite`, `.play`, `.power`, `.volume`) are generic, and
+ * the class names (`.sprite`, `.play`, `.power`, `.volume`) are generic, and
  * the portal keeps its base styles in one global sheet where an unscoped rule
  * would eventually collide with an unrelated screen.
  *
@@ -48,8 +47,7 @@
  * A teleport mouth. The artwork is a small stroked square inside a large glow
  * box: it spans about a third of the SVG's 169px viewBox and the rest is room
  * for the drop-shadow bloom. Drawing the box two cells wide therefore lands the
- * square at roughly two thirds of a tile, about the size the old canvas ring
- * was, and lets the glow spill into the corridor the way a portal should. The
+ * square at roughly two thirds of a tile and lets the glow spill into the corridor the way a portal should. The
  * negative margin re-centres that two-cell box on the one-cell tile `at()`
  * positions it on.
  */

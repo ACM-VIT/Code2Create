@@ -12,7 +12,7 @@ export function DaybreakToggle() {
     if (seenTheme.current === theme) return;
     seenTheme.current = theme;
     turns.current += 1;
-    // oxlint-disable-next-line react/set-state-in-effect -- The orbit answers a theme change from anywhere (the other toggle, storage); it is painted at its old angle, so the transition needs no deferred frame.
+    // The orbit answers a theme change from anywhere (the other toggle, storage); it is painted at its old angle, so the transition needs no deferred frame.
     setAngle((parity.current + turns.current) * 180);
   }, [theme]);
 

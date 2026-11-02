@@ -37,7 +37,7 @@ function makeBurst(): Burst[] {
 }
 
 /**
- * The moment after Submit: a full-screen interstitial where Yash's
+ * The moment after Submit: a full-screen interstitial where a
  * generative branch flowers open over ~4 seconds, a handful of petals
  * burst as the blooms complete, and the whole thing fades into the
  * Submitted screen. Click, Escape, or reduced motion skips straight
@@ -132,7 +132,7 @@ export function SubmitCelebration({ onDone }: { onDone: () => void }) {
     >
       <canvas ref={canvasRef} className="block h-full w-full" />
 
-      {/* The demo's stage vignette, so the branch melts into the dark. */}
+      {/* A stage vignette, so the branch melts into the dark. */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(76%_44%_at_50%_82%,rgb(0_0_0/.88),transparent_72%),linear-gradient(to_top,rgb(0_0_0/.9)_0%,rgb(0_0_0/.34)_34%,transparent_62%),radial-gradient(140%_100%_at_50%_34%,transparent_40%,rgb(0_0_0/.62)_100%)]"

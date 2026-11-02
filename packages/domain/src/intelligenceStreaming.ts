@@ -82,7 +82,6 @@ export function encodeOperationsIntelligenceStreamTicket(
   let binary = "";
   for (const byte of bytes) {
     // These are UTF-8 bytes for btoa, not Unicode scalar values.
-    // oxlint-disable-next-line unicorn/prefer-code-point
     binary += String.fromCharCode(byte);
   }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");

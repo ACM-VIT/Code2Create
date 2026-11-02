@@ -81,7 +81,6 @@ function replayElementIsSensitive(element: Element | undefined) {
     element.getAttribute("autocomplete"),
     element.getAttribute("aria-label"),
     // Element also covers SVGElement, so getAttribute is the portable DOM API here.
-    // oxlint-disable-next-line unicorn/prefer-dom-node-dataset
     element.getAttribute("data-field"),
   ]
     .filter((value): value is string => value !== null)

@@ -9,8 +9,7 @@
  * ------------------------------------------------------------------ */
 
 /* ~1608vh of travel over the weighted 247-unit scroll track. About and the
-   sponsor reveals receive twice the runway; the sponsor exit and every other
-   act keep their original physical scroll pace. */
+   sponsor reveals receive twice the runway of every other act. */
 .journey {
   position: relative;
   height: 1708vh;
@@ -175,7 +174,7 @@
 
 /* The emblem holds its ground while the copy leaves — it is about to
    become the cards, so it must not move. Its left/top/width come from the
-   LOGO table in Cards.jsx, applied by Journey.jsx, so the cards can line
+   LOGO table in cardLayout.ts, applied by Journey.tsx, so the cards can line
    up on it exactly at every breakpoint. */
 .emblem-holder {
   position: absolute;
@@ -305,12 +304,10 @@
   font-weight: 700;
 }
 
-/* Real copy now, several paragraphs of it — sized against width *and* height
-   so the longest chapter always ends above the fanned cards below. */
+/* Sized against width *and* height so the longest chapter always ends above
+   the fanned cards below. */
 .chapter__body {
   margin-top: clamp(10px, 2.6vh, 24px);
-  /* The copy is short now, two brief paragraphs per chapter, so it can afford
-     to be read at a real size and still end well above the fanned cards. */
   font-size: clamp(11px, min(1.35vw, 2.5vh), 17px);
   line-height: 1.5;
   color: #fff;
@@ -366,7 +363,6 @@
   animation-delay: var(--flicker-delay, 0s);
 }
 
-/* The lamp's own halo — a slow burn that keeps dipping and recovering. */
 /* The halo around the paper itself — warm and tight at the mouth. */
 .lantern__glow {
   position: absolute;
@@ -388,7 +384,6 @@
   animation-delay: var(--flicker-delay, 0s);
 }
 
-/* The shaft of light spilling out of the base. */
 /*
  * Light spilling from the lantern's mouth. A flat gradient inside a hard
  * polygon reads as a paper triangle, so this is built the way the light
@@ -853,7 +848,7 @@
     width: clamp(98px, 30vw, 124px);
   }
 
-  /* The design floats the big lamps and their captions over the hills. */
+  /* On phones the big lamps and their captions float over the hills. */
   .lanterns {
     z-index: 6;
   }

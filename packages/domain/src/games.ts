@@ -22,7 +22,7 @@ export const gameCatalog = [
     // The richest seconds in the game are a power-pellet chain: four ghosts for
     // 3,000 in roughly four seconds, so a real run peaks near 750/s and holds
     // nowhere near it for long. A maximum round therefore cannot be claimed in
-    // under ~33s, against the minutes it truly takes.
+    // under ~28s, against the minutes it truly takes.
     maximumScorePerSecond: 750,
   },
   {

@@ -124,7 +124,7 @@ export function RenameTeamCard({
 }
 
 /**
- * Mockup f10: the squad lobby as a full page — big roster, the join code with
+ * The squad lobby as a full page — big roster, the join code with
  * copy/share, and the quiet management links underneath.
  */
 export function TeamLobbyScreen({

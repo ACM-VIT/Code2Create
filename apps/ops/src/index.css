@@ -6928,7 +6928,7 @@ textarea:focus {
 }
 
 /* Between a wide desk and a phone the editor needs the width more than the
-   preview needs a column: the preview drops beneath it, full width. */
+   rail needs a column: the rail becomes a two-column strip above it. */
 @media (max-width: 900px) {
   .email-template-workspace {
     grid-template-columns: minmax(0, 1fr);

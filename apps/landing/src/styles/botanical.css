@@ -1,4 +1,4 @@
-/* Plant + blossom styling, ported from the C2C-Design-test prototype. */
+/* Plant + blossom styling. */
 .plant-shell {
   position: absolute;
   z-index: 3;
@@ -10,7 +10,7 @@
 
 /* The static plate under the blossoms. Kept out of the animated SVG so the
    bloom's per-frame repaints never touch it; stacked between the pot shadow
-   and the vectors, exactly where the in-SVG <image> used to paint. */
+   and the vectors. */
 .plant-base {
   position: absolute;
   z-index: 2;
@@ -242,8 +242,8 @@
   vector-effect: non-scaling-stroke;
 }
 
-/* These used to carry a 0.7px drop-shadow glow each — sub-pixel at the
-   plant's on-screen scale, but two hundred odd filtered elements repainted
+/* No drop-shadow glow on the glands and centres: it would be sub-pixel at the
+   plant's on-screen scale, yet two hundred odd filtered elements would repaint
    on every scrubbed frame. The bright fills carry the glint on their own. */
 
 .nectar-gland {

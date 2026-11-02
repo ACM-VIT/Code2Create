@@ -1,5 +1,5 @@
 /**
- * The bento's grid, as data. The mockup has seven slots; every breakpoint is
+ * The bento's grid, as data. The bento has seven slots; every breakpoint is
  * one named-area template over those slots, and opening a tile swaps in a
  * template where its slot takes the big spot. Which tile sits in which slot
  * is decided by relevance: `composeDashboard` ranks whatever tiles exist and

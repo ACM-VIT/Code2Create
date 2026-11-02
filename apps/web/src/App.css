@@ -124,10 +124,10 @@ code {
 }
 
 /* ------------------------------------------------------------------ *
- * Legacy panels inside the night scene. The event-live bento (f9) and
- * connected-tools page (f11) embed the pre-redesign panels; these scoped
- * overrides re-skin their grey shells to the portal language without
- * touching the panels' logic. The old grey look remains outside scenes.
+ * Shared panels inside the night scene. The event-live dashboard and the
+ * connected-tools page embed the app-shell panels; these scoped overrides
+ * re-skin their grey shells to the portal language without touching the
+ * panels' logic. Outside a scene the panels keep the grey look.
  * ------------------------------------------------------------------ */
 [data-portal-scene] {
   --surface: color-mix(in srgb, var(--color-wash) 45%, transparent);

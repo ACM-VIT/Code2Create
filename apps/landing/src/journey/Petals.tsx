@@ -20,8 +20,7 @@ import { CANOPY_POINTS } from "./canopyPoints.js";
  * The drift is a height map — one depth per column — redrawn from that height
  * map every frame. It is deliberately NOT a baked bitmap that gets carved: a
  * bitmap and a height map drift apart the moment you cut into one of them,
- * which is what left voids hanging under the surface with nothing beneath them.
- * Drawing from the height map every frame makes the mass under the surface
+ * leaving voids hanging under the surface with nothing beneath them. Drawing from the height map every frame makes the mass under the surface
  * solid by construction, so it cannot develop a hole.
  *
  * The map also slumps toward its neighbours each frame, the way a pile of
@@ -95,12 +94,11 @@ function rand(min: number, max: number) {
 }
 
 /*
- * Pre-rendered petal bitmaps, one per quantized tint. Filling the petal's
- * bezier outline petal by petal was the field's main per-frame draw cost;
- * a sprite blit is the same picture for a fraction of it. Twelve tints
- * cover the old continuous rand(-26, 30) shift more finely than the eye
- * reads at these sizes, and the flutter's squish still happens live, as an
- * x-scale on the blit. Supersampled at 32px and drawn down to 6–13.
+ * Pre-rendered petal bitmaps, one per quantized tint. A sprite blit costs a
+ * fraction of filling each petal's bezier outline every frame. Twelve tints
+ * across the -26..30 shift are finer than the eye reads at these sizes, and
+ * the flutter's squish still happens live, as an x-scale on the blit.
+ * Supersampled at 32px and drawn down to 6–13.
  */
 const SPRITE_TINTS = 12;
 const SPRITE_BOX = 32;
@@ -525,8 +523,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       const floor = readFloor();
 
       if (floor) {
-        /* Start on bare ground. The original falling-petal refill system
-           builds the drift instead of raising a synthetic height profile. */
+        /* Start on bare ground; falling refill petals build the drift rather
+           than a synthetic height profile. */
         if (!bedSeeded) {
           bank.fill(0);
           slumped.fill(0);
@@ -706,7 +704,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
     if (MAX) raf = requestAnimationFrame(frame);
 
-    /* Lets a test pump frames: the embedded preview reports the document
+    /* Lets a test pump frames: embedded previews can report the document
        hidden, so the browser never delivers rAF and the field is otherwise
        unobservable there. */
     if (import.meta.env.DEV) {

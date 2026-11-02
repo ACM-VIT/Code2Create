@@ -14,7 +14,7 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
   return output;
 }`;
 
-/** The PR #151 chest renderer, bounded to one reveal and disposed on every exit. */
+/** The chest renderer, bounded to one reveal and disposed on every exit. */
 export async function startBenefitChest({ canvas, art, signal, onReady, onComplete, onFailure }: {
   canvas: HTMLCanvasElement;
   art: HTMLImageElement;

@@ -130,7 +130,6 @@ export function useNoveltyPreview({
       lastSignal.current = signal;
       rememberedSavedSignal.current = { key: requestKey, signal };
       latestReadySignal.current = { key: requestKey, signal };
-      // oxlint-disable-next-line react/set-state-in-effect -- Seed the async novelty state machine from the authoritative saved signal.
       setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);
@@ -259,7 +258,6 @@ export function useNoveltyPreview({
       if (savedRequestKey === requestKey) {
         rememberedSavedSignal.current = { key: requestKey, signal };
       }
-      // oxlint-disable-next-line react/set-state-in-effect -- A reactive backend job has settled.
       setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);
@@ -297,7 +295,6 @@ export function useNoveltyPreview({
       if (savedRequestKey === requestKey) {
         rememberedSavedSignal.current = { key: requestKey, signal };
       }
-      // oxlint-disable-next-line react/set-state-in-effect -- The request result is delivered by the authoritative reactive query.
       setState({ key: requestKey, value: { status: "ready", signal } });
       setPending(null);
       setTrackedRequest(null);

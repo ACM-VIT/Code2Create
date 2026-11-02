@@ -1,4 +1,4 @@
-/* Generated from tree.png: release points along the underside of the
+/* Derived from tree.webp: release points along the underside of the
  * canopy, normalised to the image box. Petals let go from here, so the
  * fall always reads as coming off the tree itself. */
 export const CANOPY_POINTS = [

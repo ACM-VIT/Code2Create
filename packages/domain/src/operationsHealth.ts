@@ -17,7 +17,7 @@ export const operationsHealthSignalKeys = [
   "panels_needing_reviewer",
   "overdue_reviews",
   "expired_reviewer_pages",
-  // Retired on 2026-09-08; kept so stored snapshots and briefs stay readable.
+  // No check produces this key; kept so stored snapshots and briefs stay readable.
   "stale_reviewer_heartbeats",
   "stale_scanner_stations",
   "scanner_queues_awaiting_replay",

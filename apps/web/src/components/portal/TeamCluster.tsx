@@ -44,7 +44,7 @@ function Avatar({
   size?: "sm" | "md";
   className?: string;
 }) {
-  // The mockup's 48px stack crowds a 390px header, so it steps down on mobile.
+  // A 48px stack crowds a 390px header, so it steps down on mobile.
   const box = size === "md" ? "size-10 lg:size-12" : "size-[34px]";
   return (
     <div

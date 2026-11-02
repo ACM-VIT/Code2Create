@@ -22,7 +22,6 @@ type DraftSnapshot = {
 /**
  * The team's checkpoints as a timeline: one section per update, the one
  * that needs writing first, each with its state and window on one line.
- * The forms and the collaborative-draft handling underneath are unchanged.
  */
 export function ProjectCheckpointsPanel({ timezone }: { timezone: string }) {
   const state = useQuery(api.projectCheckpoints.mine, { eventSlug });
@@ -88,7 +87,6 @@ function CheckpointCard({ checkpoint, timezone }: { checkpoint: Checkpoint; time
 
   useEffect(() => {
     if (!remoteDraftChanged || localDraftDirty || busy !== null || operationPending) return;
-    // oxlint-disable-next-line react/set-state-in-effect -- Adopt a newer collaborative draft only after proving the local editor is clean.
     setUpdateText(serverDraft.updateText);
     setFollowUpAnswer(serverDraft.followUpAnswer);
     setLoadedDraft(serverDraft);

@@ -111,7 +111,7 @@ export function PortalScene({
   onSignOut?: () => void;
   tree?: TreePlacement;
   branch?: boolean;
-  /** f0a centres its own large mark in the copy instead of the corner one. */
+  /** `none` is for screens that centre their own large mark in the copy instead of the corner one. */
   logo?: "corner" | "none";
   /** A full-bleed live layer under the artwork — the home screen's GPU sky. */
   backdrop?: ReactNode;

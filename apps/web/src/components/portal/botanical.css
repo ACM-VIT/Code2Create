@@ -235,8 +235,8 @@
   vector-effect: non-scaling-stroke;
 }
 
-/* These used to carry a 0.7px drop-shadow glow each — sub-pixel at the
-   plant's on-screen scale, but two hundred odd filtered elements repainted
+/* No drop-shadow glow on these small parts: at the plant's on-screen scale
+   it would be sub-pixel, yet two hundred odd filtered elements would repaint
    on every animated frame. The bright fills carry the glint on their own. */
 
 .nectar-gland {
