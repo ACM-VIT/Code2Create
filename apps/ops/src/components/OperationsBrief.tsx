@@ -54,7 +54,7 @@ export function OperationsBrief({
         isConvexErrorCode(caught, "OPERATIONS_HEALTH_NOT_READY") ||
         isConvexErrorCode(caught, "OPERATIONS_HEALTH_STALE")
       ) {
-        // The brief is grounded in the event-wide checks, which now refresh only on demand.
+        // The brief is grounded in the event-wide checks, which refresh only on demand.
         requestHealthRefresh({ eventSlug }).catch((refreshCaught: unknown) => {
           setError(readableError(refreshCaught));
         });

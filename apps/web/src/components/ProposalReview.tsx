@@ -74,7 +74,7 @@ function NoveltyHelp({
   const desktop = useDesktop();
   // The desktop popover goes out through a portal. Rendered inside the card
   // it lives in the scene's `main` stacking context, which sits under the
-  // header, so the team circles painted straight across it.
+  // header, so the team circles would paint straight across it.
   const side = placement === "above" ? "top" : "bottom";
   const {
     refs: { setReference, setFloating },

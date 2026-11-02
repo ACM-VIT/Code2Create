@@ -230,7 +230,7 @@ export function ParticipantApp({
   const hasSubmittedApplication = intakeStatus !== null && intakeStatus.applicationState !== null;
   const canContinueWithoutProfileProjection = !canReadProfile && hasSubmittedApplication;
 
-  // ---- f0b · details, with policy consent inline ---------------------------
+  // ---- details, with policy consent inline ---------------------------------
   if (!me.profile?.isComplete && !canContinueWithoutProfileProjection) {
     if (!canReadProfile) {
       return (
@@ -254,7 +254,7 @@ export function ParticipantApp({
     );
   }
 
-  // ---- f12 · everything else, one quiet list -------------------------------
+  // ---- everything else, one quiet list -------------------------------------
   const moreHeader = team ? (
     <>
       <TeamCluster
@@ -326,7 +326,7 @@ export function ParticipantApp({
     );
   }
 
-  // ---- f0c · team start ----------------------------------------------------
+  // ---- team start ----------------------------------------------------------
   if (!team) {
     if (!canJoinTeam) {
       return (
@@ -346,7 +346,7 @@ export function ParticipantApp({
   if (!intakeStatus) return <PortalLoading />;
   const teamEditable = !teamDeadlineReached;
 
-  // ---- f10 · the squad lobby, any time a team exists -----------------------
+  // ---- the squad lobby, any time a team exists -----------------------------
   if (location.pathname === "/team") {
     return (
       <TeamLobbyScreen
@@ -360,7 +360,7 @@ export function ParticipantApp({
     );
   }
 
-  // ---- f1-f6 · home, then the writing flow, full-bleed on the night scene --
+  // ---- home, then the writing flow, full-bleed on the night scene ---------
   if (
     intakeStatus.revisionInProgress &&
     team.currentRole === "lead" &&
@@ -408,8 +408,8 @@ export function ParticipantApp({
     );
   }
 
-  // The queue screen (mockup f7) is a full-bleed night scene, so it renders
-  // outside the panelled shell the post-decision screens still use.
+  // The queue screen is a full-bleed night scene, so it renders outside the
+  // panelled shell the post-decision screens use.
   const queued =
     intakeStatus.applicationState !== null &&
     ["submitted", "under_review"].includes(intakeStatus.applicationState);
@@ -446,7 +446,7 @@ export function ParticipantApp({
   const acceptedFeatures = acceptedPortal;
   const canOpenIntegrations = acceptedFeatures && canReadIntegrations;
 
-  // ---- f11 · connected tools, full-bleed on the scene ----------------------
+  // ---- connected tools, full-bleed on the scene ----------------------------
   if (location.pathname === "/integrations") {
     if (!canOpenIntegrations) return <Navigate replace to="/" />;
     return (
@@ -506,7 +506,7 @@ export function ParticipantApp({
     )
   }
 
-  // ---- f8 / f9 / closed states, full-bleed ---------------------------------
+  // ---- selected, event live and closed states, full-bleed -----------------
   if (
     intakeStatus.applicationState !== null &&
     location.pathname !== "/integrations/github/callback"

@@ -38,7 +38,7 @@ export function lifecycleDuration(startedAt: number) {
   return Math.max(0, Date.now() - startedAt);
 }
 
-export function callbackOperationId(workItemId: string, phase: string) {
+function callbackOperationId(workItemId: string, phase: string) {
   return autonomyOperationId("callback", [workItemId, phase]);
 }
 

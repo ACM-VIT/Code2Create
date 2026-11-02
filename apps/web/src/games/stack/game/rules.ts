@@ -1,11 +1,11 @@
 import type { GameState, QuarterTurn, ShapeType } from "./types";
 
 export const SETTLE_MS = 1000;
-export const LINEAR_SPEED_LIMIT = 0.18;
-export const ANGULAR_SPEED_LIMIT = 0.02;
+const LINEAR_SPEED_LIMIT = 0.18;
+const ANGULAR_SPEED_LIMIT = 0.02;
 export const POINTS_PER_PIECE = 100;
 export const INITIAL_LIVES = 3;
-export const CAMERA_TRIGGER_RATIO = 0.5;
+const CAMERA_TRIGGER_RATIO = 0.5;
 export const AIM_MOVE_STEP = 8;
 
 export const INITIAL_GAME_STATE: GameState = {
@@ -19,10 +19,6 @@ const NEXT_TURN: Record<QuarterTurn, QuarterTurn> = { 0: 1, 1: 2, 2: 3, 3: 0 };
 
 export function rotateQuarterTurn(turn: QuarterTurn): QuarterTurn {
   return NEXT_TURN[turn];
-}
-
-export function clampSpawnX(x: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, x));
 }
 
 export function dropPiece(state: GameState): GameState {
@@ -78,19 +74,6 @@ export function getEndlessCameraTargetY(
 
 export function hasPieceMissed(bodyCenterY: number, failureBoundary: number): boolean {
   return bodyCenterY > failureBoundary;
-}
-
-export function restartGame(): GameState {
-  return { ...INITIAL_GAME_STATE };
-}
-
-export function pickShape(random: number = Math.random()): ShapeType {
-  const normalized = Math.min(0.999999, Math.max(0, random));
-  if (normalized < 0.5) return "logo";
-  if (normalized < 0.75 || normalized >= 0.99) return "petal";
-  if (normalized < 0.8) return "origami";
-  if (normalized < 0.9) return "lantern";
-  return "butterfly";
 }
 
 const SHAPES: readonly ShapeType[] = ["logo", "petal", "origami", "lantern", "butterfly"];

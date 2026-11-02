@@ -1,14 +1,6 @@
-import { CELL, MAZE_COLS, MAZE_ROWS, firstTile, house, key, step, tilesOf, type Dir, type Tile } from "./maze.ts";
+import { MAZE_COLS, MAZE_ROWS, house, key, step, type Dir, type Tile } from "./maze.ts";
 import { SEC } from "./timing.ts";
 import type { Game } from "./state.ts";
-
-/**
- * Ghost house: the two 4x2 pockets either side of centre — rows 8-9 (cols 10-13,
- * open to the left via col 9) and rows 11-12 (cols 11-14, open to the right via
- * col 15). GHOST_SPAWN is the single marker tile below them (row 18, col 12).
- */
-export const GHOST_HOUSE: Tile[] = tilesOf(CELL.GHOST_HOUSE);
-export const GHOST_SPAWN: Tile = firstTile(CELL.GHOST_SPAWN);
 
 /**
  * Arcade ghosts. `tile`: start (all inside the house), `door`: the tile they
@@ -16,8 +8,8 @@ export const GHOST_SPAWN: Tile = firstTile(CELL.GHOST_SPAWN);
  *
  * Each pocket holds its pair on one row, on cols 11 and 13: one against the
  * pocket's closed wall, the other a block further in with a gap between them. Both
- * pockets use the same two columns, so the four line up as two vertical rows
- * rather than the diagonal they used to sit in. A pocket's two ghosts must stay in
+ * pockets use the same two columns, so the four line up as two vertical rows.
+ * A pocket's two ghosts must stay in
  * different columns — a waiting ghost bobs half a tile towards the pocket's other
  * row, so a shared column would have them drift into each other.
  *
@@ -57,14 +49,14 @@ const RELEASE_AFTER_DEATH = [0, 7, 17, 32];
 export const RELEASE_IDLE = 4 * SEC;
 /** Ghost `i` exists once its release count is met or the no-dot timer freed it; before that it's not on the board at all. */
 export const released = (g: Game, i: number) =>
-  i < g.freed || g.eaten.size - g.since >= ((g.since ? RELEASE_AFTER_DEATH : RELEASE)[i] ?? Infinity); // ponytail: a death at 0 dots keeps the start table
+  i < g.freed || g.eaten.size - g.since >= ((g.since ? RELEASE_AFTER_DEATH : RELEASE)[i] ?? Infinity); // a death at 0 dots leaves `since` at 0, so the start table still applies
 
 /** Arcade tie-break order when two directions are equally close to the target. */
 const DIRS: Dir[] = [[-1, 0], [0, -1], [1, 0], [0, 1]];
 const dist2 = (a: Tile, b: Tile) => (a.row - b.row) ** 2 + (a.col - b.col) ** 2;
 const ahead = (g: Game, n: number): Tile => ({ row: g.pos.row + g.dir[0] * n, col: g.pos.col + g.dir[1] * n });
 
-/** Chase targets, indexed like GHOSTS. ponytail: skips Pinky/Inky's facing-up overflow bug. */
+/** Chase targets, indexed like GHOSTS. Unlike the arcade, Pinky and Inky omit its facing-up overflow bug. */
 export const TARGET: ((g: Game) => Tile)[] = [
   (g) => g.pos,
   (g) => ahead(g, 4),
@@ -111,7 +103,7 @@ export function moveGhost(g: Ghost, target: Tile | null): Ghost {
   return { ...g, pos: best.pos, dir: best.dir, out: g.out || !house(best.pos), trail };
 }
 
-/** Next tile on a shortest path (BFS, house allowed). ponytail: greedy steering loops on this map's side-opening house, so eyes path-find. */
+/** Next tile on a shortest path (BFS, house allowed). Eyes path-find because greedy steering loops on this map's side-opening house. */
 function towards(from: Tile, to: Tile): Tile | null {
   const prev = new Map<string, Tile | null>([[key(from), null]]);
   const queue = [from];

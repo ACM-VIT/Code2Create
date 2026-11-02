@@ -1,12 +1,10 @@
 /* ------------------------------------------------------------------ *
- * Code2Create 2026 — design tokens taken from the Figma file
- * "Code2Create-2026 / RSVP Final Screens".
+ * Design tokens
  * ------------------------------------------------------------------ */
 
 :root {
   /* Palette */
   --ink: #0c0004;
-  --ink-card: #0c0104;
   --rose: #d884a2;
   --rose-light: #feb4cb;
   --rose-deep: #a04263;
@@ -16,31 +14,10 @@
   --paper: #f8f8f8;
   --paper-warm: #fefdfe;
 
-  /* Section backdrops. Figma keeps the gradient stops past 100% so the
-     rose never fully lands inside the frame. */
-  --sky-low: linear-gradient(
-    180deg,
-    var(--ink) 70.914%,
-    var(--rose-deep) 115.27%,
-    var(--blush) 141.75%
-  );
-  --sky-high: linear-gradient(
-    180deg,
-    var(--ink) 53.04%,
-    var(--rose-deep) 118.58%,
-    var(--blush) 141.75%
-  );
-
-  /* Type. Recoleta Alt and Canela are licensed faces used in the Figma
-     source; Fraunces and Playfair Display stand in for them here. */
+  /* Type. Fraunces stands in for the licensed Recoleta Alt display face. */
   --font-display: "Fraunces", "Recoleta Alt", ui-serif, Georgia, serif;
   --font-body: "Do Hyeon", "Trebuchet MS", sans-serif;
-  --font-numeral: "Playfair Display", "Canela", ui-serif, Georgia, serif;
   --font-ui: "Geist", ui-sans-serif, system-ui, sans-serif;
-
-  /* The 1280px Figma artboard, expressed as a scalable unit so that
-     absolutely-placed artwork keeps its proportions. */
-  --frame: 1280;
 
   color-scheme: dark;
 }
@@ -129,28 +106,6 @@ ul {
  * Section shell
  * ------------------------------------------------------------------ */
 
-.section {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-}
-
-.section--low {
-  background: var(--sky-low);
-}
-
-.section--high {
-  background: var(--sky-high);
-}
-
-/* Artwork layers never take pointer events or get read out. */
-.art {
-  position: absolute;
-  pointer-events: none;
-  user-select: none;
-  z-index: 0;
-}
-
 .shell {
   position: relative;
   z-index: 2;
@@ -159,7 +114,7 @@ ul {
 }
 
 /* ------------------------------------------------------------------ *
- * Navbar  (Figma 1808:2814 — 1177×75, 2px #d884a2, rgba(0,0,0,.25))
+ * Navbar
  * ------------------------------------------------------------------ */
 
 .navbar {
@@ -302,73 +257,8 @@ ul {
   }
 }
 
-/* ------------------------------------------------------------------ *
- * Falling petals / drifting lanterns
- * ------------------------------------------------------------------ */
-
-.drift {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.drift__petal {
-  position: absolute;
-  top: -8%;
-  width: 12px;
-  height: 12px;
-  background: var(--rose-light);
-  border-radius: 76% 24% 70% 30% / 60% 55% 45% 40%;
-  opacity: 0.75;
-  animation: petal-fall linear infinite;
-}
-
-.drift__lantern {
-  position: absolute;
-  bottom: -22%;
-  width: 46px;
-  animation: lantern-rise linear infinite;
-}
-
-@keyframes petal-fall {
-  0% {
-    transform: translate3d(0, 0, 0) rotate(0deg);
-  }
-  100% {
-    transform: translate3d(var(--drift, 60px), 118vh, 0) rotate(540deg);
-  }
-}
-
-@keyframes lantern-rise {
-  0% {
-    transform: translate3d(0, 0, 0) rotate(-4deg);
-    opacity: 0;
-  }
-  12% {
-    opacity: 0.9;
-  }
-  88% {
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate3d(var(--drift, -50px), -132vh, 0) rotate(6deg);
-    opacity: 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
-  }
-
-  .drift__petal,
-  .drift__lantern {
-    animation: none;
-  }
-
-  .drift {
-    display: none;
   }
 }

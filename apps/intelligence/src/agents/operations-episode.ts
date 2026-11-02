@@ -33,8 +33,8 @@ import {
 import { deliverEpisodeAnalysis, readEpisodeProjection } from "../lib/episodeTransport.ts";
 import { operationsIntelligenceModel } from "../lib/model.ts";
 
-export const operationsEpisodeModel = operationsIntelligenceModel;
-export const operationsEpisodeAgentVersion =
+const operationsEpisodeModel = operationsIntelligenceModel;
+const operationsEpisodeAgentVersion =
   intelligenceAgentDefinition("operations-episode").version;
 
 const emptyInputSchema = v.strictObject({});

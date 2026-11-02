@@ -100,11 +100,11 @@ export function suppressRecoveredChunkException(event: CapturedEvent): boolean {
 
 /** Whether any exception in `event` blames `asset`. */
 function chunkExceptionMentions(event: CapturedEvent, asset: string): boolean {
-  const exceptionList = event.properties?.$exception_list;
+  const exceptionList: unknown = event.properties?.$exception_list;
   if (!Array.isArray(exceptionList)) {
     return false;
   }
-  return exceptionList.some((entry) => {
+  return exceptionList.some((entry: unknown) => {
     if (typeof entry !== "object" || entry === null) {
       return false;
     }

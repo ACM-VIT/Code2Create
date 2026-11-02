@@ -10,9 +10,9 @@ export const dutyMeta: Record<Surface, { key: DutyKey; label: string; icon: Duty
   incidents: { key: "incident", label: "Incidents", icon: "incident" },
 };
 
-export const floorDuties: Surface[] = ["reviews", "attendance", "support"];
+const floorDuties: Surface[] = ["reviews", "attendance", "support"];
 
-export const boardDuties: Surface[] = ["operations", "incidents"];
+const boardDuties: Surface[] = ["operations", "incidents"];
 
 export function splitDuties(surfaces: Surface[]) {
   return {

@@ -1,5 +1,5 @@
 /* Geometry shared by the emblem, the card deck and the GSAP journey. */
-export const LOGO_BOX = { w: 150, h: 163.825 };
+const LOGO_BOX = { w: 150, h: 163.825 };
 
 const CARD_ASPECT = 862 / 560;
 const LOGO_ASPECT = LOGO_BOX.h / LOGO_BOX.w;
@@ -155,7 +155,7 @@ export const FAN = [
 
 export const CARD_RATIO = 560 / 862;
 
-export const FAN_PHONE = [
+const FAN_PHONE = [
   { left: 6.0, top: 76.5, rotate: -18 },
   { left: 21.0, top: 72.5, rotate: -9 },
   { left: 37.0, top: 71.0, rotate: 0 },

@@ -1,5 +1,5 @@
 /**
- * The bento's grid, as data. The mockup has seven slots; every breakpoint is
+ * The bento's grid, as data. The bento has seven slots; every breakpoint is
  * one named-area template over those slots, and opening a tile swaps in a
  * template where its slot takes the big spot. Which tile sits in which slot
  * is decided by relevance: `composeDashboard` ranks whatever tiles exist and
@@ -125,7 +125,7 @@ export const slotAreaClass: Record<Slot, string> = {
 /** What a slot is good at: wide for a headline, tall for a list or a video, box for a summary. */
 export type SlotShape = "wide" | "tall" | "box";
 
-export const slotShape: Record<Slot, SlotShape> = {
+const slotShape: Record<Slot, SlotShape> = {
   hero: "wide",
   feature: "tall",
   rose: "tall",

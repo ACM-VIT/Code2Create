@@ -30,7 +30,7 @@ function journeyState(draft: { stage: string } | null) {
   return { current: 2, headline: "Read it together.", action: "Open the review" };
 }
 
-/** The live tick to the writing deadline — the countdown every ACM portal owes its participants. */
+/** The live tick to the writing deadline. */
 function Countdown({ deadline }: { deadline: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

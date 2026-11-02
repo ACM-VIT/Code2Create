@@ -149,8 +149,6 @@ export default function Board(props: MemoryBoardProps) {
   return props.mode === 'memory-grid' ? <PatternBoard {...props} /> : <PairsBoard {...props} />
 }
 
-/* ------------------------------------------------------------------ pattern */
-
 /**
  * Pattern mode: squares light up, go dark, and are asked for back in any order.
  *
@@ -277,10 +275,8 @@ function PatternBoard({ mode, modes, onModeChange, onRoundStart, onRoundEnd }: M
   )
 }
 
-/* -------------------------------------------------------------------- pairs */
-
 /**
- * Pairs mode: twelve pairs face down on the original five-by-five map, with the
+ * Pairs mode: twelve pairs face down on a five-by-five map, with the
  * event mark holding the centre tile the twenty-four cards leave over.
  *
  * A finished board is scored on how few moves and milliseconds it took — see

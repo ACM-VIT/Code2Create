@@ -1,5 +1,4 @@
 export {
-  areaForPermission,
   availablePermissionAreas,
   bindingName,
   grantSourceName,

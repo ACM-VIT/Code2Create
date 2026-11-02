@@ -245,7 +245,7 @@ export const forStation = query({
     if (!station || station.eventId !== event._id || station.planVersionId !== event.publishedAttendancePlanVersionId) {
       return null;
     }
-    // Outing status follows event scanner access, not the retired station-claim lifecycle.
+    // Outing status follows event scanner access, not a station claim.
     const grants = await matchingPermissionGrantIds(ctx, {
       eventId: event._id, eventAccessSubjectId: subject._id,
       permissionKey: "attendance.scan.execute", scopeType: "event",

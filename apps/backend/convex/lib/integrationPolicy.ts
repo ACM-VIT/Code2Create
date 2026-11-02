@@ -70,8 +70,8 @@ export function integrationPolicyDocumentChecksum(policy: Doc<"integrationPolicy
   if (policy.maxActiveFigmaFilesPerTeam === undefined) {
     return integrationPolicyChecksum(normalized);
   }
-  // Preserve the original checksum format for immutable, pre-Figma-removal records.
-  // Runtime policy inputs remain GitHub-only; legacy fields are not reintroduced there.
+  // Immutable records that carry the stored Figma fields keep their original checksum
+  // format. Runtime policy inputs stay GitHub-only and never include those fields.
   const figmaFreezeAt = optionalTimestamp(policy.figmaFreezeAt, "Legacy Figma freeze time");
   return fingerprintText(JSON.stringify({
     policyVersion: normalized.policyVersion,

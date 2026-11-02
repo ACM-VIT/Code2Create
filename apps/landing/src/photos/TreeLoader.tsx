@@ -4,12 +4,9 @@ import { Plant, createBloomTimeline } from "../timeline/botanical.js";
 import "./loader.css";
 
 /**
- * The portal's loading indicator: the landing page's timeline bonsai, blooming
- * on a clock instead of a scroll. The pot stays planted while the blossoms
- * grow, hold, dissolve and grow again for as long as the wait lasts.
- *
- * 'scene' sits on the PortalScene night sky; 'shell' is the smaller one for
- * the panelled portal surface, with its muted status line.
+ * The site's loading indicator: the botanical bonsai, blooming on a clock
+ * instead of a scroll. The pot stays planted while the blossoms grow, hold,
+ * dissolve and grow again for as long as the wait lasts.
  */
 export function TreeLoader({
   label = "Loading",
@@ -20,7 +17,7 @@ export function TreeLoader({
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   /* The wave dots below are the label's ellipsis; strip any the caller wrote
-     so old "Loading…" strings don't end up double-dotted. */
+     so a "Loading…" label doesn't end up double-dotted. */
   const labelBase = label.replace(/[.…\s]+$/u, "");
 
   useEffect(() => {
@@ -31,8 +28,8 @@ export function TreeLoader({
       if (!shell) return;
       const growth = createBloomTimeline(shell, { moments: false });
 
-      /* The OS setting silences CSS animation globally (index.css), but this
-         timeline is JS-driven — hold it at full bloom instead of playing. */
+      /* Reduced-motion CSS cannot reach this JS-driven timeline — hold it at
+         full bloom instead of playing. */
       if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         growth.progress(1).pause();
         return;

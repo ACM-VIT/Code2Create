@@ -55,7 +55,7 @@ export class TelephonyConfigurationError extends Error {
   }
 }
 
-export const OUTBOUND_CALL_INTRODUCTION =
+const OUTBOUND_CALL_INTRODUCTION =
   "hi, i'm calling on behalf of the code2create team";
 
 export function withOutboundCallIntroduction(script: string) {
@@ -80,7 +80,7 @@ function escapeXml(value: string) {
     .replaceAll("'", "&apos;");
 }
 
-export function requiredHttpsBaseUrl(value: string) {
+function requiredHttpsBaseUrl(value: string) {
   const base = value.trim().replace(/\/+$/u, "");
   if (!base.startsWith("https://")) {
     throw new Error("PUBLIC_BASE_URL must be an HTTPS URL.");
@@ -143,7 +143,7 @@ export function sarvamConfigured(environment: TelephonyEnvironment) {
   );
 }
 
-export function twilioRouteUrl(
+function twilioRouteUrl(
   environment: Pick<TelephonyEnvironment, "PUBLIC_BASE_URL">,
   route: "voice" | "status" | "fallback",
   deliveryId: string,
@@ -479,7 +479,6 @@ function bytesToBase64(bytes: Uint8Array) {
   let binary = "";
   for (const byte of bytes) {
     // These are raw bytes for btoa, not Unicode scalar values.
-    // oxlint-disable-next-line unicorn/prefer-code-point
     binary += String.fromCharCode(byte);
   }
   return btoa(binary);
@@ -492,7 +491,6 @@ function constantTimeEqual(left: string, right: string) {
   let difference = 0;
   for (let index = 0; index < left.length; index += 1) {
     // These inputs are ASCII Base64 signatures, so comparing UTF-16 code units is deliberate.
-    // oxlint-disable-next-line unicorn/prefer-code-point
     difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
   }
   return difference === 0;

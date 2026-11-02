@@ -10,10 +10,6 @@ export function durationLabel(seconds: number) {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
-export function timeLabel(timestamp: number) {
-  return new Date(timestamp).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
 export const musicStateLabels: Record<MusicRequestState, string> = {
   pending: "waiting for the desk",
   approved: "approved",

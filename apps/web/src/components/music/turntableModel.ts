@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.j
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 export const RECORD_CENTER = new THREE.Vector3(-0.64, 0.89, 0);
-export const RECORD_RADIUS = 1.72;
+const RECORD_RADIUS = 1.72;
 
 /** An assembled model: the deck, platter, vinyl, and cueing arm move independently. */
 export function createTurntableModel(

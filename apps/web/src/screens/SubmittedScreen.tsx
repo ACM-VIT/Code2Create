@@ -120,7 +120,7 @@ const applicationCopy: Record<
   },
 };
 
-/** The states the quiet queue screen (mockup f7) covers, before any decision. */
+/** The states the quiet queue screen covers, before any decision. */
 const QUEUED_STATES: readonly ApplicationState[] = [
   "submitted",
   "under_review",
@@ -363,7 +363,7 @@ function SubmittedWorkspace({
     <SubmitCelebration onDone={() => setCelebrating(false)} />
   ) : null;
 
-  // ---- f7 · the quiet queue state ----------------------------------------
+  // ---- the quiet queue state ---------------------------------------------
   // Everything before a decision reads as one still screen; the proposal
   // editor stays one click away rather than sitting open under the hero.
   if (!selected && QUEUED_STATES.includes(application.state)) {
@@ -438,7 +438,7 @@ function SubmittedWorkspace({
     );
   }
 
-  // ---- f9 · event live: the dashboard bento ------------------------------
+  // ---- event live: the dashboard bento -----------------------------------
   if (eventIsLive) {
     return (
       <DashboardLive
@@ -454,7 +454,7 @@ function SubmittedWorkspace({
     );
   }
 
-  // ---- f8 · selected: lanterns rise, the ticket ---------------------------
+  // ---- selected: lanterns rise, the ticket --------------------------------
   if (selected) {
     const offer = application.currentOffer;
     const canRespond =
@@ -776,7 +776,7 @@ function ProposalSummary({
     )
       return;
     if (editing || hasRecoveredDraft) {
-      // oxlint-disable-next-line react/set-state-in-effect -- A newer server revision must surface as a conflict without replacing the operator's local draft.
+      // A newer server revision surfaces as a conflict without replacing the local draft.
       setEditConflict(true);
       return;
     }

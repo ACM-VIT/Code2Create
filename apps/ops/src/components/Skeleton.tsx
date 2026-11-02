@@ -2,7 +2,7 @@ export function SkeletonLine({ width = "100%" }: { width?: string }) {
   return <span className="skeleton-line" style={{ width }} />;
 }
 
-export function SkeletonRow() {
+function SkeletonRow() {
   return (
     <div className="list-row skeleton-row">
       <span className="row-glyph skeleton-block" />

@@ -2,7 +2,7 @@
 
 This is the status of the local event-flow implementation. It does not certify the live event configuration, physical devices, or provider delivery.
 
-The current remaining-work list is [Event follow-up plan](16-event-follow-up-plan.md). Reviewer assessment and provisional panels are prepared once with the event owner from supplied resumes/metadata, then applied through existing roster, profile and panel commands. A resume-analysis service is outside the agreed scope. Event-day configuration is planned setup, not missing implementation.
+Reviewer assessment and provisional panels are prepared once with the event owner from supplied resumes/metadata, then applied through existing roster, profile and panel commands. A resume-analysis service is outside the agreed scope. Event-day configuration is planned setup, not missing implementation.
 
 ## Flow implemented
 
@@ -78,11 +78,11 @@ Six panels with SC leads need 18 SC and 12 JC, leaving 5 SC and 45 JC outside th
 
 ## Validation boundary
 
-Local lifecycle tests cover confirmation and paging retries, active-review locks, rotation, priority/order and call deduplication, routing eligibility, question source/version isolation and settlement, mandatory comments, scoring and exports. The 5 September repository review passed 1,350 tests through the root test command, root lint, and all 16 package typechecks. The current scope, follow-up checks and verification limits are recorded in [Event follow-up plan](16-event-follow-up-plan.md#check-record).
+Local lifecycle tests cover confirmation and paging retries, active-review locks, rotation, priority/order and call deduplication, routing eligibility, question source/version isolation and settlement, mandatory comments, scoring and exports.
 
 A physical rehearsal remains necessary for actual ID/QR scanning, a full five-phone panel, consented voice delivery, loss/recovery of connectivity and the real provider evidence. Local tests and bundle generation do not prove those physical behaviors.
 
-The [check record](16-event-follow-up-plan.md#check-record) distinguishes local verification from deployment and event-day rehearsal. The earlier Figma image-analysis feature has been removed in favor of a link for human review.
+The earlier Figma image-analysis feature has been removed in favor of a link for human review.
 
 ## Competition eligibility and skipped reviews
 

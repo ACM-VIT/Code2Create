@@ -28,7 +28,7 @@ const httpsUrlSchema = z.url().refine((value) => value.startsWith("https://"), {
   message: "Expected an HTTPS URL",
 });
 
-export const updateAssetSchema = z.strictObject({
+const updateAssetSchema = z.strictObject({
   hash: z
     .string()
     .min(43)
@@ -82,7 +82,7 @@ const releaseRecordBase = z.strictObject({
   noUpdate: signedPayloadSchema,
 });
 
-export const updateReleaseRecordSchema = releaseRecordBase.extend({
+const updateReleaseRecordSchema = releaseRecordBase.extend({
   kind: z.literal("update"),
   platforms: z.strictObject({
     ios: z.strictObject({
@@ -96,7 +96,7 @@ export const updateReleaseRecordSchema = releaseRecordBase.extend({
   }),
 });
 
-export const rollbackReleaseRecordSchema = releaseRecordBase.extend({
+const rollbackReleaseRecordSchema = releaseRecordBase.extend({
   kind: z.literal("rollback"),
   directive: signedPayloadSchema,
 });
@@ -107,7 +107,6 @@ export const releaseRecordSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type ReleaseRecord = z.infer<typeof releaseRecordSchema>;
-export type UpdateReleaseRecord = z.infer<typeof updateReleaseRecordSchema>;
 
 export const activationRequestSchema = z.strictObject({
   expectedCurrentReleaseId: releaseIdSchema.nullable(),

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { usePortalTheme } from "../../lib/portalTheme";
 
-// The f1 sky shader from the mockup: drifting fbm cloud colour, a slow
+// The home screen's sky shader: drifting fbm cloud colour, a slow
 // aurora band, and twinkling stars. `day` blends the night palette into
 // first light — stars fade, the aurora warms into a sun haze — and the
 // tick loop eases it, so toggling the theme plays an actual sunrise.
@@ -160,7 +160,7 @@ async function startSky(
 }
 
 /**
- * The live WebGPU sky behind the home screen (mockup f1). Renders nothing on
+ * The live WebGPU sky behind the home screen. Renders nothing on
  * browsers without WebGPU or with reduced motion — the scene's own gradient
  * is the fallback.
  */

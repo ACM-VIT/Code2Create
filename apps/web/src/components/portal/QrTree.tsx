@@ -128,7 +128,7 @@ function growScene(modules: { side: number; dark: boolean[] }, value: string): S
   const tufts: Tuft[] = [];
   let canopyTop = 0;
 
-  // A tapered trunk in ten pieces, leaning and swaying the way the original does.
+  // A tapered trunk in ten pieces, leaning and swaying.
   const trunkPoint = (t: number): Vec => [
     centre + recipe.trunkLean * t * t + 0.3 * recipe.trunkLean * Math.sin(t * Math.PI * 1.5),
     centre + 0.5 * recipe.trunkLean * Math.sin(t * Math.PI * 0.8),

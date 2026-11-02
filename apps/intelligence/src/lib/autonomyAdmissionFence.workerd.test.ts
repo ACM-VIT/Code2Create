@@ -114,8 +114,7 @@ async function waitForTerminalDeliveries(runId: string, expected: number) {
 function createMiniflare() {
   return new Miniflare({
     name: "fence-workerd-test",
-    // Miniflare 4's bundled workerd currently supports this date; the signed
-    // protocol literal exercised by the fixture remains 2026-08-13.
+    // Must not exceed the newest date supported by the pinned Miniflare's bundled workerd.
     compatibilityDate: "2026-05-22",
     compatibilityFlags: ["nodejs_compat"],
     modules: [{ type: "ESModule", path: "index.mjs", contents: bundleCode }],

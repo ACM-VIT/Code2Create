@@ -19,7 +19,7 @@ export type ServiceQueuesTileModel = {
 };
 
 /** The lane draws this many places; a longer line spills into a "+n". */
-export const QUEUE_LANE_CAPACITY = 15;
+const QUEUE_LANE_CAPACITY = 15;
 
 function SakuraBlossom() {
   return (

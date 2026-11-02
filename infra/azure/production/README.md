@@ -57,11 +57,10 @@ ID, entity ID, and exact DLT template are approved and configured.
   `code2create_production` Convex database; and
 - application VM: `vm-c2c-production-app`, `Standard_D32as_v5`.
 
-The VM was resized from `Standard_D8as_v5` after production-shaped traffic
-showed that eight vCPUs did not leave enough headroom and the 16-vCPU shape
-saturated during a large intake burst while PostgreSQL retained headroom. Keep
-the validated 32-vCPU shape unless a separately reviewed infrastructure change
-replaces it.
+Under production-shaped traffic, eight vCPUs did not leave enough headroom and
+a 16-vCPU shape saturated during a large intake burst while PostgreSQL retained
+headroom. Keep the validated 32-vCPU shape unless a separately reviewed
+infrastructure change replaces it.
 
 The backend write ceiling is 16 MiB/s. Convex's self-hosted 4 MiB/s default is
 too low for this schema's event bootstrap and novelty-corpus publication. Keep
@@ -105,7 +104,8 @@ Worker, not in Convex. Configure the Worker secrets `GITHUB_APP_ID`,
 `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` with Wrangler, and point
 the GitHub App's webhook URL at `https://intelligence.c2c.sh/v1/github/webhook`.
 The Convex environment keeps the App ID, private key, and OAuth client values
-for the participant connection flow and no longer holds the webhook secret.
+for the participant connection flow; the webhook secret belongs only to the
+Worker.
 
 The production `posthog-project-token` is stored in the production Key Vault.
 Convex and the intelligence Worker use it with the first-party
@@ -209,8 +209,8 @@ replacement production VM.
 6. Verify the public state contains no event, or an event whose internal and
    external application windows are both closed.
 
-The old wildcard `*.c2c.sh` DNS records are not production routing. Remove them
-when all named production records exist; do not use the wildcard as a fallback.
+Production routing uses only the named records above. Do not add a wildcard
+`*.c2c.sh` record as a fallback.
 
 Cloudflare terminates the public TLS connection before proxying to Caddy. The
 production Caddy configuration therefore disables the ACME TLS-ALPN challenge

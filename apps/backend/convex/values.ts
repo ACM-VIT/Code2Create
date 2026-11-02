@@ -958,7 +958,7 @@ export const attentionCommand = v.union(
     name: v.literal("reviewSubstitutions.markNoShow"),
     panelMemberId: v.id("reviewPanelMembers"),
     expectedPanelVersion: v.number(),
-    // Retired with reviewer clock-in; only present on historical stored proposals.
+    // Nothing checks it; kept so stored proposals stay valid.
     expectedClockInVersion: v.optional(v.number()),
     reason: v.string(),
   }),
@@ -1053,7 +1053,7 @@ export const reviewEvidenceCheckpointFields = {
 
 export const reviewQuestionPolicy = v.object({
   enabled: v.boolean(),
-  /** Retired automatic-refresh interval; existing documents may still carry it. */
+  /** Unused; kept because stored policies may still carry it. */
   refreshSeconds: v.optional(v.number()),
   maximumQuestions: v.number(),
   parallelAnalyses: v.number(),

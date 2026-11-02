@@ -120,7 +120,7 @@ describe("participant assistant phases", () => {
   });
 
   it("keeps the prompt outcome-first and places live context last", () => {
-    const context = '{"participant":{"name":"Ishaan"}}';
+    const context = '{"participant":{"name":"Asha"}}';
     const instructions = participantAssistantInstructions("in_event", context);
     expect(instructions).toContain("ROLE\n");
     expect(instructions).toContain("SUCCESS MEANS\n");

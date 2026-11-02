@@ -257,7 +257,7 @@ export const claimDelivery = internalMutation({
       script = admissionRsvpCallScript(current.team.name, current.offer.expiresAt, current.event.timezone);
     }
     if (delivery.sourceType === "reviewer_shift_reminder") {
-      // Reviewer shift reminders were retired; a delivery queued earlier never dials.
+      // Nothing schedules reviewer shift reminders; a stored delivery is cancelled, never dialed.
       await ctx.db.patch(delivery._id, {
         state: "cancelled", providerErrorCode: "shift_reminder_retired",
         claimExpiresAt: undefined, nextAttemptAt: undefined,
@@ -266,7 +266,7 @@ export const claimDelivery = internalMutation({
       return null;
     }
     if (delivery.sourceType === "reviewer_venue_departure") {
-      // Reviewer venue absence calls were retired; a delivery queued earlier never dials.
+      // Nothing places venue absence calls; a stored delivery is cancelled, never dialed.
       await ctx.db.patch(delivery._id, {
         state: "cancelled", providerErrorCode: "venue_call_retired",
         claimExpiresAt: undefined, nextAttemptAt: undefined,

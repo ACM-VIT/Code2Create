@@ -1,7 +1,6 @@
 import {
   intelligenceRecommendationKinds,
   operationsAutonomyCancellationReasons,
-  operationsAutonomyCallbackStatuses,
   operationsAutonomyModes,
   operationsAutonomyPublicLifecycleOperations,
   operationsAutonomyPublicLifecycleRoles,
@@ -10,7 +9,6 @@ import {
   operationsAutonomyRunPhases,
   operationsAutonomyTriggers,
   operationsHealthAreas,
-  operationsHealthSeverities,
   operationsHealthSignalKeys,
   operationsIntelligenceProtocolVersion,
 } from "@code2create/domain";
@@ -395,28 +393,6 @@ export const autonomyCandidateAdjudicationResultSchema = v.pipe(
   ),
 );
 
-export const autonomyCriticResultSchema = v.pipe(
-  v.strictObject({
-    approvedCandidateIndexes: v.pipe(v.array(nonNegativeInteger), v.maxLength(64)),
-  }),
-  v.check(
-    (result) => uniqueValues(result.approvedCandidateIndexes),
-    "Approved candidate indexes must be unique.",
-  ),
-);
-
-export function validateCriticCandidateIndexes(
-  approvedCandidateIndexes: readonly number[],
-  candidateCount: number,
-) {
-  if (!Number.isSafeInteger(candidateCount) || candidateCount < 0) {
-    throw new Error("The critic candidate count is invalid.");
-  }
-  if (approvedCandidateIndexes.some((index) => index >= candidateCount)) {
-    throw new Error("The critic selected a candidate index outside the reviewed set.");
-  }
-}
-
 export const autonomyLifecycleDataSchema = v.strictObject({
   operation: v.picklist(operationsAutonomyPublicLifecycleOperations),
   phase: v.picklist(operationsAutonomyRunPhases),
@@ -425,10 +401,4 @@ export const autonomyLifecycleDataSchema = v.strictObject({
   durationMs: v.optional(v.pipe(nonNegativeInteger, v.maxValue(24 * 60 * 60 * 1_000))),
 });
 
-export const operationsAutonomyCallbackStatusSchema = v.picklist(
-  operationsAutonomyCallbackStatuses,
-);
-
-export const operationsHealthAreaSchema = v.picklist(operationsHealthAreas);
-export const operationsHealthSeveritySchema = v.picklist(operationsHealthSeverities);
 export const autonomyOperationIdSchema = operationId;

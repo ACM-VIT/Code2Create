@@ -23,9 +23,8 @@ import './stack.css'
  * total across them — the stack resets with each life, so the per-life score on
  * its own would say nothing about how far someone got.
  *
- * The upstream game kept a personal best in `localStorage`. Here the event's
- * leaderboard owns that, so the board reports its total and keeps no score of
- * its own.
+ * The arcade's leaderboard owns the personal best, so the board reports its
+ * total and keeps no score of its own.
  */
 export default function Board({
   onRoundStart,

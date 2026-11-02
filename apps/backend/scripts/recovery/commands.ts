@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-export const backendRoot = fileURLToPath(new URL("../..", import.meta.url));
+const backendRoot = fileURLToPath(new URL("../..", import.meta.url));
 export const workspaceRoot = fileURLToPath(new URL("../../../..", import.meta.url));
 
 function requiredEnvironment(name: string) {

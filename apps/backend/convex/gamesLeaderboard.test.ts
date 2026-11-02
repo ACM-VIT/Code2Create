@@ -20,12 +20,10 @@ const maximumScorePerSecond = 750;
 
 describe("games leaderboard", () => {
   test("removes VIT registration numbers from public names", () => {
-    expect(publicLeaderboardName("Ishaan Deepak Samdani 23BME0453")).toBe(
-      "Ishaan Deepak Samdani",
-    );
-    expect(publicLeaderboardName("ISHITA JOSHI (24BEL0054)")).toBe("ISHITA JOSHI");
-    expect(publicLeaderboardName("25 BCE2114 - Avni Jain")).toBe("Avni Jain");
-    expect(publicLeaderboardName("23BME0453")).toBe("Player");
+    expect(publicLeaderboardName("Asha Ravi Kumar 23BME0001")).toBe("Asha Ravi Kumar");
+    expect(publicLeaderboardName("MIRA DAS (24BEL0002)")).toBe("MIRA DAS");
+    expect(publicLeaderboardName("25 BCE0003 - Kavya Rao")).toBe("Kavya Rao");
+    expect(publicLeaderboardName("23BME0001")).toBe("Player");
   });
 
   test("ranks people rather than rounds, however often one person replays", async () => {

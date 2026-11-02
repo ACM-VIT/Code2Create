@@ -280,7 +280,7 @@ function questionEvidenceChecksum(snapshot: Doc<"reviewQuestionSets">["snapshot"
   ]);
 }
 
-/** The same five questions for every team, one per Review 2 criterion, when generation is off. */
+/** Fixed questions used when generation is off, keyed by rubric criterion; a round asks only those its rubric defines. */
 const fixedReviewQuestions: { criterionKey: string; question: string; reason: string }[] = [
   {
     criterionKey: "technical_completion",

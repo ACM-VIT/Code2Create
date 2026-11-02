@@ -205,7 +205,7 @@ Each query:
 
 Each Vite shell starts with only public event and authentication configuration. Protected screen data starts after the Convex client receives the verified Better Auth token. Reactive queries then keep that data current.
 
-`README.md` and `specs/*.md` are the sole handbook source of truth. The canonical minimal reader is [code2create-specs.theg1239.chatgpt.site](https://code2create-specs.theg1239.chatgpt.site). It uses a simple password for planning access.
+`README.md` and `specs/*.md` are the sole handbook source of truth.
 
 Do not expose generic “read any table” functions.
 

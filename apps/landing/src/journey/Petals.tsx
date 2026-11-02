@@ -5,8 +5,8 @@ import { CANOPY_POINTS } from "./canopyPoints.js";
 /*
  * Sakura petals.
  *
- * One canvas for the whole page, fixed to the viewport. The petals the boughs
- * shed in the FAQ act are the same particles that land in the footer — there is
+ * One canvas for the whole page, fixed to the viewport. The petals that fall
+ * through the journey are the same particles that land in the footer — there is
  * no per-section field and nothing is emitted at the footer's top edge, so the
  * fall carries straight across the boundary.
  *
@@ -20,8 +20,7 @@ import { CANOPY_POINTS } from "./canopyPoints.js";
  * The drift is a height map — one depth per column — redrawn from that height
  * map every frame. It is deliberately NOT a baked bitmap that gets carved: a
  * bitmap and a height map drift apart the moment you cut into one of them,
- * which is what left voids hanging under the surface with nothing beneath them.
- * Drawing from the height map every frame makes the mass under the surface
+ * leaving voids hanging under the surface with nothing beneath them. Drawing from the height map every frame makes the mass under the surface
  * solid by construction, so it cannot develop a hole.
  *
  * The map also slumps toward its neighbours each frame, the way a pile of
@@ -29,16 +28,12 @@ import { CANOPY_POINTS } from "./canopyPoints.js";
  * leaving the straight cut edges a carve would.
  */
 
-type Point = readonly [number, number];
 type Color = readonly [number, number, number];
-export type PetalMode = "none" | "canopy" | "drift" | "path" | "swirl";
-type PetalKind = "fall" | "path" | "swirl";
+type PetalMode = "none" | "canopy" | "drift";
 
 export interface PetalFieldHandle {
   setMode(next: PetalMode): void;
-  setPurge(kind: PetalKind, on: boolean): void;
   setIntensity(value: number): void;
-  setFocus(x: number, y: number): void;
   setWind(value: number): void;
 }
 
@@ -52,7 +47,6 @@ interface PetalsProps {
 
 interface Petal {
   dead: boolean;
-  kind: PetalKind;
   size: number;
   angle: number;
   spin: number;
@@ -61,7 +55,6 @@ interface Petal {
   sway: number;
   terminal: number;
   alpha: number;
-  swirl: number;
   refill: boolean;
   life: number;
   maxLife: number;
@@ -70,11 +63,6 @@ interface Petal {
   y: number;
   vx: number;
   vy: number;
-  fade: number;
-  offset: number;
-  orbit: number;
-  pace: number;
-  t: number;
 }
 
 interface StepCanvas extends HTMLCanvasElement {
@@ -101,57 +89,16 @@ const REFILL_PER_FRAME = 7;
    drift starts behaving like a liquid. */
 const SLUMP = 0.14;
 
-/*
- * The route petals take through the timeline act, in fractions of the frame:
- * down the left edge, along the floor, and up the right. The phone layout —
- * and any screen too tall for the descent — takes the flat single pass across
- * the middle instead; the route always follows the layout, so the phone
- * arrangement (bonsai up top, day card along the bottom) is never crossed by
- * the wide route's floor run. Sampled into a polyline once per resize, with
- * arc length carried along it so petals travel at an even speed rather than
- * sprinting through the straights.
- */
-/* Both routes begin and end well outside the frame, so neither the mouth nor
-   the tail of the stream is ever on screen. */
-/* The climb hugs the right side harder than it used to: the phase card sits
-   inside this loop, and the old climb at ~0.63–0.71 cut into the card's right
-   edge on tablet and small-laptop widths. */
-const PATH_WIDE: readonly Point[] = [
-  [-0.08, -0.1],
-  [0.02, 0.14],
-  [0.05, 0.3],
-  [0.075, 0.62],
-  [0.11, 0.8],
-  [0.2, 0.87],
-  [0.34, 0.885],
-  [0.46, 0.885],
-  [0.6, 0.86],
-  [0.7, 0.72],
-  [0.73, 0.45],
-  [0.77, 0.24],
-  [0.84, 0.16],
-  [0.9, 0.14],
-  [1.08, 0.13],
-];
-const PATH_NARROW: readonly Point[] = [
-  [-0.12, 0.61],
-  [0.2, 0.585],
-  [0.5, 0.58],
-  [0.8, 0.585],
-  [1.12, 0.61],
-];
-
 function rand(min: number, max: number) {
   return min + Math.random() * (max - min);
 }
 
 /*
- * Pre-rendered petal bitmaps, one per quantized tint. Filling the petal's
- * bezier outline petal by petal was the field's main per-frame draw cost;
- * a sprite blit is the same picture for a fraction of it. Twelve tints
- * cover the old continuous rand(-26, 30) shift more finely than the eye
- * reads at these sizes, and the flutter's squish still happens live, as an
- * x-scale on the blit. Supersampled at 32px and drawn down to 6–13.
+ * Pre-rendered petal bitmaps, one per quantized tint. A sprite blit costs a
+ * fraction of filling each petal's bezier outline every frame. Twelve tints
+ * across the -26..30 shift are finer than the eye reads at these sizes, and
+ * the flutter's squish still happens live, as an x-scale on the blit.
+ * Supersampled at 32px and drawn down to 6–13.
  */
 const SPRITE_TINTS = 12;
 const SPRITE_BOX = 32;
@@ -203,33 +150,19 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
   const cfg = useRef<{
     mode: PetalMode;
     intensity: number;
-    focus: Point;
     wind: number;
-    purge: Set<PetalKind>;
   }>({
     mode: "none",
     intensity: 0,
-    focus: [0.5, 0.5],
     wind: 0,
-    purge: new Set(),
   });
 
   useImperativeHandle(ref, () => ({
     setMode(next) {
       cfg.current.mode = next;
     },
-    /* While a kind is purged, petals born to it die fast instead of taking
-       their natural fall — the canvas paints over every act, so this is how
-       the timeline's routed river is kept off the FAQ act entirely. */
-    setPurge(kind, on) {
-      if (on) cfg.current.purge.add(kind);
-      else cfg.current.purge.delete(kind);
-    },
     setIntensity(value) {
       cfg.current.intensity = Math.max(0, Math.min(1, value));
-    },
-    setFocus(x, y) {
-      cfg.current.focus = [x, y];
     },
     setWind(value) {
       cfg.current.wind = value;
@@ -248,7 +181,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
     const petals: Petal[] = Array.from({ length: MAX }, (_, index) => ({
       dead: true,
-      kind: "fall",
       size: 0,
       angle: 0,
       spin: 0,
@@ -257,7 +189,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       sway: 0,
       terminal: 0,
       alpha: 0,
-      swirl: 0,
       refill: false,
       life: 0,
       maxLife: 0,
@@ -266,11 +197,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       y: 0,
       vx: 0,
       vy: 0,
-      fade: 0,
-      offset: 0,
-      orbit: 0,
-      pace: 0,
-      t: 0,
     }));
     let w = 0;
     let h = 0;
@@ -284,99 +210,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     /* Fixed per-column jitter so the crest keeps its shape frame to frame
        instead of boiling. */
     const crest = Float32Array.from({ length: BUCKETS }, () => Math.random());
-
-    /* The timeline route, resampled at even arc length for the current frame. */
-    let route: Point[] = [];
-    let routeCum = new Float64Array();
-    let routeLength = 0;
-
-    const buildRoute = () => {
-      /* The same breakpoint the CSS re-blocks the phone layout at. */
-      const wide = !(w <= 760 || h > w * 1.15);
-
-      /*
-       * The route is viewport fractions, but the navbar is a fixed pixel band —
-       * on short screens the wide route's high run along the top lands right
-       * behind the translucent pill. Clamp every on-screen control point below
-       * the navbar, with room for the stream's lateral spread and wobble, so
-       * the ribbon rides under the header instead of through it. The first
-       * point stays where it is: it is off screen above, and is what keeps the
-       * mouth of the stream out of frame.
-       */
-      const nav = document.querySelector<HTMLElement>(".navbar");
-      const navBottom = nav ? nav.getBoundingClientRect().bottom : h * 0.1;
-      const spread = Math.min(w, h) * 0.055 + 9;
-      const clearFraction = Math.min(0.45, (navBottom + spread + 48) / h);
-      const source: readonly Point[] = (wide ? PATH_WIDE : PATH_NARROW).map((pt, i): Point =>
-        i === 0 ? pt : [pt[0], Math.max(pt[1], clearFraction)],
-      );
-
-      /* Catmull-Rom through the control points, so the corners are curves. */
-      const pts: Point[] = [];
-      for (let i = 0; i < source.length - 1; i += 1) {
-        const p0 = source[Math.max(0, i - 1)];
-        const p1 = source[i];
-        const p2 = source[i + 1];
-        const p3 = source[Math.min(source.length - 1, i + 2)];
-        for (let k = 0; k < 12; k += 1) {
-          const t = k / 12;
-          const t2 = t * t;
-          const t3 = t2 * t;
-          pts.push([
-            0.5 *
-              (2 * p1[0] +
-                (-p0[0] + p2[0]) * t +
-                (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
-                (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3) *
-              w,
-            0.5 *
-              (2 * p1[1] +
-                (-p0[1] + p2[1]) * t +
-                (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
-                (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3) *
-              h,
-          ]);
-        }
-      }
-      pts.push([source[source.length - 1][0] * w, source[source.length - 1][1] * h]);
-
-      route = pts;
-      /* Cumulative arc length per point, so a lookup is a bisect rather than
-         a walk — this runs for every routed petal on every frame. */
-      routeCum = new Float64Array(route.length);
-      for (let i = 1; i < route.length; i += 1) {
-        routeCum[i] =
-          routeCum[i - 1] +
-          Math.hypot(route[i][0] - route[i - 1][0], route[i][1] - route[i - 1][1]);
-      }
-      routeLength = routeCum[route.length - 1] || 0;
-    };
-
-    /** Point and heading a fraction `t` along the route. */
-    const alongRoute = (t: number) => {
-      const target = Math.max(0, Math.min(1, t)) * routeLength;
-      let lo = 1;
-      let hi = route.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (routeCum[mid] < target) lo = mid + 1;
-        else hi = mid;
-      }
-      const a = route[lo - 1];
-      const b = route[lo];
-      if (a === undefined || b === undefined) {
-        const last = route[route.length - 1] ?? [0, 0];
-        return { x: last[0], y: last[1], dx: 1, dy: 0 };
-      }
-      const seg = routeCum[lo] - routeCum[lo - 1] || 1;
-      const f = (target - routeCum[lo - 1]) / seg;
-      return {
-        x: a[0] + (b[0] - a[0]) * f,
-        y: a[1] + (b[1] - a[1]) * f,
-        dx: (b[0] - a[0]) / seg,
-        dy: (b[1] - a[1]) / seg,
-      };
-    };
 
     /*
      * The drift is made of petals, not of a colour. Painting the body as a
@@ -454,7 +287,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       buildTile(dpr);
-      buildRoute();
       bedSeeded = false;
     };
     resize();
@@ -606,12 +438,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     };
 
     const reset = (p: Petal) => {
-      /* Which act this petal belongs to. Petals born for one mode keep their
-         plain-physics fall when the page has moved on to another, so a fast
-         scroll across an act boundary hands the field over instead of
-         teleporting stale petals onto the new route (NaN) or letting the
-         overflow cull bleach the fresh ones. */
-      p.kind = "fall";
       p.size = rand(7, 13);
       p.angle = rand(0, TAU);
       p.spin = rand(-0.55, 0.55) / 60;
@@ -620,7 +446,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       p.sway = rand(0.1, 0.42);
       p.terminal = rand(1.5, 3.1);
       p.alpha = rand(0.5, 0.95);
-      p.swirl = 0;
       p.refill = false;
       p.life = 0;
       p.maxLife = rand(620, 1150);
@@ -656,52 +481,6 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         return;
       }
 
-      if (mode === "path") {
-        /* Strung out along the route, spread either side of it, and each with
-           its own pace so they do not travel as one rigid column. Every spawn
-           lands somewhere along the whole route — never queued at the mouth —
-           so the stream is full from its first frame; latecomers fade in
-           where they appear instead of popping. */
-        p.kind = "path";
-        p.t = rand(-0.02, 1.0);
-        /* Kept tight: the ribbon's spread eats into the card's pocket on
-           every side, so it stays narrower than the route's own margins. */
-        p.offset = rand(-1, 1) * Math.min(w, h) * 0.055;
-        p.pace = rand(0.000075, 0.00019);
-        p.fade = rand(0.45, 0.9);
-        p.alpha = seeding ? p.fade : 0;
-        p.size = rand(6, 12);
-        const at = alongRoute(p.t);
-        p.x = at.x - at.dy * p.offset;
-        p.y = at.y + at.dx * p.offset;
-        p.vx = 0;
-        p.vy = 0;
-        p.maxLife = Infinity;
-        return;
-      }
-
-      if (mode === "swirl") {
-        p.kind = "swirl";
-        const fromLeft = Math.random() < 0.5;
-        p.x = fromLeft ? rand(-0.14, -0.02) * w : rand(1.02, 1.14) * w;
-        p.y = rand(-0.05, 1.05) * h;
-        /* Seeding scatters across the whole frame. Feeding only from the
-           edges leaves the middle of the act empty. */
-        if (seeding) {
-          p.x = rand(-0.1, 1.1) * w;
-          p.y = rand(-0.05, 1.05) * h;
-        }
-        p.vx = (fromLeft ? 1 : -1) * rand(0.5, 1.4);
-        p.vy = rand(-0.3, 0.3);
-        p.swirl = rand(0.45, 1.05) * (fromLeft ? 1 : -1);
-        /* Each petal keeps to its own band of the vortex, so they spread over
-           every radius instead of all being flung to the rim. */
-        p.orbit = rand(0.08, 0.95);
-        /* Long-lived: they are meant to circle the act, not cross it once. */
-        p.maxLife = rand(1400, 2600);
-        return;
-      }
-
       const windy = Math.abs(wind) > 0.35;
       if (windy && Math.random() < 0.55) {
         p.x = wind > 0 ? rand(-0.16, -0.02) * w : rand(1.02, 1.16) * w;
@@ -729,19 +508,11 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
     let seeded = false;
     let lastMode = cfg.current.mode;
     let clock = 0;
-    let lastStamp = 0;
 
     const frame = () => {
       raf = requestAnimationFrame(frame);
       ctx.clearRect(0, 0, w, h);
       clock += 1;
-
-      /* Wall-clock pacing for the routed stream: a scrub-heavy scroll frame
-         (the bonsai act) drops rAF ticks, and per-frame advance would read as
-         the river pausing. Scaled by real elapsed time it keeps its speed. */
-      const now = performance.now();
-      const dtScale = lastStamp ? Math.min(3.5, Math.max(0.5, (now - lastStamp) / 16.667)) : 1;
-      lastStamp = now;
 
       const { mode, intensity, wind } = cfg.current;
       if (mode !== lastMode) {
@@ -752,8 +523,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       const floor = readFloor();
 
       if (floor) {
-        /* Start on bare ground. The original falling-petal refill system
-           builds the drift instead of raising a synthetic height profile. */
+        /* Start on bare ground; falling refill petals build the drift rather
+           than a synthetic height profile. */
         if (!bedSeeded) {
           bank.fill(0);
           slumped.fill(0);
@@ -821,12 +592,9 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
       }
 
       const gust = wind * (1 + Math.sin(clock * 0.006) * 0.35 + Math.sin(clock * 0.021) * 0.12);
-      const cap = mode === "swirl" ? 0.46 : 0.4;
-      const want =
-        mode === "none" ? 0 : Math.min(Math.round(MAX * intensity), Math.round(MAX * cap));
+      const want = mode === "none" ? 0 : Math.min(Math.round(MAX * intensity), Math.round(MAX * 0.4));
       let live = 0;
 
-      const purge = cfg.current.purge;
       for (const p of petals) {
         if (p.dead) continue;
         if (!p.refill) live += 1;
@@ -842,79 +610,8 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
           }
         }
 
-        /* A purged kind dies in a couple of tenths, mid-motion, wherever it
-           is — the fade below keeps the vanishing from reading as a pop. */
-        if (purge.has(p.kind) && !p.refill) {
-          p.alpha *= 0.74;
-          if (p.alpha < 0.05) {
-            p.dead = true;
-            continue;
-          }
-        }
-
-        if (mode === "path" && p.kind === "path" && !p.refill) {
-          /* Carried along the route rather than falling. The drift either side
-             of the line breathes, so the stream reads as loose petals on a
-             current and not as beads on a wire. */
-          if (!purge.has("path") && p.alpha < p.fade) {
-            p.alpha = Math.min(p.fade, p.alpha + 0.035);
-          }
-          p.t += p.pace * dtScale;
-          if (p.t > 1.03) {
-            p.dead = true;
-            continue;
-          }
-          const at = alongRoute(p.t);
-          const wobble = Math.sin(p.phase * 1.7) * 9;
-          const tx = at.x - at.dy * (p.offset + wobble);
-          const ty = at.y + at.dx * (p.offset + wobble);
-          /* Eased toward the target so a resize slides them over rather than
-             teleporting the whole stream. */
-          p.vx = (tx - p.x) * 0.08;
-          p.vy = (ty - p.y) * 0.08;
-          p.x += p.vx;
-          p.y += p.vy;
-          drawPetal(ctx, p);
-          continue;
-        }
-
-        if (mode === "swirl" && p.kind === "swirl" && !p.refill) {
-          const fx = cfg.current.focus[0] * w;
-          const fy = cfg.current.focus[1] * h;
-          const dx = fx - p.x;
-          const dy = fy - p.y;
-          const dist = Math.hypot(dx, dy) || 1;
-          /* Unit vector pointing at the middle of the frame. */
-          const ux = dx / dist;
-          const uy = dy / dist;
-
-          /* Tangential: what actually carries them round. */
-          p.vx += -uy * p.swirl * 0.05;
-          p.vy += ux * p.swirl * 0.05;
-
-          /*
-           * Radial: a *damped* spring onto this petal's own orbit. An
-           * undamped one lets them overshoot outward, and because the
-           * restoring force is weak out there they never come back — they
-           * simply drift off the sides and die, which is why the middle of the
-           * frame emptied out. Damping the radial velocity keeps each petal in
-           * its band, and the bands are spread from near the centre to the rim
-           * so the whole frame stays populated.
-           */
-          const reach = Math.min(w, h) * 0.62;
-          const radialErr = dist - p.orbit * reach;
-          const outward = -(p.vx * ux + p.vy * uy);
-          const accel = radialErr * 0.0022 - outward * 0.08;
-          p.vx += ux * accel;
-          p.vy += uy * accel;
-
-          /* Barely any weight in the swirl: they circle the frame rather than
-             raining through it. */
-          p.vy += GRAVITY * 0.12;
-        } else {
-          p.vy += (p.terminal - p.vy) * GRAVITY;
-          p.vx += Math.sin(p.phase) * p.sway * 0.16;
-        }
+        p.vy += (p.terminal - p.vy) * GRAVITY;
+        p.vx += Math.sin(p.phase) * p.sway * 0.16;
 
         if (!p.refill) p.vx += (gust - p.vx) * 0.012;
         p.vx *= DRAG;
@@ -994,15 +691,11 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
         }
         seeded = true;
       } else if (live > want + 8) {
-        /* Thin out strangers from a previous act first; only when the field is
-           being wound down to nothing does the fade take everyone, so a mode
-           hand-off can never bleach the petals that were just seeded for it.
-           Strangers die fast — the FAQ act must not open under the
-           timeline's river — while a same-kind wind-down keeps some grace. */
-        const takeAll = want === 0;
+        /* Over budget: fade the falling petals out rather than popping them,
+           leaving the drift's refill alone. */
         for (const p of petals) {
-          if (!p.dead && !p.refill && (takeAll || p.kind !== mode)) {
-            p.alpha *= p.kind !== mode ? 0.88 : 0.965;
+          if (!p.dead && !p.refill) {
+            p.alpha *= 0.88;
             if (p.alpha < 0.05) p.dead = true;
           }
         }
@@ -1011,7 +704,7 @@ const Petals = forwardRef<PetalFieldHandle, PetalsProps>(function Petals(
 
     if (MAX) raf = requestAnimationFrame(frame);
 
-    /* Lets a test pump frames: the embedded preview reports the document
+    /* Lets a test pump frames: embedded previews can report the document
        hidden, so the browser never delivers rAF and the field is otherwise
        unobservable there. */
     if (import.meta.env.DEV) {

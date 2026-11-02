@@ -142,7 +142,7 @@ export type GithubRequester = (
 ) => Promise<{ status: number; value: unknown }>;
 
 /** Bounded, versioned GitHub REST access with one bearer token and one deadline per call. */
-export function githubRequester(token: string, request: typeof fetch): GithubRequester {
+function githubRequester(token: string, request: typeof fetch): GithubRequester {
   return async (path, init) => {
     const response = await request(new URL(path, githubApiOrigin), {
       method: init?.method ?? "GET",

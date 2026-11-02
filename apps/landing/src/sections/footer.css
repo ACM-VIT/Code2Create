@@ -1,9 +1,8 @@
 /* ------------------------------------------------------------------ *
- * Footer — Figma node 1681:1289.
+ * Footer
  *
- * No background plates here: the petal drift the design paints in is a
- * live particle field that settles along the floor, and the cursor
- * pushes it about.
+ * No background plates here: the petal drift is a live particle field
+ * that settles along the floor, and the cursor pushes it about.
  * ------------------------------------------------------------------ */
 
 .footer {
@@ -77,8 +76,6 @@
   color: var(--rose-light);
 }
 
-/* ------------------------------------------------------------------ */
-
 .footer__socials {
   position: relative;
   z-index: 3;
@@ -110,7 +107,7 @@
   object-fit: contain;
 }
 
-/* Medium's mark ships as a blue PNG; Figma renders it in #f0f7ff. */
+/* Medium's mark ships as a blue PNG, so it is used as a mask painted #f0f7ff. */
 .footer__mask-icon {
   width: clamp(21px, 2.1vw, 27px);
   aspect-ratio: 1;

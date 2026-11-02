@@ -27,7 +27,7 @@ function requiredEnvironment(name: string) {
   return value;
 }
 
-export function recoveryStorageConfiguration(): RecoveryStorageConfiguration {
+function recoveryStorageConfiguration(): RecoveryStorageConfiguration {
   const region = requiredEnvironment("C2C_RECOVERY_S3_REGION");
   if (region !== "ap-south-1") {
     throw new Error("Recovery objects must use the approved ap-south-1 region.");

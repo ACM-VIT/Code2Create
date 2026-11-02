@@ -9,14 +9,12 @@ allowBuilds:
   "@firebase/util": false
   "@google/genai": false
   "@posthog/cli": true
-  "@vgpu/adapter-node": false
   core-js: false
   core-js-pure: false
   esbuild: true
   protobufjs: false
   sharp: true
   unrs-resolver: true
-  webgpu: false
   workerd: true
 overrides:
   "@babel/core": 7.29.7
@@ -40,48 +38,12 @@ packageExtensions:
       "@expo/config-plugins": 57.0.9
       metro: 0.84.5
 minimumReleaseAgeExclude:
-  - "@expo/cli@57.0.13 || 57.0.20"
-  - "@expo/config-plugins@57.0.7"
-  - babel-preset-expo@57.0.6
-  - expo-asset@57.0.9
-  - expo-file-system@57.0.2 || 57.0.6
-  - expo-modules-core@57.0.10
-  - expo@57.0.11 || 57.0.18
-  - expo-notifications@57.0.9
-  - expo-router@57.0.11
+  - "@expo/cli@57.0.20"
+  - expo-file-system@57.0.6
+  - expo@57.0.18
   - expo-symbols@57.0.2
-  - "@cloudflare/vite-plugin@1.51.1"
-  - miniflare@5.20260801.1-alpha || 5.20260828.0-alpha
+  - miniflare@5.20260828.0-alpha
   - wrangler@4.127.1
-  - "@remotion/bundler@4.0.508"
-  - "@remotion/captions@4.0.508"
-  - "@remotion/cli@4.0.508"
-  - "@remotion/compositor-darwin-arm64@4.0.508"
-  - "@remotion/compositor-darwin-x64@4.0.508"
-  - "@remotion/compositor-linux-arm64-gnu@4.0.508"
-  - "@remotion/compositor-linux-arm64-musl@4.0.508"
-  - "@remotion/compositor-linux-x64-gnu@4.0.508"
-  - "@remotion/compositor-linux-x64-musl@4.0.508"
-  - "@remotion/compositor-win32-x64-msvc@4.0.508"
-  - "@remotion/google-fonts@4.0.508"
-  - "@remotion/licensing@4.0.508"
-  - "@remotion/media-parser@4.0.508"
-  - "@remotion/media-utils@4.0.508"
-  - "@remotion/media@4.0.508"
-  - "@remotion/motion-blur@4.0.508"
-  - "@remotion/noise@4.0.508"
-  - "@remotion/player@4.0.508"
-  - "@remotion/renderer@4.0.508"
-  - "@remotion/streaming@4.0.508"
-  - "@remotion/studio-codemods@4.0.508"
-  - "@remotion/studio-protocol@4.0.508"
-  - "@remotion/studio-server@4.0.508"
-  - "@remotion/studio-shared@4.0.508"
-  - "@remotion/studio@4.0.508"
-  - "@remotion/timeline-utils@4.0.508"
-  - "@remotion/web-renderer@4.0.508"
-  - "@remotion/zod-types@4.0.508"
-  - remotion@4.0.508
   - "@cloudflare/workerd-darwin-64@1.20260828.1"
   - "@cloudflare/workerd-darwin-arm64@1.20260828.1"
   - "@cloudflare/workerd-linux-64@1.20260828.1"
@@ -100,8 +62,6 @@ minimumReleaseAgeExclude:
   - "@ai-sdk/provider-utils@5.0.35"
   - "@ai-sdk/provider@4.0.10"
   - ai@7.0.89
-  - expo-location@57.0.16
-  - expo-task-manager@57.0.16
   - '@kitlangton/rolling-number@0.3.0'
 patchedDependencies:
   "@flue/runtime@2.0.3": patches/@flue__runtime@2.0.3.patch

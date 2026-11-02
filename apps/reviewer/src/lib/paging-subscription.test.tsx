@@ -38,7 +38,7 @@ afterEach(async () => {
 
 test.each([false, true])("real Convex subscription settles without a render loop (denied=%s)", async (denied) => {
   // Keep Convex's real subscription hook. Only replace its network boundary:
-  // a plain mocked useQueries hid the changing-request-identity crash.
+  // a plain mocked useQueries would hide a crash when the request identity changes.
   vi.spyOn(client, "watchQuery").mockReturnValue({
     onUpdate: () => vi.fn(),
     localQueryResult: () => {

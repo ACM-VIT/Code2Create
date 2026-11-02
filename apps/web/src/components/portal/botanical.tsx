@@ -635,7 +635,7 @@ const stamenSpecs: [number, number][] = [
   [278, 8.9],
 ];
 
-export function Blossom({ bloom, index, part = "head" }: BlossomProps) {
+function Blossom({ bloom, index, part = "head" }: BlossomProps) {
   const motionSpec = requiredIndex(flowerMotions, index, "flower motion");
   const dx = bloom.x - bloom.ax;
   const dy = bloom.y - bloom.ay;
@@ -952,7 +952,7 @@ export function Plant() {
     <div className="plant-shell" aria-label="A bonsai growing from buds to full bloom" role="img">
       <div className="plant-aura" aria-hidden="true" />
       {/* The pot-and-trunk plate lives OUTSIDE the animated SVG: inside it,
-          the 400KB raster was re-composited on every scrubbed frame of the
+          the 400KB raster would be re-composited on every scrubbed frame of the
           bloom. As a sibling <img> it rasterizes once and the SVG above it
           repaints only its own vectors. Same box, same contain fit, so the
           geometry is identical (the plate is exactly 387×493, like the
@@ -1046,14 +1046,12 @@ export function Plant() {
 }
 
 /**
- * Builds the growth timeline (ported from the prototype's App component) and
- * hands it back unattached, so the page's master scroll timeline can nest it.
+ * Builds the growth timeline and hands it back unattached, so the page's master scroll timeline can nest it.
  */
 interface BloomTimelineOptions {
   moments?: boolean;
 }
 
-// oxlint-disable-next-line react/only-export-components -- The GSAP timeline and SVG intentionally share one private botanical geometry model.
 export function createBloomTimeline(
   story: HTMLElement,
   { moments = true }: BloomTimelineOptions = {},

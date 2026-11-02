@@ -49,11 +49,6 @@ export type AutonomySupportLeaf = {
   citation: AutonomyCitation;
 };
 
-export type AutonomyCandidateEffectRecord = {
-  effectKey: string;
-  records: Extract<AutonomyEvidenceRecord, { kind: "candidate" }>[];
-};
-
 const encoder = new TextEncoder();
 
 function hexadecimal(bytes: Uint8Array) {

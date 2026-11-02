@@ -1,12 +1,10 @@
-/* ============================================================
-   The submission bloom — Yash Raj Singh's generative branch of
-   double-flowered pink blooms (25+ petals per bloom), adapted from
-   his scroll-driven hero into a timed one-shot celebration.
+/* The submission bloom: Yash Raj Singh's generative branch of
+   double-flowered pink blooms (25+ petals per bloom), played as a timed
+   one-shot celebration.
 
    Everything here is generated: petal surfaces, whorl packing,
    the stem spline, the leaves. Nothing is loaded from a model.
-   Loaded lazily; three.js only ships when a submission succeeds.
-   ============================================================ */
+   Loaded lazily; three.js only ships when a submission succeeds. */
 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
@@ -14,7 +12,6 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 
-/* ---------- helpers ----------------------------------------- */
 type NumberProfile = readonly [number, number, ...number[]];
 
 type PetalGeometryOptions = {
@@ -92,7 +89,6 @@ function profile(table: NumberProfile, t: number) {
   );
 }
 
-/* ---------- one petal --------------------------------------- */
 /**
  * A lofted surface rather than a flat card: obovate outline with a
  * notch at the tip, cupped across its width, curled back along
@@ -166,7 +162,6 @@ const PETAL_W: NumberProfile = [0.05, 0.17, 0.31, 0.44, 0.53, 0.58, 0.57, 0.5, 0
 /* leaf: lanceolate, pointed */
 const LEAF_W: NumberProfile = [0.03, 0.13, 0.2, 0.24, 0.25, 0.23, 0.18, 0.12, 0.06, 0.015];
 
-/* ---------- whorl packing ----------------------------------- */
 /**
  * Five whorls, each smaller and steeper than the last, each rotated
  * off the one below so no petal sits directly behind another. That
@@ -216,7 +211,6 @@ function whorlPetals(): PetalDescriptor[] {
 const PITCH_CLOSED = 94 * DEG;
 const UNFURL = 0.2;
 
-/* ---------- the branch spline ------------------------------- */
 /**
  * One long arc across the frame plus a couple of side twigs. Bloom
  * anchors ride the arc; each carries an outward direction so the
@@ -335,7 +329,6 @@ function branch() {
   return { geoms, blooms, leaves, spine };
 }
 
-/* ---------- merge helper ------------------------------------ */
 function mergeGeoms(geoms: readonly THREE.BufferGeometry[]) {
   let vc = 0;
   let ic = 0;
@@ -374,7 +367,6 @@ function mergeGeoms(geoms: readonly THREE.BufferGeometry[]) {
   return out;
 }
 
-/* ---------- WebGL guard ------------------------------------- */
 /**
  * A blocked or disabled WebGL context makes three.js log two console
  * errors and then throw when it builds the renderer. The caller already
@@ -395,9 +387,6 @@ function assertWebGLAvailable() {
   context.getExtension("WEBGL_lose_context")?.loseContext();
 }
 
-/* ============================================================
-   scene
-   ============================================================ */
 export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
   assertWebGLAvailable();
 
@@ -575,7 +564,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     );
   }
 
-  /* --- camera: a single push through the branch across the hero --- */
+  /* --- camera: a single push through the branch --- */
   const shots: readonly [Shot, ...Shot[]] = [
     { p: 0.0, pos: [-0.9, 2.8, 16.2], look: [0.1, 4.2, 0], fov: 34, roll: 0 },
     { p: 0.42, pos: [-0.2, 3.2, 13.2], look: [0.7, 4.1, 0], fov: 34, roll: -0.01 },
@@ -623,7 +612,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
     };
   }
 
-  /* --- state: a play clock instead of the page scroll ---------------- */
+  /* --- state: driven by a play clock --- */
   /* heroT eases toward BLOOM_HOLD across `playMs`, so the camera pushes in
      and the branch flowers fully without ever entering the exit range. */
   const BLOOM_HOLD = 0.68;
@@ -697,8 +686,7 @@ export function createFlowerScene(canvas: HTMLCanvasElement): FlowerScene {
       camera.updateProjectionMatrix();
     }
 
-    /* the branch drifts out of frame once the hero is behind you */
-    /* once the hero is behind you the branch clears the frame entirely */
+    /* past 0.78 the branch clears the frame; play holds short of it at BLOOM_HOLD */
     const exit = smooth(clamp((shown - 0.78) / 0.2, 0, 1));
     group.position.y = exit * 16;
     group.position.x = exit * -4;

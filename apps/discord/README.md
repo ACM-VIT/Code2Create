@@ -1,7 +1,7 @@
 # Discord support bridge
 
 This service mirrors Convex support cases into the Code2Create Discord server. The operations
-dashboard remains the source of truth and keeps its existing workflows. Each case receives one
+dashboard remains the source of truth. Each case receives one
 private text channel in an open support category. Resolving or closing a case moves that channel
 to a closed support category; reopening it moves the channel back. The configured categories are
 the first category and permission template for each state. When one reaches Discord's 50-channel

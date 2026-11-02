@@ -1,23 +1,19 @@
 /*
  * The stacking game's styles, scoped to the board.
  *
- * Upstream this was a standalone app's global stylesheet: it painted
- * `body`, set a page font size and claimed generic class names like
- * `.action-button`. Inside the portal that would restyle every screen, so
- * every rule here is nested under `.stack-game`, the palette moved off
- * `:root` onto the board, and the `html`/`body`/`*` rules are gone.
+ * Every rule is nested under `.stack-game` and the palette lives on the
+ * board rather than `:root`, so generic class names like `.action-button`
+ * never restyle the rest of the portal.
  */
 
 .stack-game {
   --viewport-gap: clamp(8px, 2vmin, 22px);
   --page-light: #f9edf2;
   --page-pink: #edcfdd;
-  --page-plum: #9a496e;
   --game-black: #050305;
   --playfield-black: #000;
   --sakura: #e783ad;
   --sakura-bright: #f2a8c8;
-  --sakura-deep: #b34676;
   --ink: #f8f8f8;
   --muted: #e4b9cc;
   --outline: rgba(231, 131, 173, .58);
@@ -205,8 +201,6 @@
   cursor: default;
   touch-action: none;
 }
-
-.stack-game .game-canvas { display: block; width: 100%; height: 100%; }
 
 .stack-game .pieces-layer {
   position: absolute;
@@ -435,8 +429,7 @@
   text-transform: uppercase;
 }
 
-.stack-game .game-menu p,
-.stack-game .score-details {
+.stack-game .game-menu p {
   color: #58152f;
   font-size: .9rem;
   line-height: 1.45;
@@ -449,11 +442,7 @@
   text-shadow: 0 1px rgba(255, 224, 235, .82), 0 -1px rgba(82, 17, 44, .38);
 }
 
-.stack-game .end-actions { display: grid; gap: 10px; }
-
 .stack-game .menu-continue-button { width: 100%; margin-top: 10px; }
-
-.stack-game .score-details { margin-bottom: 18px; }
 
 .stack-game .action-button,
 .stack-game .icon-button {

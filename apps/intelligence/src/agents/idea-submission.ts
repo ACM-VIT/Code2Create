@@ -39,7 +39,7 @@ import {
 } from "../lib/ideaTransport.ts";
 import { searchPublicIdeaContext } from "../lib/ideaWebSearch.ts";
 
-export const ideaSubmissionAgentVersion = intelligenceAgentDefinition("idea-submission").version;
+const ideaSubmissionAgentVersion = intelligenceAgentDefinition("idea-submission").version;
 
 const completedOutputSchema = v.strictObject({
   completed: v.literal(true),

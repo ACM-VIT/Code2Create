@@ -1,4 +1,4 @@
-export const JOURNEY_MASTER_DURATION = 151;
+const JOURNEY_MASTER_DURATION = 151;
 
 export const JOURNEY_SCROLL_SEGMENTS = [
   { from: 0, to: 14, distanceScale: 1 },
@@ -8,7 +8,7 @@ export const JOURNEY_SCROLL_SEGMENTS = [
   { from: 142, to: JOURNEY_MASTER_DURATION, distanceScale: 1 },
 ] as const;
 
-export function journeyScrollTime(masterTime: number) {
+function journeyScrollTime(masterTime: number) {
   const bounded = Math.max(0, Math.min(JOURNEY_MASTER_DURATION, masterTime));
 
   return JOURNEY_SCROLL_SEGMENTS.reduce((total, segment) => {

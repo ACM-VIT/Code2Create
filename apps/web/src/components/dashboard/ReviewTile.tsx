@@ -7,10 +7,12 @@ import { LiveNumber } from "../LiveNumber";
 import { Flower } from "../portal/FlowerAvatar";
 import { PortalButton } from "../portal/PortalButton";
 import { QrTree } from "../portal/QrTree";
-import type { TeamReviewCodeRequest } from "./ReviewCode";
 import { Tile, TileEyebrow } from "./Tile";
 import type { Slot } from "./dashboardLayout";
 import { hiddenWhenShort } from "./tileClasses";
+
+type MintedReviewCode = { payload: string; manualCode: string; expiresAt: number; serverNow: number };
+type TeamReviewCodeRequest = { sessionId: string; mint: () => Promise<MintedReviewCode> };
 
 export type ReviewTileModel = {
   round: string;
@@ -96,7 +98,7 @@ function RingGlyph({
   );
 }
 
-type TeamReviewCode = Awaited<ReturnType<TeamReviewCodeRequest["mint"]>> & { receivedAt: number };
+type TeamReviewCode = MintedReviewCode & { receivedAt: number };
 
 function useSecondsLeft(code: TeamReviewCode | null) {
   const [now, setNow] = useState(() => performance.now());

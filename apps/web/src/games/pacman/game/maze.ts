@@ -40,8 +40,6 @@ export const cellAt = (row: number, col: number): CellCode => MAZE[row]?.[col] ?
 /** Paired tunnel openings, as {x: col, y: row} endpoints. */
 export const TELEPORTS = level.teleports;
 
-export const NUM_GHOSTS = level.numGhosts;
-
 /** Cells outside the grid count as open so the outer border draws an outline. */
 export function isWall(row: number, col: number): boolean {
   if (row < 0 || row >= MAZE_ROWS || col < 0 || col >= MAZE_COLS) return false;

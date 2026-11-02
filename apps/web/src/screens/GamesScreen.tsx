@@ -48,8 +48,6 @@ export function standingOf(board: BoardView | undefined): Standing {
 
 const points = new Intl.NumberFormat('en-IN')
 
-/* ------------------------------------------------------------------ layout */
-
 /**
  * The arcade's frame: the heading, the three cabinets in a row, the standings
  * beneath them. Separate from the queries so the screen gallery can show it
@@ -89,8 +87,6 @@ export function ArcadeView({
     </PortalScene>
   )
 }
-
-/* ------------------------------------------------------------------ scenes */
 
 const art = '/games'
 
@@ -136,8 +132,6 @@ const scenes: Partial<Record<GameKey, ReactNode>> = {
     </div>
   ),
 }
-
-/* ------------------------------------------------------------------- tiles */
 
 /**
  * The cabinet a game is picked from: a still from the game, its name and a
@@ -202,8 +196,6 @@ function GameTileLive({ game, onPlay }: { game: GameEntry; onPlay: () => void })
   const board = useQuery(api.games.leaderboard, { eventSlug, gameKey })
   return <GameTile game={game} standing={standingOf(board)} onPlay={onPlay} />
 }
-
-/* -------------------------------------------------------------- standings */
 
 /**
  * The list of boards, one row each. A game played more than one way shows its
@@ -348,7 +340,7 @@ function StandingsColumnLive({ boards }: { boards: readonly BoardRef[] }) {
  * grid always holds five places, empty ones drawn faint, so the panel keeps
  * its height whichever board is showing.
  */
-export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
+function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
   const entries = board?.entries.slice(0, leaderboardDepth) ?? []
   const slots = Array.from({ length: leaderboardDepth }, (_, index) => entries[index] ?? null)
   const note =
@@ -404,8 +396,6 @@ export function LeaderboardPanel({ board }: { board: BoardView | undefined }) {
     </div>
   )
 }
-
-/* ------------------------------------------------------------------ screen */
 
 /**
  * The arcade.

@@ -1,4 +1,4 @@
-import { PERFECT_MOVES } from "./engine.ts";
+import { PAIR_COUNT } from "./engine.ts";
 
 /**
  * Turning a finished board into the one number the arcade ranks.
@@ -13,8 +13,8 @@ import { PERFECT_MOVES } from "./engine.ts";
  * completed the board should be told they scored nothing.
  */
 export const PERFECT_SCORE = 5_000;
-export const MOVE_COST = 40;
-export const SECOND_COST = 5;
+const MOVE_COST = 40;
+const SECOND_COST = 5;
 export const MINIMUM_FINISHED_SCORE = 100;
 
 /**
@@ -32,7 +32,7 @@ export function roundScore({
   moves: number;
   milliseconds: number;
 }): number {
-  const extraMoves = Math.max(0, Math.floor(moves) - PERFECT_MOVES);
+  const extraMoves = Math.max(0, Math.floor(moves) - PAIR_COUNT);
   const timeCost = (Math.max(0, milliseconds) / 1_000) * SECOND_COST;
   const spent = extraMoves * MOVE_COST + timeCost;
   return Math.max(MINIMUM_FINISHED_SCORE, Math.round(PERFECT_SCORE - spent));

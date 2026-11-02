@@ -129,9 +129,9 @@ test("a request owed a reply turns critical once the desk has been silent for an
 test("the excerpt drops the Guide routing prefix and cuts on a word", () => {
   assert.deepEqual(
     supportExcerpt(
-      "Guide handoff: Participant Divyam says they registered with 5 people.\n\nMore.",
+      "Guide handoff: Participant Rohan says they registered with 5 people.\n\nMore.",
     ),
-    { text: "Participant Divyam says they registered with 5 people. More.", viaGuide: true },
+    { text: "Participant Rohan says they registered with 5 people. More.", viaGuide: true },
   );
   const long = supportExcerpt("one two three four five six seven eight nine ten eleven twelve", 30);
   assert.equal(long.text, "one two three four five six…");
@@ -175,7 +175,7 @@ test("the status list starts with the current state and only offers allowed move
 });
 
 test("the thread tells Guide notes and system events apart from people", () => {
-  assert.equal(supportMessageRole({ kind: "opened", actorName: "Divyam" }), "reporter");
+  assert.equal(supportMessageRole({ kind: "opened", actorName: "Rohan" }), "reporter");
   assert.equal(supportMessageRole({ kind: "public_note", actorName: "Desk" }), "staff");
   assert.equal(supportMessageRole({ kind: "internal_note", actorName: "Desk" }), "internal");
   assert.equal(
@@ -218,7 +218,7 @@ test("the thread tells Guide notes and system events apart from people", () => {
     "desk note",
   );
   assert.equal(
-    supportMessageTag({ kind: "reporter_reply", actorName: "Divyam", body: "hi" }),
+    supportMessageTag({ kind: "reporter_reply", actorName: "Rohan", body: "hi" }),
     "wrote back",
   );
 });

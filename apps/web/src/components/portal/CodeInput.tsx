@@ -63,7 +63,6 @@ export function CodeInput({
       .catch(() => {});
     return () => controller.abort();
     // `accept` reads the latest callbacks through a ref.
-    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [disabled, enableSmsWebOtp, length]);
 
   const digits = value.replace(/\D/gu, "").slice(0, length);

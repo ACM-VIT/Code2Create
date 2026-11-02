@@ -16,6 +16,7 @@ facet, the wordmark cascading in, then the end card.
 ```sh
 pnpm dev:trailer      # Remotion Studio at the printed port
 pnpm render:trailer   # writes out/trailer.mp4
+pnpm --filter @code2create/trailer render:reel   # writes out/reel.mp4, the 1080x1920 cut
 ```
 
 Every beat is timed in `src/theme.ts` (`T`). Change a number there and the
@@ -37,8 +38,7 @@ cut lands on frame 458.
 
 ## Assets
 
-`public/` holds the brand art pulled from the Code2Create 2026 Figma file:
-the transparent blossom tree, the hills panorama, one high-resolution petal
-(`petal-hero.png`, full size; `petal.png`, downsized for the field), and a
-sky lantern photo. The logo and wordmark are inlined as SVG paths in
+`public/` holds the brand art: the transparent blossom tree, the hills
+panorama, one high-resolution petal (`petal-hero.png`, full size;
+`petal.png`, downsized for the field), and a sky lantern photo. The logo and wordmark are inlined as SVG paths in
 `src/components/` so each facet and glyph animates on its own beat.

@@ -286,8 +286,8 @@ const projectVersionFields = {
     submittedAt: v.number(),
   };
 
-// Reviewer venue confirmation calls were retired; these match the rows that
-// outboundCallDeliveries and outboundCallProviderEvents still hold.
+// Nothing places reviewer venue confirmation calls. These shapes are kept so stored
+// outboundCallDeliveries and outboundCallProviderEvents rows stay valid.
 const retiredVenueConfirmation = v.object({
   appId: v.string(),
   appVersion: v.number(),
@@ -3020,7 +3020,7 @@ export default defineSchema({
     sequence: v.number(),
     status: reviewRoundStatus,
     reviewerReportAt: v.number(),
-    // Retired with reviewer clock-in; only present on historical rounds.
+    // Nothing reads or writes it; kept so stored rounds stay valid.
     clockInOpensAt: v.optional(v.number()),
     noShowGraceSeconds: v.number(),
     startsAt: v.number(),
@@ -3115,7 +3115,7 @@ export default defineSchema({
     productDomains: v.array(v.string()),
     languages: v.array(v.string()),
     criterionKeys: v.array(v.string()),
-    // Legacy storage only; training is no longer part of reviewer readiness.
+    // Not part of reviewer readiness; kept so stored profiles stay valid.
     trainingStatus: v.optional(v.union(v.literal("pending"), v.literal("complete"), v.literal("blocked"))),
     status: v.union(v.literal("active"), v.literal("inactive")),
     version: v.number(),
@@ -3650,7 +3650,7 @@ export default defineSchema({
     eventId: v.id("events"),
     personId: v.id("people"),
     purpose: v.union(v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
-      // Retired venue absence calls; historical rows only.
+      // Nothing places venue absence calls; kept so stored rows stay valid.
       v.literal("reviewer_venue_absence"),
     ),
     destinationPhoneE164: v.optional(v.string()),
@@ -3672,17 +3672,17 @@ export default defineSchema({
       v.literal("review_team_notice"),
       v.literal("participant_outing"),
       v.literal("reviewer_shift_reminder"),
-      // Retired venue absence calls; historical rows only.
+      // Nothing places venue absence calls; kept so stored rows stay valid.
       v.literal("reviewer_venue_departure"),
     ),
     sourceId: v.string(),
     shiftReminder: v.optional(v.object({ confirmationVersion: v.number(), shiftStartsAt: v.number() })),
     purpose: v.union(v.literal("reviewer_shift_reminder"), v.literal("reviewer_substitute_page"), v.literal("participant_event_update"),
-      // Retired venue absence calls; historical rows only.
+      // Nothing places venue absence calls; kept so stored rows stay valid.
       v.literal("reviewer_venue_absence"),
     ),
     destinationPhoneE164: v.optional(v.string()),
-    // Retired venue confirmation fields; historical rows only.
+    // Nothing writes venue confirmation fields; kept so stored rows stay valid.
     venueConfirmation: v.optional(retiredVenueConfirmation),
     venueResponse: v.optional(retiredVenueResponseSummary),
     responseEventId: v.optional(v.id("outboundCallProviderEvents")),
@@ -3727,7 +3727,7 @@ export default defineSchema({
     ),
     providerCallId: v.optional(v.string()),
     providerErrorCode: v.optional(v.string()),
-    // Retired venue confirmation transcript; historical rows only.
+    // Nothing writes venue confirmation transcripts; kept so stored rows stay valid.
     venueResponse: v.optional(
       v.object({
         ...retiredVenueResponseSummary.fields,
@@ -4067,7 +4067,7 @@ export default defineSchema({
     requiredGitHubTopic: v.string(),
     maxActiveGitHubRepositoriesPerTeam: v.number(),
     githubFreezeAt: v.optional(v.number()),
-    // Retained for existing policy records; new policies no longer configure Figma.
+    // Policies do not configure Figma; kept so existing policy records stay valid.
     maxActiveFigmaFilesPerTeam: v.optional(v.number()),
     figmaFreezeAt: v.optional(v.number()),
     checksum: v.string(),
@@ -5201,6 +5201,7 @@ export default defineSchema({
       v.object({
         kind: v.literal("copilot"),
         conversationId: v.string(),
+        /** Recommendations without citations are rejected at the boundary. */
         citations: v.array(intelligenceRecommendationCitation),
       }),
       v.object({
@@ -5213,7 +5214,6 @@ export default defineSchema({
     /** One sentence describing the effect of approval. */
     statement: v.string(),
     reasoning: v.string(),
-    /** Recommendations without citations are rejected at the boundary. */
     status: intelligenceRecommendationStatus,
     agentVersion: v.string(),
     model: v.string(),
@@ -5286,7 +5286,6 @@ export default defineSchema({
     /** Prefilled command data; execution still rechecks authorization and current state. */
     proposal: v.optional(attentionProposal),
     state: attentionItemState,
-    /** Number of times the condition has recurred. */
     recurrenceCount: v.number(),
     firstObservedAt: v.number(),
     lastObservedAt: v.number(),

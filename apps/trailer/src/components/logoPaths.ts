@@ -1,6 +1,6 @@
 import { COLORS } from "../theme.ts";
 
-// Paths copied from brand asset node 942:967.
+// Vector paths copied from the Code2Create brand logo asset.
 export const LOGO_VIEWBOX = "0 0 104.99 114.677";
 
 export const RIM =
