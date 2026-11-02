@@ -80,8 +80,8 @@
     "@aws-sdk/client-pinpoint-sms-voice-v2": "^3.1123.0",
     "@aws-sdk/client-s3": "^3.1120.0",
     "@aws-sdk/s3-request-presigner": "^3.1120.0",
-    "@better-auth/core": "1.6.30",
-    "@better-auth/expo": "~1.6.30",
+    "@better-auth/core": "1.6.33",
+    "@better-auth/expo": "~1.6.33",
     "@code2create/domain": "workspace:*",
     "@convex-dev/agent": "^0.7.1",
     "@convex-dev/aggregate": "^0.3.0",
@@ -91,7 +91,7 @@
     "@convex-dev/workpool": "^0.4.10",
     "@noble/hashes": "^2.4.0",
     "ai": "^7.0.89",
-    "better-auth": "~1.6.30",
+    "better-auth": "~1.6.33",
     "convex": "^1.45.0",
     "convex-helpers": "^0.1.123",
     "fflate": "^0.8.2",
@@ -102,7 +102,7 @@
     "passkit-generator": "^3.5.8",
     "posthog-node": "^5.51.6",
     "qrcode": "^1.5.4",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^26.4.0",
@@ -110,7 +110,7 @@
     "convex-test": "0.0.56",
     "tsx": "4.23.5",
     "typescript": "~7.0.2",
-    "vite": "^8.2.2",
-    "vitest": "4.1.11"
+    "vite": "^8.3.5",
+    "vitest": "4.1.12"
   }
 }

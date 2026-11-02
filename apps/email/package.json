@@ -31,13 +31,13 @@
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1126.0",
     "@code2create/domain": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260828.1",
     "oxlint": "^1.80.0",
     "typescript": "~7.0.2",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "wrangler": "^4.127.1"
   }
 }
