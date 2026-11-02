@@ -61,7 +61,7 @@
     "@webgpu/types": "^0.1.72",
     "oxlint": "^1.80.0",
     "typescript": "~7.0.2",
-    "vite": "^8.2.2",
+    "vite": "^8.3.5",
     "wrangler": "^4.127.1"
   }
 }

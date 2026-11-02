@@ -18,30 +18,56 @@ allowBuilds:
   workerd: true
 overrides:
   "@babel/core": 7.29.7
+  "@hono/node-server": 2.1.5
+  "@modelcontextprotocol/client": 2.4.0
+  "@modelcontextprotocol/sdk": 1.32.2
+  "@modelcontextprotocol/server": 2.4.0
   "@react-native/metro-config": 0.86.3
-  "plist>@xmldom/xmldom": 0.9.12
-  decode-uri-component: 0.5.0
+  body-parser: 2.4.0
+  "brace-expansion@5": 5.0.12
+  compression: 1.8.2
+  decode-uri-component: 0.5.1
   esbuild: 0.28.1
-  fast-uri: 3.1.6
+  fast-uri: 3.1.9
+  ip-address: 10.7.5
+  joi: 17.13.9
   nanoid: 3.3.18
   next: 16.2.11
+  node-forge: 1.4.2
+  "plist>@xmldom/xmldom": 0.9.12
   postcss: 8.5.25
-  qs: 6.16.0
+  proxy-addr: 2.0.8
+  qs: 6.17.1
   react-native: 0.86.3
   react-server-dom-webpack: 19.2.8
-  sharp: 0.35.2
-  undici: 7.29.0
+  sharp: 0.35.5
+  shell-quote: 1.12.0
+  source-map-js: 1.2.2
+  undici: 7.30.1
   uuid: 11.1.1
+  "zod@4": 4.6.7
+# Reviewed advisories with no installable fix. Revisit whenever a listed package can be upgraded.
+auditConfig:
+  ignoreGhsas:
+    # better-auth: fixed only in 1.7.7, but @convex-dev/better-auth requires <1.7.0. Each needs a
+    # plugin this app does not enable (Magic Link, OAuth Proxy, device authorization) or a database
+    # adapter it does not use (Drizzle, Kysely).
+    - GHSA-965c-763c-88jm
+    - GHSA-r4xp-prcw-77qf
+    - GHSA-q84f-53jg-9ppm
+    - GHSA-44jh-23m7-hpcf
+    # Pulled in only by the Expo SDK 57 CLI at build time, with no patched release on these majors.
+    # zod 3: unbounded array issues; glob/minimatch: attacker-supplied patterns; deepmerge: no fix.
+    - GHSA-mrhx-c7xc-m3w5
+    - GHSA-3g3m-2fjr-6pw4
+    - GHSA-g3hv-75wg-m249
+    - GHSA-gcqx-w48m-w2h4
 packageExtensions:
   "posthog-react-native@4.67.0":
     dependencies:
       "@expo/config-plugins": 57.0.9
       metro: 0.84.5
 minimumReleaseAgeExclude:
-  - "@expo/cli@57.0.20"
-  - expo-file-system@57.0.6
-  - expo@57.0.18
-  - expo-symbols@57.0.2
   - miniflare@5.20260828.0-alpha
   - wrangler@4.127.1
   - "@cloudflare/workerd-darwin-64@1.20260828.1"
@@ -51,11 +77,6 @@ minimumReleaseAgeExclude:
   - "@cloudflare/workerd-windows-64@1.20260828.1"
   - workerd@1.20260828.1
   - "@expo/env@2.4.3"
-  - "@expo/fingerprint@0.20.11"
-  - "@expo/metro-config@57.0.12"
-  - expo-constants@57.0.16
-  - expo-font@57.0.2
-  - expo-updates@57.0.19
   - "@cloudflare/workers-types@5.20260828.1"
   - "@ai-sdk/gateway@4.0.71"
   - "@ai-sdk/openai@4.0.55"
